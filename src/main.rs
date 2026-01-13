@@ -11,10 +11,5 @@ async fn main() {
     config::init_tracing(&config);
     tracing::info!("rust-mule booted");
 
-    // Tiny async proof-of-life
-    tokio::spawn(async {
-        tracing::debug!("background task started");
-    });
-
     app::run(config).await;
 }
