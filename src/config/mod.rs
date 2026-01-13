@@ -1,3 +1,4 @@
+use tracing_subscriber::EnvFilter;
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Enable more verbose output (wired to RUST_MULE_LOG=debug for now)
@@ -18,4 +19,30 @@ impl Config {
             data_dir,
         }
     }
+}
+
+pub fn init_tracing(config: &Config) {
+    // Priority order:
+    // 1) RUST_LOG (standard in Rust ecosystem)
+    // 2) RUST_MULE_LOG (your app-specific env)
+    // 3) default (info)
+    //
+    // Example:
+    // RUST_LOG=info,rust_mule=debug
+    // RUST_MULE_LOG=debug
+
+    let env_filter = std::env::var("RUST_LOG")
+        .ok()
+        .or_else(|| Some(config.log_level.clone()))
+        .unwrap_or_else(|| "info".to_string());
+
+    let filter = EnvFilter::try_new(env_filter).unwrap_or_else(|_| EnvFilter::new("info"));
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .with_thread_ids(false)
+        .with_thread_names(false)
+        .compact()
+        .init();
 }

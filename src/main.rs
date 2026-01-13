@@ -6,5 +6,8 @@ mod net;
 mod protocol;
 
 fn main() {
-    println!("rust-mule booted");
+    let config = config::Config::from_env();
+    config::init_tracing(&config);
+    tracing::info!("rust-mule booted");
+    app::run(config)
 }
