@@ -1,0 +1,6 @@
+[sam]
+host = "10.99.0.2"
+port = 7656
+session_id = "rust-mule"
+destination_priv = "" # leave empty or remove initially; we’ll fill it
+options = ""
