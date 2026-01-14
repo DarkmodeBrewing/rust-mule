@@ -1,4 +1,8 @@
-use crate::{config::Config, net::tcp_probe::tcp_probe};
+use crate::{
+    config::Config,
+    net::tcp_probe::tcp_probe,
+    nodes::{detect::node_dat_version, parse::KadNode, parse::nodes_dat_contacts},
+};
 use std::time::Duration;
 use tokio::{signal, time};
 
@@ -16,6 +20,24 @@ pub async fn run(config: Config) {
     // Avoid immediate double-run if you also probe at boot
     ticker.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
+    // // PArse version
+    // if let Ok(version) = node_dat_version("./datfiles/nodes.dat").await {
+    //     println!("Nodes.dat version: {:?}", version.0);
+    // } else {
+    //     eprint!("Failed to get node.dat version")
+    // }
+
+    // //Parse node.dat
+    // if let Ok(nodes) = nodes_dat_contacts("./datfiles/nodes.dat").await {
+    //     for n in nodes.iter() {
+    //         println!("{:?}", n);
+    //     }
+
+    //     log_kad_nodes(nodes);
+    // } else {
+    //     eprintln!("Failed to parse nodes.dat");
+    // }
+
     loop {
         tokio::select! {
             _ = signal::ctrl_c() => {
@@ -31,4 +53,32 @@ pub async fn run(config: Config) {
     }
 
     tracing::info!("shutting down gracefully");
+}
+
+fn log_kad_nodes(nodes: Vec<KadNode>) {
+    println!("loaded {} nodes", nodes.len());
+
+    let multicast = nodes.iter().filter(|n| n.ip.octets()[0] >= 224).count();
+    let private = nodes
+        .iter()
+        .filter(|n| {
+            let [a, b, _, _] = n.ip.octets();
+            a == 10
+                || (a == 172 && (16..=31).contains(&b))
+                || (a == 192 && b == 168)
+                || (a == 127)
+                || a == 0
+        })
+        .count();
+
+    println!(
+        "multicast-ish: {multicast}, private-ish: {private}, total: {}",
+        nodes.len()
+    );
+
+    for n in &nodes {
+        if n.ip.octets()[0] >= 224 {
+            println!("still weird ip: {:?}", n.ip);
+        }
+    }
 }

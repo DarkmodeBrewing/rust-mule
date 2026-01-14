@@ -4,6 +4,7 @@ mod i2p;
 mod kad;
 mod net;
 mod protocol;
+mod nodes;
 
 #[tokio::main]
 async fn main() {
