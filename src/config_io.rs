@@ -28,7 +28,6 @@ pub async fn save_config(path: impl AsRef<Path>, cfg: &Config) -> Result<()> {
     // Pretty output TOML
     let toml_string = toml::to_string_pretty(cfg).context("Failed serializing config to TOML")?;
 
-    // Ensure parent dirs exist (nice for ~/.config/yourapp/config.toml)
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("Failed creating directory {}", parent.display()))?;

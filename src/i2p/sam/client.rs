@@ -3,176 +3,281 @@ use std::collections::HashMap;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
+    time::{Duration, timeout},
 };
 
 pub struct SamClient {
     reader: BufReader<tokio::net::tcp::OwnedReadHalf>,
     writer: tokio::net::tcp::OwnedWriteHalf,
+    io_timeout: Duration,
 }
 
 impl SamClient {
     pub async fn connect(host: &str, port: u16) -> Result<Self> {
-        let addr = format!("{host}:{port}");
-        let stream = TcpStream::connect(&addr)
+        let stream: TcpStream = TcpStream::connect((host, port))
             .await
-            .with_context(|| format!("Failed to connect to SAM at {addr}"))?;
+            .with_context(|| format!("SAM connect failed: {host}:{port}"))?;
 
         let (read_half, write_half) = stream.into_split();
+
         Ok(Self {
             reader: BufReader::new(read_half),
             writer: write_half,
+            io_timeout: Duration::from_secs(8),
         })
     }
 
-    async fn send_line(&mut self, line: &str) -> Result<()> {
-        // SAM requires CRLF.
-        self.writer
-            .write_all(format!("{line}\r\n").as_bytes())
-            .await
-            .with_context(|| format!("Failed to write SAM line: {line}"))?;
-        self.writer.flush().await?;
-        Ok(())
-    }
+    pub async fn session_create_idempotent(&mut self, name: &str, priv_key: &str) -> Result<()> {
+        let create_cmd: String = format!(
+            "SESSION CREATE STYLE=STREAM ID={} DESTINATION={}",
+            name, priv_key
+        );
 
-    async fn read_line(&mut self) -> Result<String> {
-        let mut buf: String = String::new();
-        let n = self.reader.read_line(&mut buf).await?;
-        if n == 0 {
-            bail!("SAM closed the connection");
-        }
-        // BufRead keeps the newline; trim it.
-        Ok(buf.trim().to_string())
-    }
+        let reply: SamReply = self.send_cmd_expect_raw(&create_cmd, "SESSION").await?;
+        match (reply.result(), reply.message()) {
+            (Some("OK"), _) => return Ok(()),
 
-    async fn request(&mut self, line: &str) -> Result<SamReply> {
-        self.send_line(line).await?;
-        let reply: String = self.read_line().await?;
-        SamReply::parse(&reply).with_context(|| format!("Bad SAM reply to: {line}"))
-    }
+            (Some("I2P_ERROR"), Some("Session already exists")) => {
+                tracing::warn!(session=%name, "SAM session already exists; destroying and retrying");
 
-    pub async fn hello(&mut self) -> anyhow::Result<()> {
-        // Your earlier nc test returned "Timeout waiting for HELLO VERSION"
-        // That usually means the client connected but didn’t speak SAM correctly
-        // (wrong line ending, wrong command, or mixed channels).
-        let reply = self.request("HELLO VERSION MIN=3.0 MAX=3.1").await?;
-        let result = reply
-            .kv
-            .get("RESULT")
-            .map(|s: &String| s.as_str())
-            .unwrap_or("UNKNOWN");
+                // Try destroy, but be tolerant if it's already gone / races.
+                let destroy_cmd = format!("SESSION DESTROY ID={}", name);
+                let destroy_reply = self.send_cmd_expect_raw(&destroy_cmd, "SESSION").await?;
 
-        if result != "OK" {
-            bail!("HELLO failed: {:?}", reply);
-        } else {
-            tracing::info!("Receieved HELLO from SAM")
-        }
-        Ok(())
-    }
+                match destroy_reply.result() {
+                    Some("OK") => {}
+                    // Sometimes SAM returns I2P_ERROR if it doesn't exist; don't treat as fatal here.
+                    Some("I2P_ERROR") => {
+                        tracing::warn!(
+                            session=%name,
+                            message=%destroy_reply.message().unwrap_or(""),
+                            "SESSION DESTROY returned I2P_ERROR; continuing"
+                        );
+                    }
+                    _ => {
+                        tracing::warn!(session=%name, raw=%destroy_reply.raw, "Unexpected DESTROY reply");
+                    }
+                }
 
-    async fn ping(&mut self) -> Result<()> {
-        // Not all SAM versions implement PING; if yours doesn’t,
-        // we’ll remove this and do DEST GENERATE instead.
-        let reply = self.request("PING").await?;
-        let result = reply
-            .kv
-            .get("RESULT")
-            .map(|s: &String| s.as_str())
-            .unwrap_or("");
-        if result.is_empty() {
-            // Some SAMs just reply "PONG" without k=v pairs
-            // In that case parse() will treat it as verb-only.
-            if reply.verb == "PONG" {
-                return Ok(());
+                let reply2 = self.send_cmd_expect_raw(&create_cmd, "SESSION").await?;
+                if reply2.result() == Some("OK") {
+                    return Ok(());
+                }
+
+                bail!(
+                    "SESSION CREATE failed after retry: RESULT={:?} MESSAGE={:?} RAW={}",
+                    reply2.result(),
+                    reply2.message(),
+                    reply2.raw
+                );
             }
-            bail!("Unexpected PING reply: {:?}", reply);
+
+            _ => {
+                bail!(
+                    "SESSION CREATE failed: RESULT={:?} MESSAGE={:?} RAW={}",
+                    reply.result(),
+                    reply.message(),
+                    reply.raw
+                );
+            }
         }
-        if result != "OK" {
-            bail!("PING failed: {:?}", reply);
-        }
-        Ok(())
     }
 
-    async fn stream_session_create(&mut self, id: &str, dest: &str, options: &str) -> Result<()> {
-        // Options must come last; SAM expects it as "OPTS=key=val key=val"
-        // Some implementations accept no OPTS=.
-        let line = if options.trim().is_empty() {
-            format!("SESSION CREATE STYLE=STREAM ID={id} DESTINATION={dest}")
-        } else {
-            format!("SESSION CREATE STYLE=STREAM ID={id} DESTINATION={dest} OPTS={options}")
-        };
-
-        let reply = self.request(&line).await?;
-        let result = reply
-            .kv
-            .get("RESULT")
-            .map(|s: &String| s.as_str())
-            .unwrap_or("UNKNOWN");
-
-        if result != "OK" {
-            bail!("SESSION CREATE failed: {:?}", reply);
-        }
-        Ok(())
+    pub fn with_timeout(mut self, d: Duration) -> Self {
+        self.io_timeout = d;
+        self
     }
 
-    async fn dest_generate(&mut self, sig_type: Option<&str>) -> Result<(String, String)> {
-        // Some SAMs support SIGNATURE_TYPE=...
-        // If omitted, default signature type is used.
-        let line = match sig_type {
-            Some(t) => format!("DEST GENERATE SIGNATURE_TYPE={t}"),
-            None => "DEST GENERATE".to_string(),
-        };
+    // --- Public API ---
 
-        let reply = self.request(&line).await?;
-        let result = reply
-            .kv
-            .get("RESULT")
-            .map(|s| s.as_str())
-            .unwrap_or("UNKNOWN");
-        if result != "OK" {
-            bail!("DEST GENERATE failed: {:?}", reply);
-        }
+    pub async fn hello(&mut self, min: &str, max: &str) -> Result<SamReply> {
+        // More typical than "HELLO VERSION 3.3"
+        let cmd = format!("HELLO VERSION MIN={} MAX={}", min, max);
+        self.send_cmd_expect_ok(&cmd, "HELLO").await
+    }
 
-        let pub_key = reply
-            .kv
-            .get("PUB")
-            .cloned()
-            .ok_or_else(|| anyhow!("DEST GENERATE missing PUB: {:?}", reply))?;
-        let priv_key = reply
+    pub async fn dest_generate(&mut self) -> Result<(String, String)> {
+        let reply: SamReply = self.send_cmd_expect_ok("DEST GENERATE", "DEST").await?;
+
+        let priv_key: String = reply
             .kv
             .get("PRIV")
             .cloned()
-            .ok_or_else(|| anyhow!("DEST GENERATE missing PRIV: {:?}", reply))?;
+            .ok_or_else(|| anyhow!("DEST GENERATE missing PRIV"))?;
 
-        Ok((pub_key, priv_key))
+        let pub_key: String = reply
+            .kv
+            .get("PUB")
+            .cloned()
+            .ok_or_else(|| anyhow!("DEST GENERATE missing PUB"))?;
+
+        Ok((priv_key, pub_key))
     }
-}
 
-#[derive(Debug)]
-struct SamReply {
-    verb: String,
-    // key/value pairs parsed from the reply
-    kv: HashMap<String, String>,
-    // raw reply line (useful for debugging)
-    raw: String,
-}
+    pub async fn session_create(&mut self, name: &str, priv_key: &str) -> Result<SamReply> {
+        let cmd: String = format!(
+            "SESSION CREATE STYLE=STREAM ID={} DESTINATION={}",
+            name, priv_key
+        );
+        self.send_cmd_expect_ok(&cmd, "SESSION").await
+    }
 
-impl SamReply {
-    fn parse(line: &str) -> Result<Self> {
-        let raw = line.to_string();
-        let mut parts = line.split_whitespace();
+    pub async fn session_destroy(&mut self, name: &str) -> Result<SamReply> {
+        let cmd: String = format!("SESSION DESTROY ID={}", name);
+        // DESTROY might return I2P_ERROR if it doesn't exist; you may want RAW here later.
+        self.send_cmd_expect_ok(&cmd, "SESSION").await
+    }
 
-        let verb = parts
-            .next()
-            .ok_or_else(|| anyhow!("Empty reply"))?
-            .to_string();
+    // --- The one true IO pipeline ---
 
-        let mut kv = HashMap::new();
-        for p in parts {
-            if let Some((k, v)) = p.split_once('=') {
-                kv.insert(k.to_string(), v.trim_matches('"').to_string());
+    async fn send_cmd_expect_ok(&mut self, cmd: &str, expected_verb: &str) -> Result<SamReply> {
+        let reply: SamReply = self.send_cmd_expect_raw(cmd, expected_verb).await?;
+
+        if let Some(result) = reply.kv.get("RESULT") {
+            if result != "OK" {
+                let msg = reply.kv.get("MESSAGE").cloned().unwrap_or_default();
+                bail!("SAM error: {} {}", result, msg);
             }
         }
 
-        Ok(Self { verb, kv, raw })
+        Ok(reply)
     }
+
+    async fn send_cmd_expect_raw(&mut self, cmd: &str, expected_verb: &str) -> Result<SamReply> {
+        self.send_line_crlf(cmd).await?;
+        let line: String = self.read_line_timeout().await?;
+        let reply: SamReply = SamReply::parse(&line)
+            .with_context(|| format!("Bad SAM reply to: {cmd} (raw={})", line.trim()))?;
+
+        if reply.verb != expected_verb {
+            bail!(
+                "Unexpected SAM reply verb. expected={} got={} raw={}",
+                expected_verb,
+                reply.verb,
+                reply.raw
+            );
+        }
+
+        Ok(reply)
+    }
+
+    async fn send_line_crlf(&mut self, line: &str) -> Result<()> {
+        let payload: String = format!("{line}\r\n");
+
+        timeout(self.io_timeout, async {
+            self.writer.write_all(payload.as_bytes()).await?;
+            self.writer.flush().await?;
+            Result::<()>::Ok(())
+        })
+        .await
+        .context("SAM write timed out")?
+        .with_context(|| format!("Failed to write SAM line: {line}"))?;
+
+        Ok(())
+    }
+
+    async fn read_line_timeout(&mut self) -> Result<String> {
+        timeout(self.io_timeout, async {
+            let mut buf = String::new();
+            let n = self.reader.read_line(&mut buf).await?;
+            if n == 0 {
+                bail!("SAM closed the connection");
+            }
+            Ok::<String, anyhow::Error>(buf.trim_end_matches(['\r', '\n']).to_string())
+        })
+        .await
+        .context("SAM read timed out")?
+        .context("SAM read failed")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SamReply {
+    pub verb: String,                // "HELLO", "SESSION", "DEST"
+    pub kind: String,                // "REPLY" / "STATUS"
+    pub kv: HashMap<String, String>, // RESULT, MESSAGE, PRIV, PUB, etc.
+    pub raw: String,
+}
+
+impl SamReply {
+    pub fn parse(line: &str) -> Result<Self> {
+        let raw = line.to_string();
+        let mut parts = raw.split_whitespace();
+
+        let verb = parts
+            .next()
+            .ok_or_else(|| anyhow!("Empty SAM reply"))?
+            .to_string();
+        let kind = parts
+            .next()
+            .ok_or_else(|| anyhow!("SAM reply missing kind"))?
+            .to_string();
+
+        let rest = raw.splitn(3, ' ').nth(2).unwrap_or("").trim();
+        let kv = parse_kv_pairs(rest)?;
+
+        Ok(Self {
+            verb,
+            kind,
+            kv,
+            raw,
+        })
+    }
+
+    pub fn result(&self) -> Option<&str> {
+        self.kv.get("RESULT").map(|s: &String| s.as_str())
+    }
+
+    pub fn message(&self) -> Option<&str> {
+        self.kv.get("MESSAGE").map(|s: &String| s.as_str())
+    }
+}
+
+fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
+    let mut map = HashMap::new();
+    let mut i = 0;
+    let bytes = input.as_bytes();
+
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            break;
+        }
+
+        let key_start = i;
+        while i < bytes.len() && bytes[i] != b'=' {
+            i += 1;
+        }
+        if i >= bytes.len() {
+            return Err(anyhow!("Malformed KV (no '=') in: {}", input));
+        }
+        let key = &input[key_start..i];
+        i += 1; // '='
+
+        let value;
+        if i < bytes.len() && bytes[i] == b'"' {
+            i += 1;
+            let val_start = i;
+            while i < bytes.len() && bytes[i] != b'"' {
+                i += 1;
+            }
+            if i >= bytes.len() {
+                return Err(anyhow!("Unterminated quote in: {}", input));
+            }
+            value = input[val_start..i].to_string();
+            i += 1; // closing quote
+        } else {
+            let val_start = i;
+            while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            value = input[val_start..i].to_string();
+        }
+
+        map.insert(key.to_string(), value);
+    }
+
+    Ok(map)
 }
