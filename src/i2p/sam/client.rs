@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
     time::{Duration, timeout},
 };
@@ -13,6 +13,57 @@ pub struct SamClient {
 }
 
 impl SamClient {
+    pub async fn stream_connect(
+        host: &str,
+        port: u16,
+        session_name: &str,
+        dest: &str,
+    ) -> anyhow::Result<SamStream> {
+        let mut s: TcpStream = TcpStream::connect((host, port)).await?;
+
+        // HELLO must be first on this connection too.
+        s.write_all(b"HELLO VERSION MIN=3.0 MAX=3.3\r\n").await?;
+        // Read one line reply (you can reuse your parser later; keep it minimal for now)
+        let mut buf: Vec<u8> = vec![0u8; 256];
+        let n = s.read(&mut buf).await?;
+        let reply = String::from_utf8_lossy(&buf[..n]);
+        if !reply.contains("RESULT=OK") {
+            anyhow::bail!("SAM HELLO failed on stream socket: {}", reply.trim());
+        }
+
+        // Now CONNECT; after OK, the socket becomes the data stream
+        let cmd = format!("STREAM CONNECT ID={} DESTINATION={}", session_name, dest);
+        tracing::info!("SAM Command: {}", cmd);
+        tracing::info!(dest_len = dest.len(), "Using destination");
+        s.write_all(cmd.as_bytes()).await?;
+
+        // Read reply
+        let n = s.read(&mut buf).await?;
+        let reply: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&buf[..n]);
+        if !reply.contains("RESULT=OK") {
+            anyhow::bail!("STREAM CONNECT failed: {}", reply.trim());
+        }
+
+        Ok(SamStream { stream: s })
+    }
+
+    pub async fn naming_lookup(&mut self, name: &str) -> anyhow::Result<String> {
+        let cmd = format!("NAMING LOOKUP NAME={}", name);
+        let reply = self.send_cmd_expect_raw(&cmd, "NAMING").await?;
+
+        if reply.kv.get("RESULT").map(String::as_str) != Some("OK") {
+            anyhow::bail!("NAMING LOOKUP failed: {}", reply.raw);
+        }
+
+        let value = reply
+            .kv
+            .get("VALUE")
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("NAMING LOOKUP missing VALUE: {}", reply.raw))?;
+
+        Ok(value)
+    }
+
     pub async fn connect(host: &str, port: u16) -> Result<Self> {
         let stream: TcpStream = TcpStream::connect((host, port))
             .await
@@ -29,7 +80,7 @@ impl SamClient {
 
     pub async fn session_create_idempotent(&mut self, name: &str, priv_key: &str) -> Result<()> {
         let create_cmd: String = format!(
-            "SESSION CREATE STYLE=STREAM ID={} DESTINATION={}",
+            "SESSION CREATE STYLE=STREAM ID={} DESTINATION={} OPTION=i2cp.leaseSetEncType=4",
             name, priv_key
         );
 
@@ -114,21 +165,40 @@ impl SamClient {
         Ok((priv_key, pub_key))
     }
 
-    pub async fn session_create(&mut self, name: &str, priv_key: &str) -> Result<SamReply> {
-        let cmd: String = format!(
-            "SESSION CREATE STYLE=STREAM ID={} DESTINATION={}",
-            name, priv_key
+    pub async fn http_get_over_i2p(
+        mut stream: tokio::net::TcpStream,
+        host: &str,
+    ) -> anyhow::Result<String> {
+        let req = format!(
+            "GET / HTTP/1.1\r\nHost: {}\r\nUser-Agent: rust-mule/0.1\r\nConnection: close\r\n\r\n",
+            host
         );
-        self.send_cmd_expect_ok(&cmd, "SESSION").await
-    }
 
-    pub async fn session_destroy(&mut self, name: &str) -> Result<SamReply> {
-        let cmd: String = format!("SESSION DESTROY ID={}", name);
-        // DESTROY might return I2P_ERROR if it doesn't exist; you may want RAW here later.
-        self.send_cmd_expect_ok(&cmd, "SESSION").await
+        timeout(Duration::from_secs(5), async {
+            stream.write_all(req.as_bytes()).await
+        })
+        .await
+        .map_err(|_| anyhow::anyhow!("write_all timed out"))??;
+
+        tracing::info!("HTTP request bytes written={}", req.len());
+
+        let mut buf = Vec::new();
+        stream.read_to_end(&mut buf).await?;
+
+        Ok(String::from_utf8_lossy(&buf).to_string())
     }
 
     // --- The one true IO pipeline ---
+
+    pub async fn stream_accept(&mut self, session: &str) -> Result<()> {
+        let cmd: String = format!("STREAM ACCEPT ID={}", session);
+        let reply: SamReply = self.send_cmd_expect_raw(&cmd, "STREAM").await?;
+        if reply.kv.get("RESULT").map(String::as_str) == Some("OK") {
+            Ok(())
+        } else {
+            anyhow::bail!("STREAM ACCEPT failed: {}", reply.raw);
+        }
+    }
 
     async fn send_cmd_expect_ok(&mut self, cmd: &str, expected_verb: &str) -> Result<SamReply> {
         let reply: SamReply = self.send_cmd_expect_raw(cmd, expected_verb).await?;
@@ -280,4 +350,8 @@ fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
     }
 
     Ok(map)
+}
+
+pub struct SamStream {
+    pub stream: TcpStream,
 }

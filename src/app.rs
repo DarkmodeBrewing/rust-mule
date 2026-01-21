@@ -1,6 +1,6 @@
 use crate::{config::Config, i2p::sam::SamClient, net::tcp_probe::tcp_probe};
 use std::time::Duration;
-use tokio::{signal, time};
+use tokio::{io::AsyncWriteExt, signal, time};
 
 pub async fn run(mut config: Config) -> anyhow::Result<()> {
     tracing::info!(log = %config.general.log_level, data_dir = %config.general.data_dir, "starting app");
@@ -47,19 +47,26 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         .await?;
     tracing::info!(session=%session_name, "SAM session ready");
 
-    loop {
-        tokio::select! {
-            _ = signal::ctrl_c() => {
-                tracing::warn!("received Ctrl+C");
-                break;
-            }
-            _ = ticker.tick() => {
-                if let Err(err) = tcp_probe(&config.general.tcp_probe_target, Duration::from_secs(3)).await {
-                    tracing::warn!(error = %err, "tcp probe failed (non-fatal)");
-                }
-            }
-        }
-    }
+    // Create a stream
+    let dest: String = sam.naming_lookup("stats.i2p").await?;
+    let s: crate::i2p::sam::client::SamStream =
+        SamClient::stream_connect(&config.sam.host, config.sam.port, session_name, &dest).await?;
+
+    //SamClient::http_probe(s).await?;
+
+    // loop {
+    //     tokio::select! {
+    //         _ = signal::ctrl_c() => {
+    //             tracing::warn!("received Ctrl+C");
+    //             break;
+    //         }
+    //         _ = ticker.tick() => {
+    //             if let Err(err) = tcp_probe(&config.general.tcp_probe_target, Duration::from_secs(3)).await {
+    //                 tracing::warn!(error = %err, "tcp probe failed (non-fatal)");
+    //             }
+    //         }
+    //     }
+    // }
 
     tracing::info!("shutting down gracefully");
     Ok(())
