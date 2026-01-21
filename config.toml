@@ -1,6 +1,13 @@
 [sam]
 host = "10.99.0.2"
 port = 7656
-session_id = "rust-mule"
-destination_priv = "" # leave empty or remove initially; we’ll fill it
-options = ""
+session_name = "rust-mule"
+
+[kad]
+bootstrap_nodes_path = "nodes.dat"
+udp_port = 4665
+
+[general]
+log_level = "debug"
+data_dir = "data"
+tcp_probe_target = "1.1.1.1:443"

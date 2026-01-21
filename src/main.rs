@@ -1,16 +1,12 @@
-mod app;
-mod config;
-mod i2p;
-mod kad;
-mod net;
-mod protocol;
-mod nodes;
-
 #[tokio::main]
-async fn main() {
-    let config = config::Config::from_env();
-    config::init_tracing(&config);
+async fn main() -> anyhow::Result<()> {
+    let cfg: rust_mule::config::Config = rust_mule::config_io::load_or_create_config("config.toml")
+        .await
+        .expect("Unable to read or create the config.toml file");
+
+    rust_mule::config::init_tracing(&cfg);
     tracing::info!("rust-mule booted");
 
-    app::run(config).await;
+    rust_mule::app::run(cfg).await?;
+    Ok(())
 }

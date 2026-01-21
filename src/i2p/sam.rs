@@ -1,5 +1,5 @@
-#[cfg(test)]
-mod tests;
+pub mod client;
+pub use client::SamClient;
 
 use anyhow::{Context, Result, anyhow};
 use std::collections::HashMap;
