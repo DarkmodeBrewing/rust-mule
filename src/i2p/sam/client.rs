@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, anyhow, bail};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -12,7 +11,7 @@ pub struct SamClient {
 }
 
 impl SamClient {
-    pub async fn connect(host: &str, port: u16) -> anyhow::Result<Self> {
+    pub async fn connect(host: &str, port: u16) -> Result<Self> {
         let addr = format!("{host}:{port}");
         let stream = TcpStream::connect(&addr)
             .await
@@ -25,7 +24,7 @@ impl SamClient {
         })
     }
 
-    async fn send_line(&mut self, line: &str) -> anyhow::Result<()> {
+    async fn send_line(&mut self, line: &str) -> Result<()> {
         // SAM requires CRLF.
         self.writer
             .write_all(format!("{line}\r\n").as_bytes())
@@ -35,7 +34,7 @@ impl SamClient {
         Ok(())
     }
 
-    async fn read_line(&mut self) -> anyhow::Result<String> {
+    async fn read_line(&mut self) -> Result<String> {
         let mut buf: String = String::new();
         let n = self.reader.read_line(&mut buf).await?;
         if n == 0 {
@@ -45,7 +44,7 @@ impl SamClient {
         Ok(buf.trim().to_string())
     }
 
-    async fn request(&mut self, line: &str) -> anyhow::Result<SamReply> {
+    async fn request(&mut self, line: &str) -> Result<SamReply> {
         self.send_line(line).await?;
         let reply: String = self.read_line().await?;
         SamReply::parse(&reply).with_context(|| format!("Bad SAM reply to: {line}"))
@@ -70,7 +69,7 @@ impl SamClient {
         Ok(())
     }
 
-    async fn ping(&mut self) -> anyhow::Result<()> {
+    async fn ping(&mut self) -> Result<()> {
         // Not all SAM versions implement PING; if yours doesn’t,
         // we’ll remove this and do DEST GENERATE instead.
         let reply = self.request("PING").await?;
@@ -93,12 +92,7 @@ impl SamClient {
         Ok(())
     }
 
-    async fn stream_session_create(
-        &mut self,
-        id: &str,
-        dest: &str,
-        options: &str,
-    ) -> anyhow::Result<()> {
+    async fn stream_session_create(&mut self, id: &str, dest: &str, options: &str) -> Result<()> {
         // Options must come last; SAM expects it as "OPTS=key=val key=val"
         // Some implementations accept no OPTS=.
         let line = if options.trim().is_empty() {
@@ -120,7 +114,7 @@ impl SamClient {
         Ok(())
     }
 
-    async fn dest_generate(&mut self, sig_type: Option<&str>) -> anyhow::Result<(String, String)> {
+    async fn dest_generate(&mut self, sig_type: Option<&str>) -> Result<(String, String)> {
         // Some SAMs support SIGNATURE_TYPE=...
         // If omitted, default signature type is used.
         let line = match sig_type {
@@ -163,7 +157,7 @@ struct SamReply {
 }
 
 impl SamReply {
-    fn parse(line: &str) -> anyhow::Result<Self> {
+    fn parse(line: &str) -> Result<Self> {
         let raw = line.to_string();
         let mut parts = line.split_whitespace();
 
