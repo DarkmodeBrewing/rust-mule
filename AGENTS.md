@@ -5,6 +5,36 @@
 - After each meaningful change (or after tests run), update handoff.md with: status, decisions, next steps, and a change log entry.
 - Keep it short and factual.
 
+## Porting old code into rust
+
+Map the iMule codebase into these conceptual layers:
+
+- Networking / transport
+- KAD routing logic
+- DHT storage
+- Message protocol handling
+- Session/state management
+- File sharing logic
+- Utility layers
+
+For each:
+
+1. What does iMule do here?
+2. What Rust module should exist?
+3. What data structures belong there?
+4. What should be async?
+
+- iMule C++ code is located in `./source_ref`
+- STOP direct translation. Switch to architecture extraction mode.
+- Identify high-level subsystems in iMule
+- Describe responsibilities of each
+- Propose Rust module boundaries
+- Only then begin implementing from scratch in Rust idioms
+- Do NOT implement everything. Focus on:
+  - Networking layer
+  - KAD node + routing table
+  - Message parsing/serialization”
+
 ## Project Structure & Module Organization
 
 - `src/` contains the Rust crate. `src/main.rs` is the CLI/entrypoint and `src/lib.rs` exposes modules.
