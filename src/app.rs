@@ -97,10 +97,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                 .session_create_datagram(
                     &kad_session_id,
                     &priv_key,
-                    [
-                        "i2cp.messageReliability=BestEffort",
-                        "i2cp.leaseSetEncType=4",
-                    ],
+                    ["i2cp.messageReliability=BestEffort"],
                 )
                 .await
             {
@@ -117,10 +114,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                     dg.session_create_datagram(
                         &kad_session_id,
                         &priv_key,
-                        [
-                            "i2cp.messageReliability=BestEffort",
-                            "i2cp.leaseSetEncType=4",
-                        ],
+                        ["i2cp.messageReliability=BestEffort"],
                     )
                     .await?;
                 } else {
@@ -177,10 +171,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                     &priv_key,
                     dg.forward_port(),
                     sam_forward_ip,
-                    [
-                        "i2cp.messageReliability=BestEffort",
-                        "i2cp.leaseSetEncType=4",
-                    ],
+                    ["i2cp.messageReliability=BestEffort"],
                 )
                 .await
             {
@@ -195,10 +186,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                         &priv_key,
                         dg.forward_port(),
                         sam_forward_ip,
-                        [
-                            "i2cp.messageReliability=BestEffort",
-                            "i2cp.leaseSetEncType=4",
-                        ],
+                        ["i2cp.messageReliability=BestEffort"],
                     )
                     .await?;
                 } else {
