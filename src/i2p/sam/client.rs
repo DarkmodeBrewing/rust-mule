@@ -198,19 +198,18 @@ impl SamClient {
         let reply: SamReply = self
             .send_cmd(SamCommand::new("DEST GENERATE"), "DEST")
             .await?;
-        reply.require_ok()?;
 
         let priv_key: String = reply
             .kv
             .get("PRIV")
             .cloned()
-            .ok_or_else(|| anyhow!("DEST GENERATE missing PRIV"))?;
+            .ok_or_else(|| anyhow!("DEST GENERATE missing PRIV (raw={})", reply.raw))?;
 
         let pub_key: String = reply
             .kv
             .get("PUB")
             .cloned()
-            .ok_or_else(|| anyhow!("DEST GENERATE missing PUB"))?;
+            .ok_or_else(|| anyhow!("DEST GENERATE missing PUB (raw={})", reply.raw))?;
 
         Ok((priv_key, pub_key))
     }
