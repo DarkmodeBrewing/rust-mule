@@ -20,6 +20,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - I2P HTTP fetch helper over SAM STREAM (used to download a fresh `nodes2.dat`) (`src/i2p/http.rs`).
 - Removed obsolete code:
   - Legacy IPv4-focused `nodes.dat` parsing and old net probe helpers.
+  - Empty/unused `src/protocol.rs`.
 
 ## Dev Topology Notes
 
