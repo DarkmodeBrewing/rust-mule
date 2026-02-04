@@ -101,7 +101,10 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
             &priv_key,
             dg.forward_port(),
             sam_forward_ip,
-            ["i2cp.leaseSetEncType=4"],
+            [
+                "i2cp.messageReliability=BestEffort",
+                "i2cp.leaseSetEncType=4",
+            ],
         )
         .await
     {
@@ -113,7 +116,10 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                 &priv_key,
                 dg.forward_port(),
                 sam_forward_ip,
-                ["i2cp.leaseSetEncType=4"],
+                [
+                    "i2cp.messageReliability=BestEffort",
+                    "i2cp.leaseSetEncType=4",
+                ],
             )
             .await?;
         } else {
