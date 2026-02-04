@@ -159,7 +159,11 @@ impl SamClient {
                         );
                     }
                     _ => {
-                        tracing::warn!(session=%name, raw=%destroy_reply.raw, "Unexpected DESTROY reply");
+                        tracing::warn!(
+                            session=%name,
+                            raw=%destroy_reply.raw_redacted(),
+                            "Unexpected DESTROY reply"
+                        );
                     }
                 }
 
@@ -229,7 +233,7 @@ impl SamClient {
         let reply_line: String = self.read_line_timeout_for(&line_dbg).await?;
         let reply: SamReply = SamReply::parse(&reply_line)
             .with_context(|| format!("Bad SAM reply to: {line_dbg} (raw={})", reply_line.trim()))?;
-        tracing::debug!(raw = %reply.raw, "SAM <-");
+        tracing::debug!(raw = %reply.raw_redacted(), "SAM <-");
 
         if reply.verb != expected_verb {
             bail!(

@@ -74,6 +74,14 @@ with **no** `RESULT=OK` field. `SamClient::dest_generate()` was updated to accep
 - `src/bin/sam_dgram_selftest.rs`
 - the `nodes2.dat` downloader (temporary STREAM sessions use `DEST GENERATE`)
 
+## Known Issue (Addressbook Entry For `www.imule.i2p`)
+
+If `NAMING LOOKUP NAME=www.imule.i2p` returns `RESULT=KEY_NOT_FOUND`, your router's addressbook doesn't have that host.
+
+Mitigations:
+- Add/subscribe to an addressbook source which includes `www.imule.i2p`.
+- The downloader also tries `imule.i2p` as a fallback by stripping the leading `www.`.
+
 ### KAD UDP Obfuscation (iMule Compatibility)
 
 iMule encrypts/obfuscates KAD UDP packets (see `EncryptedDatagramSocket.cpp`) and includes sender/receiver verify keys.

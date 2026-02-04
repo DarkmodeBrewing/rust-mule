@@ -37,6 +37,13 @@ impl SamReply {
         })
     }
 
+    /// Return a log-friendly version of `raw` with large/sensitive fields redacted.
+    ///
+    /// We keep `raw` intact for parsing/debugging, but avoid spamming logs with full I2P keys.
+    pub fn raw_redacted(&self) -> String {
+        redact_sam_line(&self.raw)
+    }
+
     pub fn result(&self) -> Option<&str> {
         self.kv.get("RESULT").map(|s: &String| s.as_str())
     }
@@ -59,7 +66,7 @@ impl SamReply {
             self.kind,
             self.result(),
             self.message(),
-            self.raw
+            self.raw_redacted()
         );
     }
 }
@@ -221,6 +228,40 @@ fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
     }
 
     Ok(map)
+}
+
+fn redact_sam_line(line: &str) -> String {
+    // Fast path: nothing to redact.
+    if !(line.contains("DESTINATION=")
+        || line.contains("PRIV=")
+        || line.contains("PUB=")
+        || line.contains("VALUE="))
+        && line.len() <= 200
+    {
+        return line.to_string();
+    }
+
+    let mut out = String::new();
+    let mut first = true;
+    for tok in line.split_whitespace() {
+        if !first {
+            out.push(' ');
+        }
+        first = false;
+
+        if let Some((k, v)) = tok.split_once('=') {
+            let needs_redact = matches!(k, "DESTINATION" | "PRIV" | "PUB" | "VALUE") || v.len() > 128;
+            if needs_redact {
+                use std::fmt::Write as _;
+                let _ = write!(&mut out, "{}=<redacted:{}>", k, v.len());
+            } else {
+                out.push_str(tok);
+            }
+        } else {
+            out.push_str(tok);
+        }
+    }
+    out
 }
 
 #[cfg(test)]

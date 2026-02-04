@@ -263,7 +263,20 @@ async fn try_download_nodes2_dat(
     }
 
     // Resolve eepsite hostname to destination.
-    let dest = sam.naming_lookup(host).await?;
+    let dest = match sam.naming_lookup(host).await {
+        Ok(d) => d,
+        Err(err) if host.starts_with("www.") => {
+            let alt = &host["www.".len()..];
+            tracing::warn!(
+                host,
+                alt,
+                error = %err,
+                "NAMING LOOKUP failed; trying without 'www.'"
+            );
+            sam.naming_lookup(alt).await?
+        }
+        Err(err) => return Err(err),
+    };
 
     // Ensure a STREAM session exists for outgoing HTTP.
     //

@@ -153,7 +153,10 @@ impl SamDatagramTcp {
 
             // We expect some control replies while creating the session; after that, most frames
             // should be `DATAGRAM RECEIVED`. Be tolerant and keep going.
-            tracing::debug!(raw = %reply.raw, "ignoring unexpected SAM frame on DATAGRAM socket");
+            tracing::debug!(
+                raw = %reply.raw_redacted(),
+                "ignoring unexpected SAM frame on DATAGRAM socket"
+            );
         }
     }
 
@@ -177,7 +180,7 @@ impl SamDatagramTcp {
             let reply: SamReply = SamReply::parse(&reply_line).with_context(|| {
                 format!("Bad SAM reply to: {line_dbg} (raw={})", reply_line.trim())
             })?;
-            tracing::debug!(raw = %reply.raw, "SAM(TCP-DGRAM) <-");
+            tracing::debug!(raw = %reply.raw_redacted(), "SAM(TCP-DGRAM) <-");
 
             if reply.verb == expected_verb {
                 return Ok(reply);
@@ -186,7 +189,7 @@ impl SamDatagramTcp {
             tracing::debug!(
                 expected = expected_verb,
                 got = %reply.verb,
-                raw = %reply.raw,
+                raw = %reply.raw_redacted(),
                 "ignoring out-of-band SAM frame while waiting for reply"
             );
         }
