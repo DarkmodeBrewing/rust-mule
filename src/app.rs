@@ -2,6 +2,7 @@ use crate::{
     config::{Config, SamDatagramTransport},
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamKadSocket},
 };
+use anyhow::Context;
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
@@ -24,6 +25,16 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         prefs = %prefs_path.display(),
         "Loaded Kademlia identity"
     );
+
+    // Generate a persistent Kad UDP obfuscation secret, iMule-style.
+    if config.kad.udp_key_secret == 0 {
+        let mut b = [0u8; 4];
+        getrandom::getrandom(&mut b)
+            .map_err(|e| anyhow::anyhow!("failed to generate kad.udp_key_secret: {e}"))?;
+        config.kad.udp_key_secret = u32::from_le_bytes(b);
+        config.persist().await?;
+        tracing::info!("Generated kad.udp_key_secret and persisted config.toml");
+    }
 
     tracing::info!(
         priv_len = config.i2p.sam_private_key.trim().len(),
@@ -57,6 +68,18 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         config.persist().await?;
 
         generated_priv
+    };
+
+    let my_dest_hash: u32 = {
+        let bytes = crate::i2p::b64::decode(&config.i2p.sam_public_key)
+            .context("failed to decode i2p.sam_public_key as I2P base64")?;
+        if bytes.len() < 4 {
+            anyhow::bail!(
+                "decoded i2p.sam_public_key is too short: {} bytes",
+                bytes.len()
+            );
+        }
+        u32::from_le_bytes(bytes[0..4].try_into().unwrap())
     };
 
     let kad_session_id = format!("{base_session_name}-kad");
@@ -199,7 +222,17 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     let nodes = crate::nodes::imule::nodes_dat_contacts(&nodes_path).await?;
     tracing::info!(path = %nodes_path.display(), count = nodes.len(), "loaded nodes.dat");
 
-    crate::kad::bootstrap::bootstrap(&mut kad_sock, &nodes, Default::default()).await?;
+    crate::kad::bootstrap::bootstrap(
+        &mut kad_sock,
+        &nodes,
+        crate::kad::bootstrap::BootstrapCrypto {
+            my_kad_id: kad_prefs.kad_id,
+            my_dest_hash,
+            udp_key_secret: config.kad.udp_key_secret,
+        },
+        Default::default(),
+    )
+    .await?;
 
     tracing::info!("shutting down gracefully");
     Ok(())

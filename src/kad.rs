@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 
 pub mod bootstrap;
 pub mod packed;
+pub mod udp_crypto;
 pub mod wire;
 
 /// 128-bit Kademlia node ID (aMule/iMule: "ClientID").
@@ -29,6 +30,13 @@ impl KadId {
             let _ = write!(&mut s, "{:02x}", b);
         }
         s
+    }
+
+    /// iMule/eMule "crypt value" format: four little-endian u32 chunks, in big-endian chunk order.
+    ///
+    /// This matches how iMule stores UInt128 values in files and uses them for UDP obfuscation keys.
+    pub fn to_crypt_bytes(self) -> [u8; 16] {
+        write_uint128_emule(self)
     }
 }
 

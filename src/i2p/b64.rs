@@ -56,6 +56,69 @@ pub fn encode(input: &[u8]) -> String {
     out
 }
 
+pub fn decode(input: &str) -> anyhow::Result<Vec<u8>> {
+    let mut rev = [0u8; 256];
+    rev.fill(0xFF);
+    for (i, &b) in ALPHABET.iter().enumerate() {
+        rev[b as usize] = i as u8;
+    }
+
+    let mut cleaned = Vec::with_capacity(input.len());
+    for b in input.bytes() {
+        if b.is_ascii_whitespace() {
+            continue;
+        }
+        cleaned.push(b);
+    }
+
+    if cleaned.len() % 4 != 0 {
+        anyhow::bail!("invalid base64 length: {}", cleaned.len());
+    }
+
+    let mut out = Vec::with_capacity((cleaned.len() / 4) * 3);
+    let mut i = 0usize;
+    while i < cleaned.len() {
+        let c0 = cleaned[i];
+        let c1 = cleaned[i + 1];
+        let c2 = cleaned[i + 2];
+        let c3 = cleaned[i + 3];
+        i += 4;
+
+        let v0 = decode_char(&rev, c0)?;
+        let v1 = decode_char(&rev, c1)?;
+
+        if c2 == b'=' && c3 == b'=' {
+            out.push((v0 << 2) | (v1 >> 4));
+            break;
+        }
+
+        let v2 = decode_char(&rev, c2)?;
+        if c3 == b'=' {
+            out.push((v0 << 2) | (v1 >> 4));
+            out.push((v1 << 4) | (v2 >> 2));
+            break;
+        }
+
+        let v3 = decode_char(&rev, c3)?;
+        out.push((v0 << 2) | (v1 >> 4));
+        out.push((v1 << 4) | (v2 >> 2));
+        out.push((v2 << 6) | v3);
+    }
+
+    Ok(out)
+}
+
+fn decode_char(rev: &[u8; 256], b: u8) -> anyhow::Result<u8> {
+    if b == b'=' {
+        return Ok(0);
+    }
+    let v = rev[b as usize];
+    if v == 0xFF {
+        anyhow::bail!("invalid base64 character: 0x{b:02x}");
+    }
+    Ok(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -76,5 +139,19 @@ mod tests {
     fn encodes_with_padding() {
         assert_eq!(encode(&[0x00]), "AA==");
         assert_eq!(encode(&[0x00, 0x00]), "AAA=");
+    }
+
+    #[test]
+    fn decodes_round_trip() {
+        let data = b"hello world";
+        let enc = encode(data);
+        let dec = decode(&enc).unwrap();
+        assert_eq!(dec, data);
+    }
+
+    #[test]
+    fn decodes_known_mapping_for_plus_slash() {
+        // "--~~" in I2P base64 == "++//" in standard base64 == bytes [0xFB, 0xEF, 0xFF].
+        assert_eq!(decode("--~~").unwrap(), vec![0xFB, 0xEF, 0xFF]);
     }
 }

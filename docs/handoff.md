@@ -48,6 +48,7 @@ Observed with `sam.datagram_transport = "tcp"`:
 - `SESSION CREATE STYLE=DATAGRAM ...` OK.
 - Loaded `datfiles/nodes.dat` (35 contacts).
 - Sent initial `KADEMLIA2_BOOTSTRAP_REQ` to peers, but received **0** `PONG`/`BOOTSTRAP_RES` responses within the bootstrap window.
+  - A likely root cause is that iMule nodes expect **obfuscated/encrypted KAD UDP** packets (RC4+MD5 framing), and will ignore plain `OP_KADEMLIAHEADER` packets.
 
 Next things to try if this repeats:
 - Switch to `sam.datagram_transport = "udp_forward"` (some SAM bridges implement UDP forwarding more reliably than TCP datagrams).
@@ -56,6 +57,18 @@ Next things to try if this repeats:
 - Prefer a fresher/larger `nodes.dat` (this repo has both `datfiles/nodes.dat` and `source_ref/nodes.dat`; the app now prefers the `source_ref` one if `data/nodes.dat` is absent).
 
 If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_transport="tcp"`, that's a local read timeout on the SAM TCP socket (no inbound datagrams yet), not necessarily a SAM failure. The TCP datagram receiver was updated to block and let the bootstrap loop apply its own deadline.
+
+### KAD UDP Obfuscation (iMule Compatibility)
+
+iMule encrypts/obfuscates KAD UDP packets (see `EncryptedDatagramSocket.cpp`) and includes sender/receiver verify keys.
+
+Implemented in Rust:
+- `src/kad/udp_crypto.rs`: MD5 + RC4 + iMule framing, plus `udp_verify_key()` compatible with iMule (using I2P dest hash in place of IPv4).
+- `kad.udp_key_secret` added to config and generated/persisted automatically (analogous to iMule `thePrefs::GetKadUDPKey()`).
+
+Bootstrap now:
+- Encrypts outgoing `KADEMLIA2_BOOTSTRAP_REQ` using the target's KadID.
+- Attempts to decrypt inbound packets (NodeID-key and ReceiverVerifyKey-key variants) before KAD parsing.
 
 ## How To Run
 
