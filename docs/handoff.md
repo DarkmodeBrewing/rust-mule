@@ -40,7 +40,7 @@ If you don't want to deal with UDP forwarding, set `sam.datagram_transport = "tc
 If you see `SAM read timed out` right after a successful `HELLO`, the hang is likely on `SESSION CREATE ... STYLE=DATAGRAM` (session establishment can be slow on some routers).
 
 Mitigation:
-- `sam.control_timeout_secs` (default `30`) controls SAM control-channel read/write timeouts.
+- `sam.control_timeout_secs` (default `120`) controls SAM control-channel read/write timeouts.
 - With `general.log_level = "debug"`, the app logs the exact SAM command it was waiting on (with private keys redacted).
 
 ## Latest Run Notes (2026-02-04)

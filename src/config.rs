@@ -22,7 +22,8 @@ fn default_forward_port() -> u16 {
     0
 }
 fn default_sam_control_timeout_secs() -> u64 {
-    30
+    // I2P session creation can take a while on some routers (lease set publish, tunnel build).
+    120
 }
 fn default_sam_datagram_transport() -> SamDatagramTransport {
     SamDatagramTransport::Tcp
