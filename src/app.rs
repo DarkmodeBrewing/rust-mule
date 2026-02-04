@@ -213,7 +213,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     // If we are forced to fall back to repo-bundled reference nodes, try to refresh them via I2P.
     // iMule defaults to `http://www.imule.i2p/nodes2.dat`.
     if nodes_path.starts_with("source_ref") || nodes_path.starts_with("datfiles") {
-        if let Ok(downloaded) = try_download_nodes2_dat(
+        match try_download_nodes2_dat(
             &mut sam,
             &config.sam.host,
             config.sam.port,
@@ -222,7 +222,10 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         )
         .await
         {
-            nodes = downloaded;
+            Ok(downloaded) => nodes = downloaded,
+            Err(err) => {
+                tracing::warn!(error = %err, "failed to download nodes2.dat over I2P; continuing with bundled nodes.dat")
+            }
         }
     }
 
