@@ -62,6 +62,8 @@ pub async fn bootstrap(
     let mut pong_from = BTreeSet::<String>::new();
     let mut bootstrap_from = BTreeSet::<String>::new();
     let mut new_contacts = 0usize;
+    let mut received_total = 0usize;
+    let mut dropped_unparsable = 0usize;
 
     while Instant::now() < deadline {
         let remain = deadline.saturating_duration_since(Instant::now());
@@ -69,10 +71,12 @@ pub async fn bootstrap(
             Ok(r) => r?,
             Err(_) => break,
         };
+        received_total += 1;
 
         let pkt = match KadPacket::decode(&recv.payload) {
             Ok(p) => p,
             Err(err) => {
+                dropped_unparsable += 1;
                 tracing::debug!(error = %err, from = %recv.from_destination, "dropping unparsable KAD packet");
                 continue;
             }
@@ -114,6 +118,8 @@ pub async fn bootstrap(
     }
 
     tracing::info!(
+        received_total,
+        dropped_unparsable,
         pongs = pong_from.len(),
         boot_responses = bootstrap_from.len(),
         boot_contacts = new_contacts,

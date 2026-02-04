@@ -218,7 +218,8 @@ fn pick_existing_nodes_dat(preferred: &Path) -> PathBuf {
         return preferred.to_path_buf();
     }
     // Developer-friendly fallbacks.
-    for p in ["datfiles/nodes.dat", "source_ref/nodes.dat"] {
+    // Prefer `source_ref/nodes.dat` if present; it tends to be the freshest reference snapshot.
+    for p in ["source_ref/nodes.dat", "datfiles/nodes.dat"] {
         let c = Path::new(p);
         if c.exists() {
             return c.to_path_buf();
