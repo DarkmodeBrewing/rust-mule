@@ -1,7 +1,9 @@
 [sam]
 host = "10.99.0.2"
 port = 7656
+udp_port = 7655
 session_name = "rust-mule"
+forward_host = "127.0.0.1"
 
 [kad]
 bootstrap_nodes_path = "nodes.dat"
@@ -14,4 +16,3 @@ sam_public_key = "XoQ44Is-ZWM0dZw3XzBXpXovINSQ6tsM8YLaA4s2tXtehDjgiz5lYzR1nDdfMF
 [general]
 log_level = "debug"
 data_dir = "data"
-tcp_probe_target = "1.1.1.1:443"

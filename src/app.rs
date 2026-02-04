@@ -1,17 +1,18 @@
 use crate::{
     config::Config,
-    i2p::sam::{SamClient, SamStream},
+    i2p::sam::{SamClient, SamDatagramSocket},
 };
-use std::time::Duration;
-use tokio::time;
+use std::{
+    net::{IpAddr, Ipv4Addr},
+    path::{Path, PathBuf},
+};
 
 pub async fn run(mut config: Config) -> anyhow::Result<()> {
-    tracing::info!(log = %config.general.log_level, data_dir = %config.general.data_dir, "starting app");
-    tracing::info!(target = %config.general.tcp_probe_target, "tcp probe configured");
-    tracing::info!("press Ctrl+C to stop");
-
-    let mut ticker: time::Interval = time::interval(Duration::from_secs(10));
-    ticker.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+    tracing::info!(
+        log = %config.general.log_level,
+        data_dir = %config.general.data_dir,
+        "starting app"
+    );
 
     // Load or create aMule/iMule-compatible KadID.
     let prefs_path =
@@ -30,13 +31,12 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     );
 
     tracing::info!("Testing i2p + SAM connectivity");
-
     let mut sam: SamClient = SamClient::connect(&config.sam.host, config.sam.port).await?;
     let reply = sam.hello("3.0", "3.3").await?;
     tracing::info!("(RAW) SAM Replies: {}", reply.raw);
 
-    // Create SAM session
-    let session_name = &config.sam.session_name;
+    // Ensure we have a long-lived destination.
+    let base_session_name = &config.sam.session_name;
     let priv_key: String = if !config.i2p.sam_private_key.trim().is_empty() {
         config.i2p.sam_private_key.clone()
     } else {
@@ -56,93 +56,88 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         generated_priv
     };
 
-    sam.session_create_idempotent(session_name, &priv_key)
-        .await?;
-    tracing::info!(session=%session_name, "SAM session ready");
+    // KAD-over-I2P uses SAM DATAGRAM sessions and UDP forwarding.
+    let sam_host_ip: IpAddr = config.sam.host.parse()?;
+    let sam_forward_ip: IpAddr = config.sam.forward_host.parse()?;
+    let kad_session_id = format!("{base_session_name}-kad");
 
-    // Create a stream
-    let dest: String = sam.naming_lookup("stats.i2p").await?;
-    let _s: SamStream =
-        SamStream::connect(&config.sam.host, config.sam.port, session_name, &dest).await?;
+    let dg: SamDatagramSocket = SamDatagramSocket::bind_for_forwarding(
+        kad_session_id.clone(),
+        sam_host_ip,
+        config.sam.udp_port,
+        IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+        0,
+    )
+    .await?;
 
-    //SamClient::http_probe(s).await?;
+    // Create SAM datagram session (idempotent-ish).
+    if let Err(err) = sam
+        .session_create_datagram_forward(
+            &kad_session_id,
+            &priv_key,
+            dg.forward_port(),
+            sam_forward_ip,
+            ["i2cp.leaseSetEncType=4"],
+        )
+        .await
+    {
+        if err.to_string().contains("Session already exists") {
+            tracing::warn!(session = %kad_session_id, "SAM session exists; destroying and retrying");
+            let _ = sam.session_destroy(&kad_session_id).await;
+            sam.session_create_datagram_forward(
+                &kad_session_id,
+                &priv_key,
+                dg.forward_port(),
+                sam_forward_ip,
+                ["i2cp.leaseSetEncType=4"],
+            )
+            .await?;
+        } else {
+            return Err(err);
+        }
+    }
 
-    // loop {
-    //     tokio::select! {
-    //         _ = signal::ctrl_c() => {
-    //             tracing::warn!("received Ctrl+C");
-    //             break;
-    //         }
-    //         _ = ticker.tick() => {
-    //             if let Err(err) = tcp_probe(&config.general.tcp_probe_target, Duration::from_secs(3)).await {
-    //                 tracing::warn!(error = %err, "tcp probe failed (non-fatal)");
-    //             }
-    //         }
-    //     }
-    // }
+    tracing::info!(
+        session = %kad_session_id,
+        forward = %dg.forward_addr(),
+        sam_udp = %dg.sam_udp_addr(),
+        "SAM DATAGRAM session ready"
+    );
+
+    let nodes_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
+    let nodes_path = pick_existing_nodes_dat(&nodes_path);
+    let nodes = crate::nodes::imule::nodes_dat_contacts(&nodes_path).await?;
+    tracing::info!(path = %nodes_path.display(), count = nodes.len(), "loaded nodes.dat");
+
+    crate::kad::bootstrap::bootstrap(
+        &dg,
+        &nodes,
+        crate::kad::bootstrap::BootstrapConfig::default(),
+    )
+    .await?;
 
     tracing::info!("shutting down gracefully");
     Ok(())
 }
 
-// fn log_kad_nodes(nodes: Vec<KadNode>) {
-//     println!("loaded {} nodes", nodes.len());
-
-//     let multicast = nodes.iter().filter(|n| n.ip.octets()[0] >= 224).count();
-//     let private = nodes
-//         .iter()
-//         .filter(|n| {
-//             let [a, b, _, _] = n.ip.octets();
-//             a == 10
-//                 || (a == 172 && (16..=31).contains(&b))
-//                 || (a == 192 && b == 168)
-//                 || (a == 127)
-//                 || a == 0
-//         })
-//         .count();
-
-//     println!(
-//         "multicast-ish: {multicast}, private-ish: {private}, total: {}",
-//         nodes.len()
-//     );
-
-//     for n in &nodes {
-//         if n.ip.octets()[0] >= 224 {
-//             println!("still weird ip: {:?}", n.ip);
-//         }
-//     }
-// }
-
-/*
-#[tokio::main]
-async fn main() -> Result<()> {
-    let cfg = SamConfig {
-        host: "10.99.0.2".to_string(),
-        port: 7656,
-        session_id: "rust-mule".to_string(),
-        destination: "TRANSIENT".to_string(),
-    };
-
-    let mut sam: SamClient = SamClient::connect(&cfg.host, cfg.port).await?;
-    sam.hello().await?;
-
-    let (_pub_key, priv_key) = sam.dest_generate(None).await?;
-    println!("Generated PRIV length: {}", priv_key.len());
-
-    // Create session using the freshly generated key (for now)
-    sam.stream_session_create(&cfg.session_id, &priv_key, &cfg.options)
-        .await?;
-
-    // Create a STREAM session. This proves we can negotiate a usable session.
-    sam.stream_session_create(&cfg.session_id, &cfg.destination, &cfg.options)
-        .await?;
-
-    // Small extra proof that the control channel stays alive and responds:
-    sam.ping().await?;
-
-    println!("SAM connection OK ✅");
-    Ok(())
+fn resolve_path(data_dir: &str, p: &str) -> PathBuf {
+    let path = Path::new(p);
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    Path::new(data_dir).join(path)
 }
 
-
-*/
+fn pick_existing_nodes_dat(preferred: &Path) -> PathBuf {
+    if preferred.exists() {
+        return preferred.to_path_buf();
+    }
+    // Developer-friendly fallbacks.
+    for p in ["datfiles/nodes.dat", "source_ref/nodes.dat"] {
+        let c = Path::new(p);
+        if c.exists() {
+            return c.to_path_buf();
+        }
+    }
+    preferred.to_path_buf()
+}

@@ -1,5 +1,8 @@
 use anyhow::{Context, Result, bail};
 
+pub mod bootstrap;
+pub mod wire;
+
 /// 128-bit Kademlia node ID (aMule/iMule: "ClientID").
 ///
 /// Storage convention: big-endian bytes for display and interop.

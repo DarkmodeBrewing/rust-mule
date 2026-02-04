@@ -7,17 +7,20 @@ fn default_sam_host() -> String {
 fn default_sam_port() -> u16 {
     7656
 }
+fn default_sam_udp_port() -> u16 {
+    7655
+}
 fn default_session_name() -> String {
     "rust-mule".to_string()
+}
+fn default_forward_host() -> String {
+    "127.0.0.1".to_string()
 }
 fn default_log_level() -> String {
     "debug".to_string()
 }
 fn default_data_dir() -> String {
     "data".to_string()
-}
-fn default_tcp_probe_target() -> String {
-    "1.1.1.1:443".to_string()
 }
 fn default_preferences_kad_path() -> String {
     // Keep aMule/iMule naming for backwards compatibility.
@@ -51,7 +54,11 @@ impl Config {
 pub struct SamConfig {
     pub host: String,
     pub port: u16,
+    pub udp_port: u16,
     pub session_name: String,
+    /// Where the SAM bridge should forward inbound DATAGRAM/RAW UDP packets.
+    /// Must be reachable from the SAM host (often `127.0.0.1` if SAM is local).
+    pub forward_host: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +81,6 @@ pub struct I2PConfig {
 pub struct GeneralConfig {
     pub log_level: String,
     pub data_dir: String,
-    pub tcp_probe_target: String,
 }
 
 impl Default for Config {
@@ -93,7 +99,9 @@ impl Default for SamConfig {
         Self {
             host: default_sam_host(),
             port: default_sam_port(),
+            udp_port: default_sam_udp_port(),
             session_name: default_session_name(),
+            forward_host: default_forward_host(),
         }
     }
 }
@@ -122,7 +130,6 @@ impl Default for GeneralConfig {
         Self {
             log_level: default_log_level(),
             data_dir: default_data_dir(),
-            tcp_probe_target: default_tcp_probe_target(),
         }
     }
 }
