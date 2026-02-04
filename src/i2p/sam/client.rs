@@ -7,7 +7,7 @@ use std::{
     task::{Context as TaskContext, Poll},
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf},
+    io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf},
     net::TcpStream,
     time::{Duration, timeout},
 };
@@ -212,29 +212,6 @@ impl SamClient {
             .ok_or_else(|| anyhow!("DEST GENERATE missing PUB (raw={})", reply.raw))?;
 
         Ok((priv_key, pub_key))
-    }
-
-    pub async fn http_get_over_i2p(
-        mut stream: impl AsyncRead + AsyncWrite + Unpin,
-        host: &str,
-    ) -> anyhow::Result<String> {
-        let req = format!(
-            "GET / HTTP/1.1\r\nHost: {}\r\nUser-Agent: rust-mule/0.1\r\nConnection: close\r\n\r\n",
-            host
-        );
-
-        timeout(Duration::from_secs(5), async {
-            stream.write_all(req.as_bytes()).await
-        })
-        .await
-        .map_err(|_| anyhow::anyhow!("write_all timed out"))??;
-
-        tracing::info!("HTTP request bytes written={}", req.len());
-
-        let mut buf = Vec::new();
-        stream.read_to_end(&mut buf).await?;
-
-        Ok(String::from_utf8_lossy(&buf).to_string())
     }
 
     // --- Line IO pipeline (control channel) ---
