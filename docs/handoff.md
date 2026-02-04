@@ -75,6 +75,14 @@ If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_trans
 - The `nodes2.dat` downloader failed because `NAMING LOOKUP www.imule.i2p` returned `KEY_NOT_FOUND` on that router.
 - If `www.imule.i2p` and `imule.i2p` are missing from the router addressbook, the downloader can't run unless you add an addressbook subscription which includes those entries, or use a `.b32.i2p` hostname / destination string directly.
 
+### Updated Run Notes (2026-02-04 20:42Z-ish)
+
+- Bootstrap sent probes to `peers=103`.
+- Received:
+- `KADEMLIA2_BOOTSTRAP_RES` (decrypted OK), which contained `contacts=1`.
+- `KADEMLIA2_HELLO_REQ` from the same peer; rust-mule replied with `KADEMLIA2_HELLO_RES`.
+- `bootstrap summary ... discovered=2` and persisted refreshed nodes to `data/nodes.dat` (`count=120`).
+
 ## Known SAM Quirk (DEST GENERATE)
 
 Some SAM implementations reply to `DEST GENERATE` as:
