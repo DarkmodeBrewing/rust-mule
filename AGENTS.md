@@ -1,9 +1,28 @@
 # Repository Guidelines
 
-- Instruction for this repo:
+## Instruction for this repo:
+
 - Read handoff.md before doing anything.
 - After each meaningful change (or after tests run), update handoff.md with: status, decisions, next steps, and a change log entry.
 - Keep it short and factual.
+
+### Rust-Mule Development Rules
+
+1. Do NOT translate iMule code line-by-line.
+2. Extract architecture and intent, not implementation.
+3. Prefer Rust-native design:
+   - ownership & borrowing
+   - async/await
+   - message enums instead of class hierarchies
+4. Build in layers:
+   a) Transport (UDP sockets, async runtime)
+   b) Message protocol (encode/decode)
+   c) Node identity & routing table
+   d) Bootstrap logic
+5. No global state.
+6. No C++-style singletons.
+7. Every subsystem must be testable in isolation.
+8. If stuck, stop coding and explain the architectural problem.
 
 ## Porting old code into rust
 
