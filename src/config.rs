@@ -21,6 +21,9 @@ fn default_forward_port() -> u16 {
     // you'll likely want to set this to a fixed port and allow inbound UDP from the SAM host.
     0
 }
+fn default_sam_control_timeout_secs() -> u64 {
+    30
+}
 fn default_log_level() -> String {
     "debug".to_string()
 }
@@ -66,6 +69,8 @@ pub struct SamConfig {
     pub forward_host: String,
     /// UDP port to bind locally for SAM UDP forwarding. `0` means "pick any free port".
     pub forward_port: u16,
+    /// Timeout for SAM TCP control-channel read/write operations.
+    pub control_timeout_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,6 +115,7 @@ impl Default for SamConfig {
             session_name: default_session_name(),
             forward_host: default_forward_host(),
             forward_port: default_forward_port(),
+            control_timeout_secs: default_sam_control_timeout_secs(),
         }
     }
 }

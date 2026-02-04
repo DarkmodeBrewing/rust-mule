@@ -6,6 +6,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
 };
+use tokio::time::Duration;
 
 pub async fn run(mut config: Config) -> anyhow::Result<()> {
     tracing::info!(
@@ -31,7 +32,9 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     );
 
     tracing::info!("Testing i2p + SAM connectivity");
-    let mut sam: SamClient = SamClient::connect(&config.sam.host, config.sam.port).await?;
+    let mut sam: SamClient = SamClient::connect(&config.sam.host, config.sam.port)
+        .await?
+        .with_timeout(Duration::from_secs(config.sam.control_timeout_secs));
     let reply = sam.hello("3.0", "3.3").await?;
     tracing::info!("(RAW) SAM Replies: {}", reply.raw);
 

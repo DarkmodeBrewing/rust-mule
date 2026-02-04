@@ -40,5 +40,12 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> anyhow::Result<()> {
             anyhow::anyhow!("Invalid sam.forward_host '{}': {}", cfg.sam.forward_host, e)
         })?;
 
+    if cfg.sam.control_timeout_secs == 0 {
+        anyhow::bail!(
+            "Invalid sam.control_timeout_secs '{}'",
+            cfg.sam.control_timeout_secs
+        );
+    }
+
     Ok(())
 }
