@@ -126,8 +126,7 @@ impl SamClient {
             .arg("STYLE", "STREAM")
             .arg("ID", name)
             .arg("DESTINATION", priv_key)
-            .arg("i2cp.messageReliability", "BestEffort")
-            .arg("i2cp.leaseSetEncType", "4");
+            .arg("i2cp.messageReliability", "BestEffort");
 
         let reply: SamReply = self.send_cmd(create_cmd.clone(), "SESSION").await?;
         match (reply.result(), reply.message()) {
