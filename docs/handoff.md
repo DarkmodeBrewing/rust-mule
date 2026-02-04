@@ -17,6 +17,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - iMule `nodes.dat` v2 parsing (I2P destinations, KadIDs, UDP keys) (`src/nodes/imule.rs`).
   - KAD packet encode/decode including iMule packed replies (pure-Rust zlib/deflate inflater) (`src/kad/wire.rs`, `src/kad/packed.rs`).
   - Minimal bootstrap probe: send `PING` + `BOOTSTRAP_REQ`, decode `PONG` + `BOOTSTRAP_RES` (`src/kad/bootstrap.rs`).
+  - Kad1+Kad2 HELLO handling during bootstrap (reply to `HELLO_REQ`, parse `HELLO_RES`, send `HELLO_RES_ACK` when requested) (`src/kad/bootstrap.rs`, `src/kad/wire.rs`).
   - I2P HTTP fetch helper over SAM STREAM (used to download a fresh `nodes2.dat`) (`src/i2p/http.rs`).
 - Removed obsolete code:
   - Legacy IPv4-focused `nodes.dat` parsing and old net probe helpers.
@@ -70,6 +71,7 @@ If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_trans
   - a Kad1 `KADEMLIA_HELLO_REQ_DEPRECATED` (opcode `0x03`) from a peer
   - a Kad2 `KADEMLIA2_BOOTSTRAP_RES` which decrypted successfully
 - Rust now replies to Kad1 `HELLO_REQ` with a Kad1 `HELLO_RES` containing our I2P contact details, matching iMule's `WriteToKad1Contact()` layout.
+- Rust now also sends Kad2 `HELLO_REQ` during bootstrap and handles Kad2 `HELLO_REQ/RES/RES_ACK` to improve chances of being added to routing tables and to exchange UDP verify keys.
 - The `nodes2.dat` downloader failed because `NAMING LOOKUP www.imule.i2p` returned `KEY_NOT_FOUND` on that router.
 
 ## Known SAM Quirk (DEST GENERATE)
@@ -97,6 +99,7 @@ iMule encrypts/obfuscates KAD UDP packets (see `EncryptedDatagramSocket.cpp`) an
 
 Implemented in Rust:
 - `src/kad/udp_crypto.rs`: MD5 + RC4 + iMule framing, plus `udp_verify_key()` compatible with iMule (using I2P dest hash in place of IPv4).
+- `src/kad/udp_crypto.rs`: receiver-verify-key-based encryption path (needed for `KADEMLIA2_HELLO_RES_ACK` in iMule).
 - `kad.udp_key_secret` can be configured explicitly. If left as `0`, the app will generate one and persist it under `data/kad_udp_key_secret.dat` (analogous to iMule `thePrefs::GetKadUDPKey()`), without mutating `config.toml`.
 
 Bootstrap now:

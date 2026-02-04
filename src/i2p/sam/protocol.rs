@@ -250,7 +250,8 @@ fn redact_sam_line(line: &str) -> String {
         first = false;
 
         if let Some((k, v)) = tok.split_once('=') {
-            let needs_redact = matches!(k, "DESTINATION" | "PRIV" | "PUB" | "VALUE") || v.len() > 128;
+            let needs_redact =
+                matches!(k, "DESTINATION" | "PRIV" | "PUB" | "VALUE") || v.len() > 128;
             if needs_redact {
                 use std::fmt::Write as _;
                 let _ = write!(&mut out, "{}=<redacted:{}>", k, v.len());

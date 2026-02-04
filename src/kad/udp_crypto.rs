@@ -81,6 +81,55 @@ pub fn encrypt_kad_packet(
     Ok(out)
 }
 
+/// aMule/iMule KAD UDP "obfuscation" sender-side, using **receiver verify key** as the RC4 key.
+///
+/// iMule uses this path when the receiver's node ID is not available (e.g. for `HELLO_RES_ACK`).
+pub fn encrypt_kad_packet_with_receiver_key(
+    plain: &[u8],
+    receiver_verify_key: u32,
+    sender_verify_key: u32,
+) -> Result<Vec<u8>> {
+    let mut random_key_part = [0u8; 2];
+    getrandom::getrandom(&mut random_key_part)
+        .map_err(|e| anyhow::anyhow!("failed to generate random key part: {e}"))?;
+
+    // Key = MD5( receiverVerifyKey(4 le) || randomKeyPart(2) )
+    let mut key_data = [0u8; 6];
+    key_data[..4].copy_from_slice(&receiver_verify_key.to_le_bytes());
+    key_data[4..6].copy_from_slice(&random_key_part);
+    let key = md5(&key_data);
+
+    let mut rc4 = Rc4::new(&key);
+
+    let pad_len: u8 = 0;
+    let crypt_header_len = CRYPT_HEADER_WITHOUTPADDING + (pad_len as usize) + 8;
+    let mut out = vec![0u8; crypt_header_len + plain.len()];
+
+    out[0] = choose_semi_random_marker(true /* kad_recv_key_used */)?;
+    out[1..3].copy_from_slice(&random_key_part);
+
+    let mut magic = MAGICVALUE_UDP_SYNC_CLIENT.to_le_bytes();
+    rc4.apply(&mut magic);
+    out[3..7].copy_from_slice(&magic);
+
+    let mut pad = [pad_len];
+    rc4.apply(&mut pad);
+    out[7] = pad[0];
+
+    let mut rvk = receiver_verify_key.to_le_bytes();
+    let mut svk = sender_verify_key.to_le_bytes();
+    rc4.apply(&mut rvk);
+    rc4.apply(&mut svk);
+    out[8..12].copy_from_slice(&rvk);
+    out[12..16].copy_from_slice(&svk);
+
+    let mut payload = plain.to_vec();
+    rc4.apply(&mut payload);
+    out[crypt_header_len..].copy_from_slice(&payload);
+
+    Ok(out)
+}
+
 /// aMule/iMule KAD UDP "obfuscation" (RC4+MD5) receiver-side.
 ///
 /// - `my_kad_id` is our KadID (used for NodeID-key packets).

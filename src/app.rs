@@ -30,8 +30,8 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     //
     // If `config.toml` provides a non-zero value, we treat it as an explicit override.
     if config.kad.udp_key_secret == 0 {
-        let udp_key_path = std::path::Path::new(&config.general.data_dir)
-            .join("kad_udp_key_secret.dat");
+        let udp_key_path =
+            std::path::Path::new(&config.general.data_dir).join("kad_udp_key_secret.dat");
         config.kad.udp_key_secret =
             crate::kad::udp_key::load_or_create_udp_key_secret(&udp_key_path).await?;
         tracing::info!(
@@ -75,7 +75,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     };
 
     let my_dest_bytes = crate::i2p::b64::decode(&config.i2p.sam_public_key)
-            .context("failed to decode i2p.sam_public_key as I2P base64")?;
+        .context("failed to decode i2p.sam_public_key as I2P base64")?;
     if my_dest_bytes.len() != crate::kad::wire::I2P_DEST_LEN {
         anyhow::bail!(
             "decoded i2p.sam_public_key has wrong length: {} bytes (expected {})",

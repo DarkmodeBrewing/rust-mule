@@ -1,5 +1,6 @@
 use crate::kad::{KadId, packed};
 use anyhow::{Result, bail};
+use std::collections::BTreeMap;
 
 pub const OP_KADEMLIAHEADER: u8 = 0x05;
 pub const OP_KADEMLIAPACKEDPROT: u8 = 0x06;
@@ -9,6 +10,7 @@ pub const KADEMLIA2_BOOTSTRAP_REQ: u8 = 0x0D;
 pub const KADEMLIA2_BOOTSTRAP_RES: u8 = 0x0E;
 pub const KADEMLIA2_HELLO_REQ: u8 = 0x0F;
 pub const KADEMLIA2_HELLO_RES: u8 = 0x10;
+pub const KADEMLIA2_HELLO_RES_ACK: u8 = 0x12;
 pub const KADEMLIA2_PING: u8 = 0x1E;
 pub const KADEMLIA2_PONG: u8 = 0x1F;
 
@@ -17,6 +19,9 @@ pub const KADEMLIA_HELLO_REQ_DEPRECATED: u8 = 0x03;
 pub const KADEMLIA_HELLO_RES_DEPRECATED: u8 = 0x04;
 
 pub const I2P_DEST_LEN: usize = 387;
+
+// FileTags.h (iMule/aMule). Used in Kad2 HELLO taglists.
+pub const TAG_KADMISCOPTIONS: u8 = 88; // 0x58
 
 #[derive(Debug, Clone)]
 pub struct KadPacket {
@@ -75,6 +80,15 @@ pub struct Kad2Contact {
     pub udp_dest: [u8; I2P_DEST_LEN],
 }
 
+#[derive(Debug, Clone)]
+pub struct Kad2Hello {
+    pub kad_version: u8,
+    pub node_id: KadId,
+    pub udp_dest: [u8; I2P_DEST_LEN],
+    /// Parsed taglist, limited to integer tags we care about.
+    pub tags: BTreeMap<u8, u64>,
+}
+
 pub fn decode_kad2_bootstrap_res(payload: &[u8]) -> Result<Kad2BootstrapRes> {
     let mut r = Reader::new(payload);
 
@@ -100,6 +114,33 @@ pub fn decode_kad2_bootstrap_res(payload: &[u8]) -> Result<Kad2BootstrapRes> {
         sender_kad_version,
         sender_tcp_dest,
         contacts,
+    })
+}
+
+pub fn encode_kad2_hello(
+    my_kad_version: u8,
+    my_id: KadId,
+    my_udp_dest: &[u8; I2P_DEST_LEN],
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(1 + 16 + I2P_DEST_LEN + 1);
+    out.push(my_kad_version);
+    out.extend_from_slice(&my_id.to_crypt_bytes());
+    out.extend_from_slice(my_udp_dest);
+    out.push(0); // TagList count = 0
+    out
+}
+
+pub fn decode_kad2_hello(payload: &[u8]) -> Result<Kad2Hello> {
+    let mut r = Reader::new(payload);
+    let kad_version = r.read_u8()?;
+    let node_id = r.read_uint128_emule()?;
+    let udp_dest = r.read_i2p_dest()?;
+    let tags = r.read_taglist_ints()?;
+    Ok(Kad2Hello {
+        kad_version,
+        node_id,
+        udp_dest,
+        tags,
     })
 }
 
@@ -159,6 +200,35 @@ impl<'a> Reader<'a> {
             out[i * 4..i * 4 + 4].copy_from_slice(&le.to_be_bytes());
         }
         Ok(KadId(out))
+    }
+
+    fn read_taglist_ints(&mut self) -> Result<BTreeMap<u8, u64>> {
+        // iMule TagList: <u8 count><tag>...
+        let n = self.read_u8()? as usize;
+        let mut out = BTreeMap::<u8, u64>::new();
+        for _ in 0..n {
+            let ty0 = self.read_u8()?;
+            let (ty, id) = if (ty0 & 0x80) != 0 {
+                (ty0 & 0x7F, self.read_u8()?)
+            } else {
+                bail!("unsupported string-named tag in taglist (type=0x{ty0:02x})");
+            };
+
+            let v = match ty {
+                // TagTypes.h: uint types are 0x08..0x0B in aMule/iMule; we only need ints.
+                0x08 => self.read_u8()? as u64,
+                0x09 => self.read_u16_le()? as u64,
+                0x0A => self.read_u32_le()? as u64,
+                0x0B => {
+                    let lo = self.read_u32_le()? as u64;
+                    let hi = self.read_u32_le()? as u64;
+                    (hi << 32) | lo
+                }
+                other => bail!("unsupported tag type 0x{other:02x} for id={id}"),
+            };
+            out.insert(id, v);
+        }
+        Ok(out)
     }
 }
 
