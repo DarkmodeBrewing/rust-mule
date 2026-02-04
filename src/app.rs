@@ -13,6 +13,16 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     let mut ticker: time::Interval = time::interval(Duration::from_secs(10));
     ticker.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
+    // Load or create aMule/iMule-compatible KadID.
+    let prefs_path =
+        std::path::Path::new(&config.general.data_dir).join(&config.kad.preferences_kad_path);
+    let kad_prefs = crate::kad::load_or_create_preferences_kad(&prefs_path).await?;
+    tracing::info!(
+        kad_id = %kad_prefs.kad_id.to_hex_lower(),
+        prefs = %prefs_path.display(),
+        "Loaded Kademlia identity"
+    );
+
     tracing::info!(
         priv_len = config.i2p.sam_private_key.trim().len(),
         pub_len = config.i2p.sam_public_key.trim().len(),
