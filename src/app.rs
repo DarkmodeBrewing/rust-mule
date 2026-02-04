@@ -61,6 +61,21 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     let sam_forward_ip: IpAddr = config.sam.forward_host.parse()?;
     let kad_session_id = format!("{base_session_name}-kad");
 
+    if sam_forward_ip.is_loopback() && !sam_host_ip.is_loopback() {
+        tracing::warn!(
+            sam_host = %sam_host_ip,
+            forward_host = %sam_forward_ip,
+            "sam.forward_host is loopback but the SAM bridge is remote; UDP forwarding will not reach this process"
+        );
+    }
+    if config.sam.forward_port == 0 && sam_host_ip != sam_forward_ip {
+        tracing::warn!(
+            sam_host = %sam_host_ip,
+            forward_host = %sam_forward_ip,
+            "sam.forward_port=0 (ephemeral) with remote SAM bridge; consider setting a fixed forward_port and opening/mapping it for UDP"
+        );
+    }
+
     let bind_ip = if sam_forward_ip.is_loopback() {
         IpAddr::V4(Ipv4Addr::LOCALHOST)
     } else {
