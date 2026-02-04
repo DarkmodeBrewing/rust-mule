@@ -11,6 +11,7 @@ Active work has been happening on the feature branch `feature/sam-protocol`.
 ## What Works Today
 
 - SAM v3 control protocol client (`src/i2p/sam/`).
+- SAM `STYLE=DATAGRAM` session over TCP (iMule-style `DATAGRAM SEND` / `DATAGRAM RECEIVED`) (`src/i2p/sam/datagram_tcp.rs`).
 - SAM `STYLE=DATAGRAM` session with UDP forwarding (`src/i2p/sam/datagram.rs`).
 - iMule-compatible identity:
   - `preferencesKad.dat` persisted KadID (random 128-bit) (`src/kad.rs`).
@@ -32,7 +33,9 @@ The app will prefer `data/nodes.dat`, but falls back to `datfiles/nodes.dat` and
 ## Running
 
 1. Ensure SAM is reachable.
-2. Ensure UDP forwarding from SAM to this process works (see next section).
+2. Choose a datagram transport in `config.toml`:
+   - `sam.datagram_transport = "tcp"` (recommended; easiest with remote SAM).
+   - `sam.datagram_transport = "udp_forward"` (requires UDP forwarding; see next section).
 3. Run:
 
 ```bash

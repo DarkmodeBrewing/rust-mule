@@ -3,6 +3,7 @@ host = "10.99.0.2"
 port = 7656
 udp_port = 7655
 session_name = "rust-mule"
+datagram_transport = "tcp"
 forward_host = "10.99.0.1"
 forward_port = 40000
 control_timeout_secs = 30

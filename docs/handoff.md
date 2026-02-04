@@ -11,6 +11,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Active branch: `feature/sam-protocol`
 - Implemented:
   - SAM v3 TCP control client with logging and redacted sensitive fields (`src/i2p/sam/`).
+  - SAM `STYLE=DATAGRAM` session over TCP (iMule-style `DATAGRAM SEND` / `DATAGRAM RECEIVED`) (`src/i2p/sam/datagram_tcp.rs`).
   - SAM `STYLE=DATAGRAM` session + UDP forwarding socket (`src/i2p/sam/datagram.rs`).
   - iMule-compatible KadID persisted in `data/preferencesKad.dat` (`src/kad.rs`).
   - iMule `nodes.dat` v2 parsing (I2P destinations, KadIDs, UDP keys) (`src/nodes/imule.rs`).
@@ -29,6 +30,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - `sam.forward_host = "10.99.0.1"`
     - `sam.forward_port = 40000`
   - Docker needs either `--network host` or `-p 40000:40000/udp`.
+
+If you don't want to deal with UDP forwarding, set `sam.datagram_transport = "tcp"` in `config.toml`.
 
 ## Known Issue / Debugging
 
@@ -51,4 +54,3 @@ If debugging SAM control protocol, set:
 ## Reference Material
 
 - iMule source + reference `nodes.dat` are under `source_ref/` (gitignored).
-
