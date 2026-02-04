@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use std::path::Path;
 
 /// iMule/aMule I2P-only `nodes.dat` contact (version 2 file format).
 ///
@@ -44,6 +45,52 @@ pub async fn nodes_dat_contacts(path: impl AsRef<std::path::Path>) -> Result<Vec
     parse_nodes_dat(&bytes).with_context(|| format!("failed to parse {}", path.display()))
 }
 
+/// Persist a `nodes.dat` v2 file (iMule/aMule format).
+///
+/// This is the same format we parse in [`parse_nodes_dat_v2`].
+pub async fn persist_nodes_dat_v2(path: &Path, nodes: &[ImuleNode]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("failed creating directory {}", parent.display()))?;
+    }
+
+    let tmp = path.with_extension("tmp");
+    let bytes = encode_nodes_dat_v2(nodes)?;
+    tokio::fs::write(&tmp, bytes)
+        .await
+        .with_context(|| format!("failed to write {}", tmp.display()))?;
+    tokio::fs::rename(&tmp, path)
+        .await
+        .with_context(|| format!("failed to rename {} -> {}", tmp.display(), path.display()))?;
+    Ok(())
+}
+
+pub fn encode_nodes_dat_v2(nodes: &[ImuleNode]) -> Result<Vec<u8>> {
+    let count: u32 = nodes
+        .len()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("too many nodes to encode: {}", nodes.len()))?;
+
+    let entry_size = 1 + 16 + 387 + 4 + 4 + 1;
+    let mut out = Vec::with_capacity(12 + nodes.len() * entry_size);
+
+    out.extend_from_slice(&0u32.to_le_bytes()); // magic
+    out.extend_from_slice(&2u32.to_le_bytes()); // version
+    out.extend_from_slice(&count.to_le_bytes());
+
+    for n in nodes {
+        out.push(n.kad_version);
+        out.extend_from_slice(&write_uint128_emule(&n.client_id));
+        out.extend_from_slice(&n.udp_dest);
+        out.extend_from_slice(&n.udp_key.to_le_bytes());
+        out.extend_from_slice(&n.udp_key_ip.to_le_bytes());
+        out.push(if n.verified { 1 } else { 0 });
+    }
+
+    Ok(out)
+}
+
 pub fn parse_nodes_dat(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
     if bytes.len() < 4 {
         bail!("nodes.dat too small: {} bytes", bytes.len());
@@ -57,6 +104,16 @@ pub fn parse_nodes_dat(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
         // "bootstrap nodes.dat" style used by aMule/iMule: starts with count (v1-ish).
         parse_nodes_dat_bootstrap_v1(bytes)
     }
+}
+
+fn write_uint128_emule(id_be: &[u8; 16]) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    for i in 0..4 {
+        let chunk = &id_be[(i * 4)..(i * 4 + 4)];
+        let word_be = u32::from_be_bytes(chunk.try_into().unwrap());
+        out[(i * 4)..(i * 4 + 4)].copy_from_slice(&word_be.to_le_bytes());
+    }
+    out
 }
 
 fn parse_nodes_dat_v2(bytes: &[u8]) -> Result<Vec<ImuleNode>> {

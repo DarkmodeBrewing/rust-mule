@@ -3,6 +3,7 @@ use crate::{
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamKadSocket},
 };
 use anyhow::Context;
+use std::collections::BTreeMap;
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
@@ -233,7 +234,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         }
     }
 
-    crate::kad::bootstrap::bootstrap(
+    let outcome = crate::kad::bootstrap::bootstrap(
         &mut kad_sock,
         &nodes,
         crate::kad::bootstrap::BootstrapCrypto {
@@ -245,6 +246,54 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         Default::default(),
     )
     .await?;
+
+    // Persist refreshed bootstrap peers for the next run.
+    if !outcome.discovered.is_empty() {
+        let out_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
+        let mut merged = BTreeMap::<String, crate::nodes::imule::ImuleNode>::new();
+
+        for n in nodes.into_iter() {
+            merged.insert(n.udp_dest_b64(), n);
+        }
+
+        for n in outcome.discovered {
+            let k = n.udp_dest_b64();
+            merged
+                .entry(k)
+                .and_modify(|old| {
+                    // Prefer newer/verified entries, and keep UDP keys if we learn them.
+                    if n.kad_version > old.kad_version {
+                        old.kad_version = n.kad_version;
+                    }
+                    if n.verified {
+                        old.verified = true;
+                    }
+                    if old.udp_key == 0 && n.udp_key != 0 {
+                        old.udp_key = n.udp_key;
+                        old.udp_key_ip = n.udp_key_ip;
+                    }
+                    if old.client_id == [0u8; 16] && n.client_id != [0u8; 16] {
+                        old.client_id = n.client_id;
+                    }
+                })
+                .or_insert(n);
+        }
+
+        let mut out_nodes: Vec<crate::nodes::imule::ImuleNode> = merged.into_values().collect();
+        out_nodes.sort_by_key(|n| {
+            (
+                std::cmp::Reverse(n.verified),
+                std::cmp::Reverse(n.kad_version),
+            )
+        });
+        out_nodes.truncate(2000);
+
+        if let Err(err) = crate::nodes::imule::persist_nodes_dat_v2(&out_path, &out_nodes).await {
+            tracing::warn!(error = %err, path = %out_path.display(), "failed to persist refreshed nodes.dat");
+        } else {
+            tracing::info!(path = %out_path.display(), count = out_nodes.len(), "persisted refreshed nodes.dat");
+        }
+    }
 
     tracing::info!("shutting down gracefully");
     Ok(())

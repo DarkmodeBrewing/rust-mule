@@ -214,21 +214,82 @@ impl<'a> Reader<'a> {
                 bail!("unsupported string-named tag in taglist (type=0x{ty0:02x})");
             };
 
-            let v = match ty {
-                // TagTypes.h: uint types are 0x08..0x0B in aMule/iMule; we only need ints.
-                0x08 => self.read_u8()? as u64,
-                0x09 => self.read_u16_le()? as u64,
-                0x0A => self.read_u32_le()? as u64,
-                0x0B => {
+            match ty {
+                // TagTypes.h (iMule/aMule)
+                0x09 => {
+                    // TAGTYPE_UINT8
+                    out.insert(id, self.read_u8()? as u64);
+                }
+                0x08 => {
+                    // TAGTYPE_UINT16
+                    out.insert(id, self.read_u16_le()? as u64);
+                }
+                0x03 => {
+                    // TAGTYPE_UINT32
+                    out.insert(id, self.read_u32_le()? as u64);
+                }
+                0x29 => {
+                    // TAGTYPE_UINT64
                     let lo = self.read_u32_le()? as u64;
                     let hi = self.read_u32_le()? as u64;
-                    (hi << 32) | lo
+                    out.insert(id, (hi << 32) | lo);
                 }
-                other => bail!("unsupported tag type 0x{other:02x} for id={id}"),
-            };
-            out.insert(id, v);
+                0x01 => {
+                    // TAGTYPE_HASH16
+                    self.skip(16)?;
+                }
+                0x02 => {
+                    // TAGTYPE_STRING: <u16 len><bytes...>
+                    let len = self.read_u16_le()? as usize;
+                    self.skip(len)?;
+                }
+                0x04 => {
+                    // TAGTYPE_FLOAT32
+                    self.skip(4)?;
+                }
+                0x05 => {
+                    // TAGTYPE_BOOL
+                    self.skip(1)?;
+                }
+                0x06 => {
+                    // TAGTYPE_BOOLARRAY: <u16 len><bytes...> (best-effort skip)
+                    let len = self.read_u16_le()? as usize;
+                    self.skip(len)?;
+                }
+                0x07 => {
+                    // TAGTYPE_BLOB: <u32 len><bytes...>
+                    let len = self.read_u32_le()? as usize;
+                    self.skip(len)?;
+                }
+                0x0A => {
+                    // TAGTYPE_BSOB: <u8 len><bytes...>
+                    let len = self.read_u8()? as usize;
+                    self.skip(len)?;
+                }
+                0x27 => {
+                    // TAGTYPE_ADDRESS
+                    self.skip(I2P_DEST_LEN)?;
+                }
+                0x11..=0x20 => {
+                    // TAGTYPE_STR1..TAGTYPE_STR16 (length encoded in type)
+                    let len = (ty - 0x11 + 1) as usize;
+                    self.skip(len)?;
+                }
+                other => {
+                    // Unknown tag type; bail to avoid desyncing the stream.
+                    bail!("unsupported tag type 0x{other:02x} for id={id}")
+                }
+            }
         }
         Ok(out)
+    }
+
+    fn skip(&mut self, len: usize) -> Result<()> {
+        self.b
+            .get(self.i..self.i + len)
+            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+        self.i += len;
+        Ok(())
     }
 }
 
