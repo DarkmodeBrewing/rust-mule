@@ -63,6 +63,14 @@ Next things to try if this repeats:
 
 If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_transport="tcp"`, that's a local read timeout on the SAM TCP socket (no inbound datagrams yet), not necessarily a SAM failure. The TCP datagram receiver was updated to block and let the bootstrap loop apply its own deadline.
 
+### Updated Run Notes (2026-02-04 19:30Z-ish)
+
+- SAM `SESSION CREATE STYLE=DATAGRAM` succeeded but took ~43s (so `sam.control_timeout_secs=120` is warranted).
+- We received inbound datagrams:
+  - a Kad1 `KADEMLIA_HELLO_REQ_DEPRECATED` (opcode `0x03`) from a peer
+  - a Kad2 `KADEMLIA2_BOOTSTRAP_RES` which decrypted successfully
+- The `nodes2.dat` downloader failed because `NAMING LOOKUP www.imule.i2p` returned `KEY_NOT_FOUND` on that router.
+
 ## Known SAM Quirk (DEST GENERATE)
 
 Some SAM implementations reply to `DEST GENERATE` as:
