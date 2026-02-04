@@ -55,6 +55,8 @@ Next things to try if this repeats:
 - Increase the bootstrap runtime (I2P tunnel build + lease set publication can take time).
 - Prefer a fresher/larger `nodes.dat` (this repo has both `datfiles/nodes.dat` and `source_ref/nodes.dat`; the app now prefers the `source_ref` one if `data/nodes.dat` is absent).
 
+If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_transport="tcp"`, that's a local read timeout on the SAM TCP socket (no inbound datagrams yet), not necessarily a SAM failure. The TCP datagram receiver was updated to block and let the bootstrap loop apply its own deadline.
+
 ## How To Run
 
 ```bash

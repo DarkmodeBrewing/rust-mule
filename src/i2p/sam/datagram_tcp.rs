@@ -118,7 +118,11 @@ impl SamDatagramTcp {
     /// Receive an incoming datagram from the SAM TCP connection.
     pub async fn recv(&mut self) -> Result<SamDatagramRecv> {
         loop {
-            let line = self.read_line_timeout().await?;
+            // Intentionally do not apply `io_timeout` here.
+            //
+            // Higher-level code (e.g. bootstrap loops) should apply its own timeout/deadline
+            // around `recv()`. This avoids turning "no traffic yet" into a hard error.
+            let line = self.read_line_blocking().await?;
             let reply = SamReply::parse(&line)
                 .with_context(|| format!("Bad SAM frame (raw={})", line.trim()))?;
 
@@ -134,13 +138,10 @@ impl SamDatagramTcp {
                     .with_context(|| format!("Bad SIZE in DATAGRAM RECEIVED: {}", reply.raw))?;
 
                 let mut payload = vec![0u8; size];
-                timeout(self.io_timeout, async {
-                    self.reader.read_exact(&mut payload).await?;
-                    Result::<()>::Ok(())
-                })
-                .await
-                .context("SAM read timed out while reading DATAGRAM payload")?
-                .context("Failed reading DATAGRAM payload")?;
+                self.reader
+                    .read_exact(&mut payload)
+                    .await
+                    .context("Failed reading DATAGRAM payload")?;
 
                 return Ok(SamDatagramRecv {
                     from_destination,
@@ -216,5 +217,18 @@ impl SamDatagramTcp {
         .await
         .context("SAM read timed out")?
         .context("SAM read failed")
+    }
+
+    async fn read_line_blocking(&mut self) -> Result<String> {
+        let mut buf = String::new();
+        let n = self
+            .reader
+            .read_line(&mut buf)
+            .await
+            .context("Failed to read SAM line")?;
+        if n == 0 {
+            bail!("SAM closed the connection");
+        }
+        Ok(buf.trim_end_matches(['\r', '\n']).to_string())
     }
 }
