@@ -11,6 +11,7 @@ control_timeout_secs = 30
 [kad]
 bootstrap_nodes_path = "nodes.dat"
 udp_port = 4665
+preferences_kad_path = "preferencesKad.dat"
 udp_key_secret = 0
 
 [i2p]

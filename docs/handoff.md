@@ -17,6 +17,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - iMule `nodes.dat` v2 parsing (I2P destinations, KadIDs, UDP keys) (`src/nodes/imule.rs`).
   - KAD packet encode/decode including iMule packed replies (pure-Rust zlib/deflate inflater) (`src/kad/wire.rs`, `src/kad/packed.rs`).
   - Minimal bootstrap probe: send `PING` + `BOOTSTRAP_REQ`, decode `PONG` + `BOOTSTRAP_RES` (`src/kad/bootstrap.rs`).
+  - I2P HTTP fetch helper over SAM STREAM (used to download a fresh `nodes2.dat`) (`src/i2p/http.rs`).
 - Removed obsolete code:
   - Legacy IPv4-focused `nodes.dat` parsing and old net probe helpers.
 
@@ -61,13 +62,24 @@ Next things to try if this repeats:
 
 If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_transport="tcp"`, that's a local read timeout on the SAM TCP socket (no inbound datagrams yet), not necessarily a SAM failure. The TCP datagram receiver was updated to block and let the bootstrap loop apply its own deadline.
 
+## Known SAM Quirk (DEST GENERATE)
+
+Some SAM implementations reply to `DEST GENERATE` as:
+
+- `DEST REPLY PUB=... PRIV=...`
+
+with **no** `RESULT=OK` field. `SamClient::dest_generate()` was updated to accept this (it now validates `PUB` and `PRIV` instead of requiring `RESULT=OK`). This unblocks:
+
+- `src/bin/sam_dgram_selftest.rs`
+- the `nodes2.dat` downloader (temporary STREAM sessions use `DEST GENERATE`)
+
 ### KAD UDP Obfuscation (iMule Compatibility)
 
 iMule encrypts/obfuscates KAD UDP packets (see `EncryptedDatagramSocket.cpp`) and includes sender/receiver verify keys.
 
 Implemented in Rust:
 - `src/kad/udp_crypto.rs`: MD5 + RC4 + iMule framing, plus `udp_verify_key()` compatible with iMule (using I2P dest hash in place of IPv4).
-- `kad.udp_key_secret` added to config and generated/persisted automatically (analogous to iMule `thePrefs::GetKadUDPKey()`).
+- `kad.udp_key_secret` can be configured explicitly. If left as `0`, the app will generate one and persist it under `data/kad_udp_key_secret.dat` (analogous to iMule `thePrefs::GetKadUDPKey()`), without mutating `config.toml`.
 
 Bootstrap now:
 - Encrypts outgoing `KADEMLIA2_BOOTSTRAP_REQ` using the target's KadID.

@@ -26,14 +26,18 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         "Loaded Kademlia identity"
     );
 
-    // Generate a persistent Kad UDP obfuscation secret, iMule-style.
+    // Load or create a persistent Kad UDP obfuscation secret, iMule-style.
+    //
+    // If `config.toml` provides a non-zero value, we treat it as an explicit override.
     if config.kad.udp_key_secret == 0 {
-        let mut b = [0u8; 4];
-        getrandom::getrandom(&mut b)
-            .map_err(|e| anyhow::anyhow!("failed to generate kad.udp_key_secret: {e}"))?;
-        config.kad.udp_key_secret = u32::from_le_bytes(b);
-        config.persist().await?;
-        tracing::info!("Generated kad.udp_key_secret and persisted config.toml");
+        let udp_key_path = std::path::Path::new(&config.general.data_dir)
+            .join("kad_udp_key_secret.dat");
+        config.kad.udp_key_secret =
+            crate::kad::udp_key::load_or_create_udp_key_secret(&udp_key_path).await?;
+        tracing::info!(
+            path = %udp_key_path.display(),
+            "Loaded/generated Kad UDP key secret"
+        );
     }
 
     tracing::info!(

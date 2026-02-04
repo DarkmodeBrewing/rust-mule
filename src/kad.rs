@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 
 pub mod bootstrap;
 pub mod packed;
+pub mod udp_key;
 pub mod udp_crypto;
 pub mod wire;
 
