@@ -3,8 +3,8 @@ host = "10.99.0.2"
 port = 7656
 udp_port = 7655
 session_name = "rust-mule"
-forward_host = "127.0.0.1"
-forward_port = 0
+forward_host = "10.99.0.1"
+forward_port = 40000
 
 [kad]
 bootstrap_nodes_path = "nodes.dat"
