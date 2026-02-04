@@ -1,7 +1,8 @@
 use crate::{
     i2p::sam::SamKadSocket,
     kad::wire::{
-        KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_PONG, KadPacket,
+        I2P_DEST_LEN, KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_PONG,
+        KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED, KadPacket,
         decode_kad2_bootstrap_res,
     },
     kad::{KadId, udp_crypto},
@@ -22,6 +23,7 @@ pub struct BootstrapCrypto {
     pub my_kad_id: KadId,
     pub my_dest_hash: u32,
     pub udp_key_secret: u32,
+    pub my_dest: [u8; I2P_DEST_LEN],
 }
 
 impl Default for BootstrapConfig {
@@ -88,6 +90,7 @@ pub async fn bootstrap(
     let mut received_total = 0usize;
     let mut dropped_unparsable = 0usize;
     let mut decrypted_ok = 0usize;
+    let mut hello_reqs = 0usize;
 
     while Instant::now() < deadline {
         let remain = deadline.saturating_duration_since(Instant::now());
@@ -145,6 +148,29 @@ pub async fn bootstrap(
         };
 
         match pkt.opcode {
+            KADEMLIA_HELLO_REQ_DEPRECATED => {
+                hello_reqs += 1;
+                tracing::info!(from = %recv.from_destination, "got KAD1 HELLO_REQ (deprecated)");
+
+                // Reply with our Kad1 contact details, iMule-style:
+                //   <ClientID 16><UDPDest 387><TCPDest 387><Type 1>
+                let mut payload = Vec::with_capacity(16 + 2 * I2P_DEST_LEN + 1);
+                payload.extend_from_slice(&crypto.my_kad_id.to_crypt_bytes());
+                payload.extend_from_slice(&crypto.my_dest);
+                payload.extend_from_slice(&crypto.my_dest);
+                payload.push(0); // self contact type in iMule
+
+                let res = KadPacket::encode(KADEMLIA_HELLO_RES_DEPRECATED, &payload);
+                if let Err(err) = sock.send_to(&recv.from_destination, &res).await {
+                    tracing::warn!(
+                        error = %err,
+                        to = %recv.from_destination,
+                        "failed sending KAD1 HELLO_RES"
+                    );
+                } else {
+                    tracing::info!(to = %recv.from_destination, "sent KAD1 HELLO_RES");
+                }
+            }
             KADEMLIA2_PONG => {
                 if pong_from.insert(recv.from_destination.clone()) {
                     tracing::info!(from = %recv.from_destination, "got KAD2 PONG");
@@ -183,6 +209,7 @@ pub async fn bootstrap(
         received_total,
         dropped_unparsable,
         decrypted_ok,
+        hello_reqs,
         pongs = pong_from.len(),
         boot_responses = bootstrap_from.len(),
         boot_contacts = new_contacts,

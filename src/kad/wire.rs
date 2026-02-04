@@ -12,6 +12,10 @@ pub const KADEMLIA2_HELLO_RES: u8 = 0x10;
 pub const KADEMLIA2_PING: u8 = 0x1E;
 pub const KADEMLIA2_PONG: u8 = 0x1F;
 
+// Kademlia v1 (deprecated) opcodes. Still seen in the wild (and in iMule codepaths).
+pub const KADEMLIA_HELLO_REQ_DEPRECATED: u8 = 0x03;
+pub const KADEMLIA_HELLO_RES_DEPRECATED: u8 = 0x04;
+
 pub const I2P_DEST_LEN: usize = 387;
 
 #[derive(Debug, Clone)]

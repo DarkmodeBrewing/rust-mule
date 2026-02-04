@@ -74,17 +74,17 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         generated_priv
     };
 
-    let my_dest_hash: u32 = {
-        let bytes = crate::i2p::b64::decode(&config.i2p.sam_public_key)
+    let my_dest_bytes = crate::i2p::b64::decode(&config.i2p.sam_public_key)
             .context("failed to decode i2p.sam_public_key as I2P base64")?;
-        if bytes.len() < 4 {
-            anyhow::bail!(
-                "decoded i2p.sam_public_key is too short: {} bytes",
-                bytes.len()
-            );
-        }
-        u32::from_le_bytes(bytes[0..4].try_into().unwrap())
-    };
+    if my_dest_bytes.len() != crate::kad::wire::I2P_DEST_LEN {
+        anyhow::bail!(
+            "decoded i2p.sam_public_key has wrong length: {} bytes (expected {})",
+            my_dest_bytes.len(),
+            crate::kad::wire::I2P_DEST_LEN
+        );
+    }
+    let my_dest_hash: u32 = u32::from_le_bytes(my_dest_bytes[0..4].try_into().unwrap());
+    let my_dest: [u8; crate::kad::wire::I2P_DEST_LEN] = my_dest_bytes.try_into().unwrap();
 
     let kad_session_id = format!("{base_session_name}-kad");
 
@@ -240,6 +240,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
             my_kad_id: kad_prefs.kad_id,
             my_dest_hash,
             udp_key_secret: config.kad.udp_key_secret,
+            my_dest,
         },
         Default::default(),
     )

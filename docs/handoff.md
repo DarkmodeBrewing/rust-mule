@@ -69,6 +69,7 @@ If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_trans
 - We received inbound datagrams:
   - a Kad1 `KADEMLIA_HELLO_REQ_DEPRECATED` (opcode `0x03`) from a peer
   - a Kad2 `KADEMLIA2_BOOTSTRAP_RES` which decrypted successfully
+- Rust now replies to Kad1 `HELLO_REQ` with a Kad1 `HELLO_RES` containing our I2P contact details, matching iMule's `WriteToKad1Contact()` layout.
 - The `nodes2.dat` downloader failed because `NAMING LOOKUP www.imule.i2p` returned `KEY_NOT_FOUND` on that router.
 
 ## Known SAM Quirk (DEST GENERATE)
