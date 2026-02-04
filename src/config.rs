@@ -16,6 +16,11 @@ fn default_session_name() -> String {
 fn default_forward_host() -> String {
     "127.0.0.1".to_string()
 }
+fn default_forward_port() -> u16 {
+    // 0 = let OS choose an ephemeral port. If SAM is remote and a firewall is in the way,
+    // you'll likely want to set this to a fixed port and allow inbound UDP from the SAM host.
+    0
+}
 fn default_log_level() -> String {
     "debug".to_string()
 }
@@ -59,6 +64,8 @@ pub struct SamConfig {
     /// Where the SAM bridge should forward inbound DATAGRAM/RAW UDP packets.
     /// Must be reachable from the SAM host (often `127.0.0.1` if SAM is local).
     pub forward_host: String,
+    /// UDP port to bind locally for SAM UDP forwarding. `0` means "pick any free port".
+    pub forward_port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +109,7 @@ impl Default for SamConfig {
             udp_port: default_sam_udp_port(),
             session_name: default_session_name(),
             forward_host: default_forward_host(),
+            forward_port: default_forward_port(),
         }
     }
 }

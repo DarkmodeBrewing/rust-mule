@@ -61,12 +61,18 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     let sam_forward_ip: IpAddr = config.sam.forward_host.parse()?;
     let kad_session_id = format!("{base_session_name}-kad");
 
+    let bind_ip = if sam_forward_ip.is_loopback() {
+        IpAddr::V4(Ipv4Addr::LOCALHOST)
+    } else {
+        IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+    };
+
     let dg: SamDatagramSocket = SamDatagramSocket::bind_for_forwarding(
         kad_session_id.clone(),
         sam_host_ip,
         config.sam.udp_port,
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-        0,
+        bind_ip,
+        config.sam.forward_port,
     )
     .await?;
 
