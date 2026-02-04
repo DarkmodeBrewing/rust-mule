@@ -244,10 +244,12 @@ impl SamClient {
 
         let line = cmd.to_line();
         let line_dbg = cmd.to_line_redacted();
+        tracing::debug!(expected_verb, cmd = %line_dbg, "SAM ->");
         self.send_line_crlf(&line).await?;
         let reply_line: String = self.read_line_timeout_for(&line_dbg).await?;
         let reply: SamReply = SamReply::parse(&reply_line)
             .with_context(|| format!("Bad SAM reply to: {line_dbg} (raw={})", reply_line.trim()))?;
+        tracing::debug!(raw = %reply.raw, "SAM <-");
 
         if reply.verb != expected_verb {
             bail!(
