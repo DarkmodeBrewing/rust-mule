@@ -2,6 +2,8 @@
 
 This repo is currently focused on bootstrapping an iMule-compatible Kademlia (KAD) overlay over I2P using SAM v3.
 
+If you're continuing work in a new chat session, start with `docs/handoff.md`.
+
 ## Branch
 
 Active work has been happening on the feature branch `feature/sam-protocol`.
@@ -71,4 +73,3 @@ If you leave `sam.forward_port = 0` (ephemeral), it is usually hard to forward t
 As part of the KAD-over-I2P alignment, the following obsolete/unused modules were removed:
 - `src/net/` (TCP probe helpers)
 - The older IPv4-centric `nodes.dat` parser in `src/nodes/parse.rs` and `src/nodes/detect.rs`
-
