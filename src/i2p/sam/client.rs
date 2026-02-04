@@ -1,5 +1,7 @@
+use crate::i2p::sam::datagram::build_session_create_datagram_forward;
 use crate::i2p::sam::protocol::{SamCommand, SamReply};
 use anyhow::{Context, Result, anyhow, bail};
+use std::net::IpAddr;
 use std::{
     pin::Pin,
     task::{Context as TaskContext, Poll},
@@ -52,6 +54,26 @@ impl SamClient {
             cmd = cmd.arg("OPTION", opt.as_ref());
         }
 
+        let reply = self.send_cmd(cmd, "SESSION").await?;
+        reply.require_ok()?;
+        Ok(reply)
+    }
+
+    pub async fn session_create_datagram_forward(
+        &mut self,
+        session_id: &str,
+        destination_privkey: &str,
+        forward_port: u16,
+        forward_host: IpAddr,
+        options: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<SamReply> {
+        let cmd = build_session_create_datagram_forward(
+            session_id,
+            destination_privkey,
+            forward_port,
+            forward_host,
+            options,
+        );
         let reply = self.send_cmd(cmd, "SESSION").await?;
         reply.require_ok()?;
         Ok(reply)
