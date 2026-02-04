@@ -1,6 +1,9 @@
-use crate::{config::Config, i2p::sam::SamClient, net::tcp_probe::tcp_probe};
+use crate::{
+    config::Config,
+    i2p::sam::{SamClient, SamStream},
+};
 use std::time::Duration;
-use tokio::{io::AsyncWriteExt, signal, time};
+use tokio::time;
 
 pub async fn run(mut config: Config) -> anyhow::Result<()> {
     tracing::info!(log = %config.general.log_level, data_dir = %config.general.data_dir, "starting app");
@@ -49,8 +52,8 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
 
     // Create a stream
     let dest: String = sam.naming_lookup("stats.i2p").await?;
-    let s: crate::i2p::sam::client::SamStream =
-        SamClient::stream_connect(&config.sam.host, config.sam.port, session_name, &dest).await?;
+    let _s: SamStream =
+        SamStream::connect(&config.sam.host, config.sam.port, session_name, &dest).await?;
 
     //SamClient::http_probe(s).await?;
 

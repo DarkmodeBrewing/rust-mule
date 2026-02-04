@@ -1,59 +1,75 @@
+use crate::i2p::sam::protocol::{SamCommand, SamReply};
 use anyhow::{Context, Result, anyhow, bail};
-use std::collections::HashMap;
+use std::{
+    pin::Pin,
+    task::{Context as TaskContext, Poll},
+};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf},
     net::TcpStream,
     time::{Duration, timeout},
 };
 
+/// A SAM v3 control-channel client (line-based request/reply protocol).
 pub struct SamClient {
     reader: BufReader<tokio::net::tcp::OwnedReadHalf>,
     writer: tokio::net::tcp::OwnedWriteHalf,
     io_timeout: Duration,
+    hello_done: bool,
 }
 
 impl SamClient {
-    pub async fn stream_connect(
-        host: &str,
-        port: u16,
-        session_name: &str,
-        dest: &str,
-    ) -> anyhow::Result<SamStream> {
-        let mut s: TcpStream = TcpStream::connect((host, port)).await?;
+    pub async fn connect_hello(host: &str, port: u16, min: &str, max: &str) -> Result<Self> {
+        let mut c = Self::connect(host, port).await?;
+        c.hello(min, max).await?;
+        Ok(c)
+    }
 
-        // HELLO must be first on this connection too.
-        s.write_all(b"HELLO VERSION MIN=3.0 MAX=3.3\r\n").await?;
-        // Read one line reply (you can reuse your parser later; keep it minimal for now)
-        let mut buf: Vec<u8> = vec![0u8; 256];
-        let n = s.read(&mut buf).await?;
-        let reply = String::from_utf8_lossy(&buf[..n]);
-        if !reply.contains("RESULT=OK") {
-            anyhow::bail!("SAM HELLO failed on stream socket: {}", reply.trim());
+    pub async fn session_destroy(&mut self, name: &str) -> Result<SamReply> {
+        let reply = self
+            .send_cmd(
+                SamCommand::new("SESSION DESTROY").arg("ID", name),
+                "SESSION",
+            )
+            .await?;
+        reply.require_ok()?;
+        Ok(reply)
+    }
+
+    pub async fn session_create(
+        &mut self,
+        style: &str,
+        name: &str,
+        destination: &str,
+        options: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<SamReply> {
+        let mut cmd = SamCommand::new("SESSION CREATE")
+            .arg("STYLE", style)
+            .arg("ID", name)
+            .arg("DESTINATION", destination);
+
+        for opt in options {
+            cmd = cmd.arg("OPTION", opt.as_ref());
         }
 
-        // Now CONNECT; after OK, the socket becomes the data stream
-        let cmd = format!("STREAM CONNECT ID={} DESTINATION={}", session_name, dest);
-        tracing::info!("SAM Command: {}", cmd);
-        tracing::info!(dest_len = dest.len(), "Using destination");
-        s.write_all(cmd.as_bytes()).await?;
+        let reply = self.send_cmd(cmd, "SESSION").await?;
+        reply.require_ok()?;
+        Ok(reply)
+    }
 
-        // Read reply
-        let n = s.read(&mut buf).await?;
-        let reply: std::borrow::Cow<'_, str> = String::from_utf8_lossy(&buf[..n]);
-        if !reply.contains("RESULT=OK") {
-            anyhow::bail!("STREAM CONNECT failed: {}", reply.trim());
-        }
-
-        Ok(SamStream { stream: s })
+    pub async fn naming_register(&mut self, name: &str, destination: &str) -> Result<SamReply> {
+        let cmd = SamCommand::new("NAMING REGISTER")
+            .arg("NAME", name)
+            .arg("DESTINATION", destination);
+        let reply = self.send_cmd(cmd, "NAMING").await?;
+        reply.require_ok()?;
+        Ok(reply)
     }
 
     pub async fn naming_lookup(&mut self, name: &str) -> anyhow::Result<String> {
-        let cmd = format!("NAMING LOOKUP NAME={}", name);
-        let reply = self.send_cmd_expect_raw(&cmd, "NAMING").await?;
-
-        if reply.kv.get("RESULT").map(String::as_str) != Some("OK") {
-            anyhow::bail!("NAMING LOOKUP failed: {}", reply.raw);
-        }
+        let cmd = SamCommand::new("NAMING LOOKUP").arg("NAME", name);
+        let reply = self.send_cmd(cmd, "NAMING").await?;
+        reply.require_ok()?;
 
         let value = reply
             .kv
@@ -75,25 +91,36 @@ impl SamClient {
             reader: BufReader::new(read_half),
             writer: write_half,
             io_timeout: Duration::from_secs(8),
+            hello_done: false,
         })
     }
 
     pub async fn session_create_idempotent(&mut self, name: &str, priv_key: &str) -> Result<()> {
-        let create_cmd: String = format!(
-            "SESSION CREATE STYLE=STREAM ID={} DESTINATION={} OPTION=i2cp.leaseSetEncType=4",
-            name, priv_key
-        );
+        let create_cmd = SamCommand::new("SESSION CREATE")
+            .arg("STYLE", "STREAM")
+            .arg("ID", name)
+            .arg("DESTINATION", priv_key)
+            .arg("OPTION", "i2cp.leaseSetEncType=4");
 
-        let reply: SamReply = self.send_cmd_expect_raw(&create_cmd, "SESSION").await?;
+        let reply: SamReply = self.send_cmd(create_cmd.clone(), "SESSION").await?;
         match (reply.result(), reply.message()) {
-            (Some("OK"), _) => return Ok(()),
+            (Some("OK"), _) => Ok(()),
 
-            (Some("I2P_ERROR"), Some("Session already exists")) => {
+            (Some("I2P_ERROR"), Some(msg))
+                if msg.contains("Session already exists")
+                    || msg.contains("Duplicate")
+                    || msg.contains("DUPLICATE")
+                    || msg.contains("DUPLICATED") =>
+            {
                 tracing::warn!(session=%name, "SAM session already exists; destroying and retrying");
 
                 // Try destroy, but be tolerant if it's already gone / races.
-                let destroy_cmd = format!("SESSION DESTROY ID={}", name);
-                let destroy_reply = self.send_cmd_expect_raw(&destroy_cmd, "SESSION").await?;
+                let destroy_reply = self
+                    .send_cmd(
+                        SamCommand::new("SESSION DESTROY").arg("ID", name),
+                        "SESSION",
+                    )
+                    .await?;
 
                 match destroy_reply.result() {
                     Some("OK") => {}
@@ -110,27 +137,11 @@ impl SamClient {
                     }
                 }
 
-                let reply2 = self.send_cmd_expect_raw(&create_cmd, "SESSION").await?;
-                if reply2.result() == Some("OK") {
-                    return Ok(());
-                }
-
-                bail!(
-                    "SESSION CREATE failed after retry: RESULT={:?} MESSAGE={:?} RAW={}",
-                    reply2.result(),
-                    reply2.message(),
-                    reply2.raw
-                );
+                let reply2 = self.send_cmd(create_cmd, "SESSION").await?;
+                reply2.require_ok()
             }
 
-            _ => {
-                bail!(
-                    "SESSION CREATE failed: RESULT={:?} MESSAGE={:?} RAW={}",
-                    reply.result(),
-                    reply.message(),
-                    reply.raw
-                );
-            }
+            _ => reply.require_ok(),
         }
     }
 
@@ -142,13 +153,26 @@ impl SamClient {
     // --- Public API ---
 
     pub async fn hello(&mut self, min: &str, max: &str) -> Result<SamReply> {
-        // More typical than "HELLO VERSION 3.3"
-        let cmd = format!("HELLO VERSION MIN={} MAX={}", min, max);
-        self.send_cmd_expect_ok(&cmd, "HELLO").await
+        let cmd = SamCommand::new("HELLO VERSION")
+            .arg("MIN", min)
+            .arg("MAX", max);
+        let reply = self.send_cmd(cmd, "HELLO").await?;
+        reply.require_ok()?;
+        self.hello_done = true;
+        Ok(reply)
+    }
+
+    pub async fn ping(&mut self) -> Result<SamReply> {
+        let reply = self.send_cmd(SamCommand::new("PING"), "PING").await?;
+        reply.require_ok()?;
+        Ok(reply)
     }
 
     pub async fn dest_generate(&mut self) -> Result<(String, String)> {
-        let reply: SamReply = self.send_cmd_expect_ok("DEST GENERATE", "DEST").await?;
+        let reply: SamReply = self
+            .send_cmd(SamCommand::new("DEST GENERATE"), "DEST")
+            .await?;
+        reply.require_ok()?;
 
         let priv_key: String = reply
             .kv
@@ -166,7 +190,7 @@ impl SamClient {
     }
 
     pub async fn http_get_over_i2p(
-        mut stream: tokio::net::TcpStream,
+        mut stream: impl AsyncRead + AsyncWrite + Unpin,
         host: &str,
     ) -> anyhow::Result<String> {
         let req = format!(
@@ -188,36 +212,19 @@ impl SamClient {
         Ok(String::from_utf8_lossy(&buf).to_string())
     }
 
-    // --- The one true IO pipeline ---
+    // --- Line IO pipeline (control channel) ---
 
-    pub async fn stream_accept(&mut self, session: &str) -> Result<()> {
-        let cmd: String = format!("STREAM ACCEPT ID={}", session);
-        let reply: SamReply = self.send_cmd_expect_raw(&cmd, "STREAM").await?;
-        if reply.kv.get("RESULT").map(String::as_str) == Some("OK") {
-            Ok(())
-        } else {
-            anyhow::bail!("STREAM ACCEPT failed: {}", reply.raw);
-        }
-    }
-
-    async fn send_cmd_expect_ok(&mut self, cmd: &str, expected_verb: &str) -> Result<SamReply> {
-        let reply: SamReply = self.send_cmd_expect_raw(cmd, expected_verb).await?;
-
-        if let Some(result) = reply.kv.get("RESULT") {
-            if result != "OK" {
-                let msg = reply.kv.get("MESSAGE").cloned().unwrap_or_default();
-                bail!("SAM error: {} {}", result, msg);
-            }
+    async fn send_cmd(&mut self, cmd: SamCommand, expected_verb: &str) -> Result<SamReply> {
+        // SAM requires HELLO as the first command on each TCP connection.
+        if !self.hello_done && expected_verb != "HELLO" {
+            bail!("SAM protocol error: HELLO must be the first command on a new connection");
         }
 
-        Ok(reply)
-    }
-
-    async fn send_cmd_expect_raw(&mut self, cmd: &str, expected_verb: &str) -> Result<SamReply> {
-        self.send_line_crlf(cmd).await?;
-        let line: String = self.read_line_timeout().await?;
-        let reply: SamReply = SamReply::parse(&line)
-            .with_context(|| format!("Bad SAM reply to: {cmd} (raw={})", line.trim()))?;
+        let line = cmd.to_line();
+        self.send_line_crlf(&line).await?;
+        let reply_line: String = self.read_line_timeout().await?;
+        let reply: SamReply = SamReply::parse(&reply_line)
+            .with_context(|| format!("Bad SAM reply to: {line} (raw={})", reply_line.trim()))?;
 
         if reply.verb != expected_verb {
             bail!(
@@ -261,97 +268,152 @@ impl SamClient {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SamReply {
-    pub verb: String,                // "HELLO", "SESSION", "DEST"
-    pub kind: String,                // "REPLY" / "STATUS"
-    pub kv: HashMap<String, String>, // RESULT, MESSAGE, PRIV, PUB, etc.
-    pub raw: String,
-}
-
-impl SamReply {
-    pub fn parse(line: &str) -> Result<Self> {
-        let raw = line.to_string();
-        let mut parts = raw.split_whitespace();
-
-        let verb = parts
-            .next()
-            .ok_or_else(|| anyhow!("Empty SAM reply"))?
-            .to_string();
-        let kind = parts
-            .next()
-            .ok_or_else(|| anyhow!("SAM reply missing kind"))?
-            .to_string();
-
-        let rest = raw.splitn(3, ' ').nth(2).unwrap_or("").trim();
-        let kv = parse_kv_pairs(rest)?;
-
-        Ok(Self {
-            verb,
-            kind,
-            kv,
-            raw,
-        })
-    }
-
-    pub fn result(&self) -> Option<&str> {
-        self.kv.get("RESULT").map(|s: &String| s.as_str())
-    }
-
-    pub fn message(&self) -> Option<&str> {
-        self.kv.get("MESSAGE").map(|s: &String| s.as_str())
-    }
-}
-
-fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
-    let mut map = HashMap::new();
-    let mut i = 0;
-    let bytes = input.as_bytes();
-
-    while i < bytes.len() {
-        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        if i >= bytes.len() {
-            break;
-        }
-
-        let key_start = i;
-        while i < bytes.len() && bytes[i] != b'=' {
-            i += 1;
-        }
-        if i >= bytes.len() {
-            return Err(anyhow!("Malformed KV (no '=') in: {}", input));
-        }
-        let key = &input[key_start..i];
-        i += 1; // '='
-
-        let value;
-        if i < bytes.len() && bytes[i] == b'"' {
-            i += 1;
-            let val_start = i;
-            while i < bytes.len() && bytes[i] != b'"' {
-                i += 1;
-            }
-            if i >= bytes.len() {
-                return Err(anyhow!("Unterminated quote in: {}", input));
-            }
-            value = input[val_start..i].to_string();
-            i += 1; // closing quote
-        } else {
-            let val_start = i;
-            while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
-                i += 1;
-            }
-            value = input[val_start..i].to_string();
-        }
-
-        map.insert(key.to_string(), value);
-    }
-
-    Ok(map)
-}
-
+/// A SAM STREAM socket after a successful `STREAM CONNECT` or `STREAM ACCEPT`.
+///
+/// This type preserves any bytes already buffered while reading the SAM status line,
+/// which is why we don't simply return a raw `TcpStream`.
 pub struct SamStream {
-    pub stream: TcpStream,
+    reader: BufReader<tokio::net::tcp::OwnedReadHalf>,
+    writer: tokio::net::tcp::OwnedWriteHalf,
+}
+
+impl SamStream {
+    /// Connect a SAM STREAM socket (new TCP connection to the SAM bridge).
+    pub async fn connect(host: &str, port: u16, session_name: &str, dest: &str) -> Result<Self> {
+        let (mut reader, mut writer) = connect_split(host, port).await?;
+        hello_on_socket(&mut reader, &mut writer).await?;
+
+        let cmd = SamCommand::new("STREAM CONNECT")
+            .arg("ID", session_name)
+            .arg("DESTINATION", dest)
+            .to_line();
+
+        send_line_crlf(&mut writer, &cmd).await?;
+        let line = read_line(&mut reader).await?;
+        let reply =
+            SamReply::parse(&line).with_context(|| format!("Bad SAM reply: {}", line.trim()))?;
+        if reply.verb != "STREAM" {
+            bail!(
+                "Unexpected SAM reply verb for STREAM CONNECT: {}",
+                reply.raw
+            );
+        }
+        reply.require_ok()?;
+
+        Ok(Self { reader, writer })
+    }
+
+    /// Accept an inbound SAM STREAM socket (new TCP connection to the SAM bridge).
+    ///
+    /// On success, SAM may include `DESTINATION=<peer>` in the STATUS line.
+    pub async fn accept(
+        host: &str,
+        port: u16,
+        session_name: &str,
+    ) -> Result<(Self, Option<String>)> {
+        let (mut reader, mut writer) = connect_split(host, port).await?;
+        hello_on_socket(&mut reader, &mut writer).await?;
+
+        let cmd = SamCommand::new("STREAM ACCEPT")
+            .arg("ID", session_name)
+            .to_line();
+
+        send_line_crlf(&mut writer, &cmd).await?;
+        let line = read_line(&mut reader).await?;
+        let reply =
+            SamReply::parse(&line).with_context(|| format!("Bad SAM reply: {}", line.trim()))?;
+        if reply.verb != "STREAM" {
+            bail!("Unexpected SAM reply verb for STREAM ACCEPT: {}", reply.raw);
+        }
+        reply.require_ok()?;
+
+        let peer = reply.kv.get("DESTINATION").cloned();
+        Ok((Self { reader, writer }, peer))
+    }
+}
+
+impl AsyncRead for SamStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.reader).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for SamStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        data: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.writer).poll_write(cx, data)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.writer).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.writer).poll_shutdown(cx)
+    }
+}
+
+async fn connect_split(
+    host: &str,
+    port: u16,
+) -> Result<(
+    BufReader<tokio::net::tcp::OwnedReadHalf>,
+    tokio::net::tcp::OwnedWriteHalf,
+)> {
+    let s: TcpStream = TcpStream::connect((host, port))
+        .await
+        .with_context(|| format!("SAM connect failed: {host}:{port}"))?;
+    let (read_half, write_half) = s.into_split();
+    Ok((BufReader::new(read_half), write_half))
+}
+
+async fn hello_on_socket(
+    reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
+    writer: &mut tokio::net::tcp::OwnedWriteHalf,
+) -> Result<()> {
+    // SAM requires HELLO as the first command on each TCP connection.
+    let cmd = SamCommand::new("HELLO VERSION")
+        .arg("MIN", "3.0")
+        .arg("MAX", "3.3")
+        .to_line();
+    send_line_crlf(writer, &cmd).await?;
+    let line = read_line(reader).await?;
+    let reply =
+        SamReply::parse(&line).with_context(|| format!("Bad SAM reply: {}", line.trim()))?;
+    if reply.verb != "HELLO" {
+        bail!("Unexpected SAM reply verb for HELLO: {}", reply.raw);
+    }
+    reply.require_ok()
+}
+
+async fn send_line_crlf(writer: &mut tokio::net::tcp::OwnedWriteHalf, line: &str) -> Result<()> {
+    let payload = format!("{line}\r\n");
+    writer
+        .write_all(payload.as_bytes())
+        .await
+        .with_context(|| format!("Failed to write SAM line: {line}"))?;
+    writer.flush().await.context("Failed to flush SAM line")?;
+    Ok(())
+}
+
+async fn read_line(reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>) -> Result<String> {
+    let mut buf = String::new();
+    let n = reader
+        .read_line(&mut buf)
+        .await
+        .context("Failed to read SAM line")?;
+    if n == 0 {
+        bail!("SAM closed the connection");
+    }
+    Ok(buf.trim_end_matches(['\r', '\n']).to_string())
 }
