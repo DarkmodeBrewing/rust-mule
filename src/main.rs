@@ -16,6 +16,8 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn validate_cfg(cfg: &rust_mule::config::Config) -> anyhow::Result<()> {
+    use rust_mule::config::SamDatagramTransport;
+
     cfg.sam
         .host
         .parse::<std::net::IpAddr>()
@@ -25,7 +27,9 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> anyhow::Result<()> {
         anyhow::bail!("Invalid sam.port '{}'", cfg.sam.port);
     }
 
-    if !(1..=65535).contains(&cfg.sam.udp_port) {
+    if matches!(cfg.sam.datagram_transport, SamDatagramTransport::UdpForward)
+        && !(1..=65535).contains(&cfg.sam.udp_port)
+    {
         anyhow::bail!("Invalid sam.udp_port '{}'", cfg.sam.udp_port);
     }
 
@@ -33,12 +37,14 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> anyhow::Result<()> {
         anyhow::bail!("Invalid sam.session_name '{}'", cfg.sam.session_name);
     }
 
-    cfg.sam
-        .forward_host
-        .parse::<std::net::IpAddr>()
-        .map_err(|e| {
-            anyhow::anyhow!("Invalid sam.forward_host '{}': {}", cfg.sam.forward_host, e)
-        })?;
+    if matches!(cfg.sam.datagram_transport, SamDatagramTransport::UdpForward) {
+        cfg.sam
+            .forward_host
+            .parse::<std::net::IpAddr>()
+            .map_err(|e| {
+                anyhow::anyhow!("Invalid sam.forward_host '{}': {}", cfg.sam.forward_host, e)
+            })?;
+    }
 
     if cfg.sam.control_timeout_secs == 0 {
         anyhow::bail!(

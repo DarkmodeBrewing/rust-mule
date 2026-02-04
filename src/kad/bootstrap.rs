@@ -1,5 +1,5 @@
 use crate::{
-    i2p::sam::SamDatagramSocket,
+    i2p::sam::SamKadSocket,
     kad::wire::{
         KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_PING, KADEMLIA2_PONG,
         KadPacket, decode_kad2_bootstrap_res,
@@ -26,7 +26,7 @@ impl Default for BootstrapConfig {
 }
 
 pub async fn bootstrap(
-    sock: &SamDatagramSocket,
+    sock: &mut SamKadSocket,
     nodes: &[ImuleNode],
     cfg: BootstrapConfig,
 ) -> Result<()> {
@@ -56,10 +56,10 @@ pub async fn bootstrap(
 
     for n in &initial {
         let dest = n.udp_dest_b64();
-        sock.send_to(&dest, &ping, Default::default())
+        sock.send_to(&dest, &ping)
             .await
             .with_context(|| "failed to send KAD2 PING")?;
-        sock.send_to(&dest, &boot, Default::default())
+        sock.send_to(&dest, &boot)
             .await
             .with_context(|| "failed to send KAD2 BOOTSTRAP_REQ")?;
     }

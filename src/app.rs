@@ -1,6 +1,6 @@
 use crate::{
-    config::Config,
-    i2p::sam::{SamClient, SamDatagramSocket},
+    config::{Config, SamDatagramTransport},
+    i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamKadSocket},
 };
 use std::{
     net::{IpAddr, Ipv4Addr},
@@ -59,92 +59,147 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         generated_priv
     };
 
-    // KAD-over-I2P uses SAM DATAGRAM sessions and UDP forwarding.
-    let sam_host_ip: IpAddr = config.sam.host.parse()?;
-    let sam_forward_ip: IpAddr = config.sam.forward_host.parse()?;
     let kad_session_id = format!("{base_session_name}-kad");
 
-    if sam_forward_ip.is_loopback() && !sam_host_ip.is_loopback() {
-        tracing::warn!(
-            sam_host = %sam_host_ip,
-            forward_host = %sam_forward_ip,
-            "sam.forward_host is loopback but the SAM bridge is remote; UDP forwarding will not reach this process"
-        );
-    }
-    if config.sam.forward_port == 0 && sam_host_ip != sam_forward_ip {
-        tracing::warn!(
-            sam_host = %sam_host_ip,
-            forward_host = %sam_forward_ip,
-            "sam.forward_port=0 (ephemeral) with remote SAM bridge; consider setting a fixed forward_port and opening/mapping it for UDP"
-        );
-    }
+    // KAD-over-I2P uses SAM `STYLE=DATAGRAM` sessions. We support both UDP-forwarding and
+    // iMule-style TCP datagrams.
+    let mut kad_sock: SamKadSocket = match config.sam.datagram_transport {
+        SamDatagramTransport::Tcp => {
+            let mut dg = SamDatagramTcp::connect(&config.sam.host, config.sam.port)
+                .await?
+                .with_timeout(Duration::from_secs(config.sam.control_timeout_secs));
+            dg.hello("3.0", "3.3").await?;
 
-    let bind_ip = if sam_forward_ip.is_loopback() {
-        IpAddr::V4(Ipv4Addr::LOCALHOST)
-    } else {
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-    };
+            if let Err(err) = dg
+                .session_create_datagram(
+                    &kad_session_id,
+                    &priv_key,
+                    [
+                        "i2cp.messageReliability=BestEffort",
+                        "i2cp.leaseSetEncType=4",
+                    ],
+                )
+                .await
+            {
+                let msg = err.to_string();
+                if msg.contains("Session already exists")
+                    || msg.contains("DUPLICATED_ID")
+                    || msg.contains("Duplicate")
+                {
+                    tracing::warn!(
+                        session = %kad_session_id,
+                        "SAM session exists; destroying and retrying"
+                    );
+                    let _ = dg.session_destroy(&kad_session_id).await;
+                    dg.session_create_datagram(
+                        &kad_session_id,
+                        &priv_key,
+                        [
+                            "i2cp.messageReliability=BestEffort",
+                            "i2cp.leaseSetEncType=4",
+                        ],
+                    )
+                    .await?;
+                } else {
+                    return Err(err);
+                }
+            }
 
-    let dg: SamDatagramSocket = SamDatagramSocket::bind_for_forwarding(
-        kad_session_id.clone(),
-        sam_host_ip,
-        config.sam.udp_port,
-        bind_ip,
-        config.sam.forward_port,
-    )
-    .await?;
+            tracing::info!(
+                session = %kad_session_id,
+                transport = "tcp",
+                "SAM DATAGRAM session ready"
+            );
+            SamKadSocket::Tcp(dg)
+        }
 
-    // Create SAM datagram session (idempotent-ish).
-    if let Err(err) = sam
-        .session_create_datagram_forward(
-            &kad_session_id,
-            &priv_key,
-            dg.forward_port(),
-            sam_forward_ip,
-            [
-                "i2cp.messageReliability=BestEffort",
-                "i2cp.leaseSetEncType=4",
-            ],
-        )
-        .await
-    {
-        if err.to_string().contains("Session already exists") {
-            tracing::warn!(session = %kad_session_id, "SAM session exists; destroying and retrying");
-            let _ = sam.session_destroy(&kad_session_id).await;
-            sam.session_create_datagram_forward(
-                &kad_session_id,
-                &priv_key,
-                dg.forward_port(),
-                sam_forward_ip,
-                [
-                    "i2cp.messageReliability=BestEffort",
-                    "i2cp.leaseSetEncType=4",
-                ],
+        SamDatagramTransport::UdpForward => {
+            let sam_host_ip: IpAddr = config.sam.host.parse()?;
+            let sam_forward_ip: IpAddr = config.sam.forward_host.parse()?;
+
+            if sam_forward_ip.is_loopback() && !sam_host_ip.is_loopback() {
+                tracing::warn!(
+                    sam_host = %sam_host_ip,
+                    forward_host = %sam_forward_ip,
+                    "sam.forward_host is loopback but the SAM bridge is remote; UDP forwarding will not reach this process"
+                );
+            }
+            if config.sam.forward_port == 0 && sam_host_ip != sam_forward_ip {
+                tracing::warn!(
+                    sam_host = %sam_host_ip,
+                    forward_host = %sam_forward_ip,
+                    "sam.forward_port=0 (ephemeral) with remote SAM bridge; consider setting a fixed forward_port and opening/mapping it for UDP"
+                );
+            }
+
+            let bind_ip = if sam_forward_ip.is_loopback() {
+                IpAddr::V4(Ipv4Addr::LOCALHOST)
+            } else {
+                IpAddr::V4(Ipv4Addr::UNSPECIFIED)
+            };
+
+            let dg: SamDatagramSocket = SamDatagramSocket::bind_for_forwarding(
+                kad_session_id.clone(),
+                sam_host_ip,
+                config.sam.udp_port,
+                bind_ip,
+                config.sam.forward_port,
             )
             .await?;
-        } else {
-            return Err(err);
-        }
-    }
 
-    tracing::info!(
-        session = %kad_session_id,
-        forward = %dg.forward_addr(),
-        sam_udp = %dg.sam_udp_addr(),
-        "SAM DATAGRAM session ready"
-    );
+            // Create SAM datagram session (idempotent-ish).
+            if let Err(err) = sam
+                .session_create_datagram_forward(
+                    &kad_session_id,
+                    &priv_key,
+                    dg.forward_port(),
+                    sam_forward_ip,
+                    [
+                        "i2cp.messageReliability=BestEffort",
+                        "i2cp.leaseSetEncType=4",
+                    ],
+                )
+                .await
+            {
+                if err.to_string().contains("Session already exists") {
+                    tracing::warn!(
+                        session = %kad_session_id,
+                        "SAM session exists; destroying and retrying"
+                    );
+                    let _ = sam.session_destroy(&kad_session_id).await;
+                    sam.session_create_datagram_forward(
+                        &kad_session_id,
+                        &priv_key,
+                        dg.forward_port(),
+                        sam_forward_ip,
+                        [
+                            "i2cp.messageReliability=BestEffort",
+                            "i2cp.leaseSetEncType=4",
+                        ],
+                    )
+                    .await?;
+                } else {
+                    return Err(err);
+                }
+            }
+
+            tracing::info!(
+                session = %kad_session_id,
+                transport = "udp_forward",
+                forward = %dg.forward_addr(),
+                sam_udp = %dg.sam_udp_addr(),
+                "SAM DATAGRAM session ready"
+            );
+            SamKadSocket::UdpForward(dg)
+        }
+    };
 
     let nodes_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
     let nodes_path = pick_existing_nodes_dat(&nodes_path);
     let nodes = crate::nodes::imule::nodes_dat_contacts(&nodes_path).await?;
     tracing::info!(path = %nodes_path.display(), count = nodes.len(), "loaded nodes.dat");
 
-    crate::kad::bootstrap::bootstrap(
-        &dg,
-        &nodes,
-        crate::kad::bootstrap::BootstrapConfig::default(),
-    )
-    .await?;
+    crate::kad::bootstrap::bootstrap(&mut kad_sock, &nodes, Default::default()).await?;
 
     tracing::info!("shutting down gracefully");
     Ok(())

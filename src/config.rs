@@ -24,6 +24,9 @@ fn default_forward_port() -> u16 {
 fn default_sam_control_timeout_secs() -> u64 {
     30
 }
+fn default_sam_datagram_transport() -> SamDatagramTransport {
+    SamDatagramTransport::Tcp
+}
 fn default_log_level() -> String {
     "debug".to_string()
 }
@@ -64,6 +67,7 @@ pub struct SamConfig {
     pub port: u16,
     pub udp_port: u16,
     pub session_name: String,
+    pub datagram_transport: SamDatagramTransport,
     /// Where the SAM bridge should forward inbound DATAGRAM/RAW UDP packets.
     /// Must be reachable from the SAM host (often `127.0.0.1` if SAM is local).
     pub forward_host: String,
@@ -71,6 +75,16 @@ pub struct SamConfig {
     pub forward_port: u16,
     /// Timeout for SAM TCP control-channel read/write operations.
     pub control_timeout_secs: u64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SamDatagramTransport {
+    /// Create `STYLE=DATAGRAM` with `HOST`+`PORT`, then send/receive over the SAM UDP port.
+    UdpForward,
+    /// Create `STYLE=DATAGRAM` without forwarding, then send/receive via `DATAGRAM SEND` and
+    /// `DATAGRAM RECEIVED` frames on the SAM TCP socket (iMule-style).
+    Tcp,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +127,7 @@ impl Default for SamConfig {
             port: default_sam_port(),
             udp_port: default_sam_udp_port(),
             session_name: default_session_name(),
+            datagram_transport: default_sam_datagram_transport(),
             forward_host: default_forward_host(),
             forward_port: default_forward_port(),
             control_timeout_secs: default_sam_control_timeout_secs(),
