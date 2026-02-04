@@ -2,7 +2,7 @@ use crate::{
     i2p::sam::SamDatagramSocket,
     kad::wire::{
         KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_PING, KADEMLIA2_PONG,
-        KadPacket, OP_KADEMLIAHEADER, OP_KADEMLIAPACKEDPROT, decode_kad2_bootstrap_res,
+        KadPacket, decode_kad2_bootstrap_res,
     },
     nodes::imule::ImuleNode,
 };
@@ -30,7 +30,18 @@ pub async fn bootstrap(
     nodes: &[ImuleNode],
     cfg: BootstrapConfig,
 ) -> Result<()> {
-    let initial = nodes.iter().take(cfg.max_initial).collect::<Vec<_>>();
+    let mut initial = nodes
+        .iter()
+        .filter(|n| n.kad_version != 0)
+        .collect::<Vec<_>>();
+    // Prefer verified and newer nodes first; it tends to yield faster responses.
+    initial.sort_by_key(|n| {
+        (
+            std::cmp::Reverse(n.verified),
+            std::cmp::Reverse(n.kad_version),
+        )
+    });
+    initial.truncate(cfg.max_initial);
     if initial.is_empty() {
         anyhow::bail!("no bootstrap nodes provided");
     }
@@ -83,28 +94,18 @@ pub async fn bootstrap(
                 if bootstrap_from.insert(recv.from_destination.clone()) {
                     tracing::info!(from = %recv.from_destination, "got KAD2 BOOTSTRAP_RES");
                 }
-                match pkt.protocol {
-                    OP_KADEMLIAHEADER => match decode_kad2_bootstrap_res(&pkt.payload) {
-                        Ok(res) => {
-                            new_contacts += res.contacts.len();
-                            tracing::info!(
-                                sender_kad_version = res.sender_kad_version,
-                                contacts = res.contacts.len(),
-                                "decoded BOOTSTRAP_RES"
-                            );
-                        }
-                        Err(err) => {
-                            tracing::warn!(error = %err, "failed to decode BOOTSTRAP_RES payload");
-                        }
-                    },
-                    OP_KADEMLIAPACKEDPROT => {
+                match decode_kad2_bootstrap_res(&pkt.payload) {
+                    Ok(res) => {
+                        new_contacts += res.contacts.len();
                         tracing::info!(
-                            from = %recv.from_destination,
-                            bytes = pkt.payload.len(),
-                            "received packed BOOTSTRAP_RES (zlib) but decompression is not implemented yet"
+                            sender_kad_version = res.sender_kad_version,
+                            contacts = res.contacts.len(),
+                            "decoded BOOTSTRAP_RES"
                         );
                     }
-                    _ => {}
+                    Err(err) => {
+                        tracing::warn!(error = %err, "failed to decode BOOTSTRAP_RES payload");
+                    }
                 }
             }
             other => {

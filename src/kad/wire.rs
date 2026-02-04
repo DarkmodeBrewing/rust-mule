@@ -1,4 +1,4 @@
-use crate::kad::KadId;
+use crate::kad::{KadId, packed};
 use anyhow::{Result, bail};
 
 pub const OP_KADEMLIAHEADER: u8 = 0x05;
@@ -43,11 +43,14 @@ impl KadPacket {
                 opcode,
                 payload: bytes[2..].to_vec(),
             }),
-            OP_KADEMLIAPACKEDPROT => Ok(Self {
-                protocol,
-                opcode,
-                payload: bytes[2..].to_vec(),
-            }),
+            OP_KADEMLIAPACKEDPROT => {
+                let decompressed = packed::inflate_zlib(&bytes[2..], 512 * 1024)?;
+                Ok(Self {
+                    protocol: OP_KADEMLIAHEADER,
+                    opcode,
+                    payload: decompressed,
+                })
+            }
             other => bail!("unknown kademlia protocol byte: 0x{other:02x}"),
         }
     }
