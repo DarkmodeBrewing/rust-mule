@@ -267,10 +267,8 @@ mod tests {
 
     #[test]
     fn allows_repeated_keys() {
-        let cmd = SamCommand::new("SESSION CREATE")
-            .arg("OPTION", "a=b")
-            .arg("OPTION", "c=d");
-        assert_eq!(cmd.to_line(), "SESSION CREATE OPTION=a=b OPTION=c=d");
+        let cmd = SamCommand::new("X").arg("K", "1").arg("K", "2");
+        assert_eq!(cmd.to_line(), "X K=1 K=2");
     }
 
     #[test]

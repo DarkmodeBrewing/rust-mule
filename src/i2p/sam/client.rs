@@ -51,7 +51,11 @@ impl SamClient {
             .arg("DESTINATION", destination);
 
         for opt in options {
-            cmd = cmd.arg("OPTION", opt.as_ref());
+            let opt = opt.as_ref();
+            let (k, v) = opt
+                .split_once('=')
+                .ok_or_else(|| anyhow!("SAM session option must be key=value (got '{opt}')"))?;
+            cmd = cmd.arg(k, v);
         }
 
         let reply = self.send_cmd(cmd, "SESSION").await?;
@@ -73,7 +77,7 @@ impl SamClient {
             forward_port,
             forward_host,
             options,
-        );
+        )?;
         let reply = self.send_cmd(cmd, "SESSION").await?;
         reply.require_ok()?;
         Ok(reply)
@@ -122,7 +126,8 @@ impl SamClient {
             .arg("STYLE", "STREAM")
             .arg("ID", name)
             .arg("DESTINATION", priv_key)
-            .arg("OPTION", "i2cp.leaseSetEncType=4");
+            .arg("i2cp.messageReliability", "BestEffort")
+            .arg("i2cp.leaseSetEncType", "4");
 
         let reply: SamReply = self.send_cmd(create_cmd.clone(), "SESSION").await?;
         match (reply.result(), reply.message()) {

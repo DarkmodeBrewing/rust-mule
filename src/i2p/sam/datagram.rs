@@ -140,7 +140,7 @@ pub fn build_session_create_datagram_forward(
     forward_port: u16,
     forward_host: IpAddr,
     opts: impl IntoIterator<Item = impl AsRef<str>>,
-) -> SamCommand {
+) -> Result<SamCommand> {
     // SESSION CREATE STYLE=DATAGRAM requires PORT for forwarding.
     let mut cmd = SamCommand::new("SESSION CREATE")
         .arg("STYLE", "DATAGRAM")
@@ -150,10 +150,14 @@ pub fn build_session_create_datagram_forward(
         .arg("HOST", forward_host.to_string());
 
     for opt in opts {
-        cmd = cmd.arg("OPTION", opt.as_ref());
+        let opt = opt.as_ref();
+        let (k, v) = opt
+            .split_once('=')
+            .ok_or_else(|| anyhow::anyhow!("SAM session option must be key=value (got '{opt}')"))?;
+        cmd = cmd.arg(k, v);
     }
 
-    cmd
+    Ok(cmd)
 }
 
 fn parse_forwarded_repliable(buf: &[u8]) -> Result<SamDatagramRecv> {
@@ -219,14 +223,15 @@ mod tests {
             9999,
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             ["inbound.quantity=2", "outbound.quantity=2"],
-        );
+        )
+        .unwrap();
         let line = cmd.to_line();
         assert!(line.contains("STYLE=DATAGRAM"));
         assert!(line.contains("ID=sess"));
         assert!(line.contains("DESTINATION=priv"));
         assert!(line.contains("PORT=9999"));
         assert!(line.contains("HOST=127.0.0.1"));
-        assert!(line.contains("OPTION=inbound.quantity=2"));
-        assert!(line.contains("OPTION=outbound.quantity=2"));
+        assert!(line.contains("inbound.quantity=2"));
+        assert!(line.contains("outbound.quantity=2"));
     }
 }
