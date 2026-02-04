@@ -103,6 +103,31 @@ impl SamCommand {
 
         s
     }
+
+    /// Render a debug-friendly command line with sensitive values redacted.
+    ///
+    /// This is intended for logs/errors. It does not include trailing CRLF.
+    pub fn to_line_redacted(&self) -> String {
+        let mut s = String::new();
+        s.push_str(self.verb);
+
+        for (k, v) in &self.args {
+            s.push(' ');
+            s.push_str(k);
+            s.push('=');
+
+            // Common secrets in SAM:
+            // - DESTINATION on SESSION CREATE (private key)
+            // - PRIV/PUB returned by DEST GENERATE, or passed around in other commands
+            if k == "DESTINATION" || k == "PRIV" || k == "PUB" {
+                s.push_str(&format!("<redacted:{}>", v.len()));
+            } else {
+                s.push_str(&encode_value(v));
+            }
+        }
+
+        s
+    }
 }
 
 fn encode_value(v: &str) -> String {

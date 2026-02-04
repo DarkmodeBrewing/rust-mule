@@ -243,10 +243,11 @@ impl SamClient {
         }
 
         let line = cmd.to_line();
+        let line_dbg = cmd.to_line_redacted();
         self.send_line_crlf(&line).await?;
-        let reply_line: String = self.read_line_timeout().await?;
+        let reply_line: String = self.read_line_timeout_for(&line_dbg).await?;
         let reply: SamReply = SamReply::parse(&reply_line)
-            .with_context(|| format!("Bad SAM reply to: {line} (raw={})", reply_line.trim()))?;
+            .with_context(|| format!("Bad SAM reply to: {line_dbg} (raw={})", reply_line.trim()))?;
 
         if reply.verb != expected_verb {
             bail!(
@@ -275,7 +276,7 @@ impl SamClient {
         Ok(())
     }
 
-    async fn read_line_timeout(&mut self) -> Result<String> {
+    async fn read_line_timeout_for(&mut self, waiting_for: &str) -> Result<String> {
         timeout(self.io_timeout, async {
             let mut buf = String::new();
             let n = self.reader.read_line(&mut buf).await?;
@@ -285,7 +286,7 @@ impl SamClient {
             Ok::<String, anyhow::Error>(buf.trim_end_matches(['\r', '\n']).to_string())
         })
         .await
-        .context("SAM read timed out")?
+        .with_context(|| format!("SAM read timed out waiting for reply to: {waiting_for}"))?
         .context("SAM read failed")
     }
 }
