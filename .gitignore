@@ -6,3 +6,5 @@
 /datfiles
 /data
 /source_ref
+*.log
+log.txt

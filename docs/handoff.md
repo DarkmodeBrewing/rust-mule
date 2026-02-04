@@ -41,6 +41,19 @@ Mitigation:
 - `sam.control_timeout_secs` (default `30`) controls SAM control-channel read/write timeouts.
 - With `general.log_level = "debug"`, the app logs the exact SAM command it was waiting on (with private keys redacted).
 
+## Latest Run Notes (2026-02-04)
+
+Observed with `sam.datagram_transport = "tcp"`:
+- SAM `HELLO` OK.
+- `SESSION CREATE STYLE=DATAGRAM ...` OK.
+- Loaded `datfiles/nodes.dat` (35 contacts).
+- Sent initial `KADEMLIA2_BOOTSTRAP_REQ` to peers, but received **0** `PONG`/`BOOTSTRAP_RES` responses within the bootstrap window.
+
+Next things to try if this repeats:
+- Switch to `sam.datagram_transport = "udp_forward"` (some SAM bridges implement UDP forwarding more reliably than TCP datagrams).
+- Ensure Docker/host UDP forwarding is mapped correctly if using `udp_forward` (`sam.forward_host` must be reachable from the SAM host).
+- Increase the bootstrap runtime (I2P tunnel build + lease set publication can take time).
+
 ## How To Run
 
 ```bash

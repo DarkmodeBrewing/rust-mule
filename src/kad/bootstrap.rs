@@ -1,8 +1,8 @@
 use crate::{
     i2p::sam::SamKadSocket,
     kad::wire::{
-        KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_PING, KADEMLIA2_PONG,
-        KadPacket, decode_kad2_bootstrap_res,
+        KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_PONG, KadPacket,
+        decode_kad2_bootstrap_res,
     },
     nodes::imule::ImuleNode,
 };
@@ -19,8 +19,9 @@ pub struct BootstrapConfig {
 impl Default for BootstrapConfig {
     fn default() -> Self {
         Self {
-            max_initial: 16,
-            runtime: Duration::from_secs(10),
+            max_initial: 64,
+            // I2P tunnel build + lease set publication can take a bit; give bootstrap time.
+            runtime: Duration::from_secs(60),
         }
     }
 }
@@ -46,19 +47,12 @@ pub async fn bootstrap(
         anyhow::bail!("no bootstrap nodes provided");
     }
 
-    let ping = KadPacket::encode(KADEMLIA2_PING, &[]);
     let boot = KadPacket::encode(KADEMLIA2_BOOTSTRAP_REQ, &[]);
 
-    tracing::info!(
-        peers = initial.len(),
-        "sending initial KAD2 PING + BOOTSTRAP_REQ"
-    );
+    tracing::info!(peers = initial.len(), "sending initial KAD2 BOOTSTRAP_REQ");
 
     for n in &initial {
         let dest = n.udp_dest_b64();
-        sock.send_to(&dest, &ping)
-            .await
-            .with_context(|| "failed to send KAD2 PING")?;
         sock.send_to(&dest, &boot)
             .await
             .with_context(|| "failed to send KAD2 BOOTSTRAP_REQ")?;
