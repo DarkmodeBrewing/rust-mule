@@ -211,9 +211,49 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     };
 
     let nodes_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
+    let preferred_nodes_path = nodes_path.clone();
     let nodes_path = pick_existing_nodes_dat(&nodes_path);
     let mut nodes = crate::nodes::imule::nodes_dat_contacts(&nodes_path).await?;
     tracing::info!(path = %nodes_path.display(), count = nodes.len(), "loaded nodes.dat");
+
+    // If our persisted `data/nodes.dat` ever shrinks to a tiny set (e.g. after a long eviction
+    // cycle), re-seed it from repo-bundled reference nodes to avoid getting stuck with too few
+    // bootstrap candidates on the next run.
+    if nodes_path == preferred_nodes_path && nodes.len() < 50 {
+        let mut merged = BTreeMap::<String, crate::nodes::imule::ImuleNode>::new();
+        for n in nodes.drain(..) {
+            merged.insert(n.udp_dest_b64(), n);
+        }
+
+        for fallback in ["source_ref/nodes.dat", "datfiles/nodes.dat"] {
+            let p = Path::new(fallback);
+            if !p.exists() {
+                continue;
+            }
+            if let Ok(extra) = crate::nodes::imule::nodes_dat_contacts(p).await {
+                for n in extra {
+                    merged.entry(n.udp_dest_b64()).or_insert(n);
+                }
+            }
+        }
+
+        let mut out_nodes: Vec<_> = merged.into_values().collect();
+        out_nodes.sort_by_key(|n| (std::cmp::Reverse(n.verified), std::cmp::Reverse(n.kad_version)));
+        out_nodes.truncate(config.kad.service_max_persist_nodes.max(2000));
+
+        if out_nodes.len() >= 50 && out_nodes.len() > nodes.len() {
+            tracing::warn!(
+                from = nodes.len(),
+                to = out_nodes.len(),
+                path = %preferred_nodes_path.display(),
+                "nodes.dat seed pool was small; re-seeded from bundled references"
+            );
+            let _ = crate::nodes::imule::persist_nodes_dat_v2(&preferred_nodes_path, &out_nodes).await;
+            nodes = out_nodes;
+        } else {
+            nodes = out_nodes;
+        }
+    }
 
     // If we are forced to fall back to repo-bundled reference nodes, try to refresh them via I2P.
     // iMule defaults to `http://www.imule.i2p/nodes2.dat`.

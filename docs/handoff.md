@@ -218,3 +218,4 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
 - `kad.service_req_contacts` should be in `1..=31`. (Kad2 masks this field with `0x1F`.)
   - If it is set to `32`, it will effectively become `1`, which slows discovery dramatically.
 - The service persists `nodes.dat` periodically. It now merges the current routing snapshot into the existing on-disk `nodes.dat` to avoid losing seed nodes after an eviction cycle.
+- If `data/nodes.dat` ever shrinks to a very small set (e.g. after a long run evicts lots of dead peers), startup will re-seed it by merging in `source_ref/nodes.dat` / `datfiles/nodes.dat` if present.
