@@ -74,7 +74,8 @@ impl Default for KadServiceConfig {
             maintenance_every_secs: 5,
             status_every_secs: 60,
             max_failures: 5,
-            evict_age_secs: 3600,
+            // I2P peers can be very intermittent; don't aggressively evict by default.
+            evict_age_secs: 24 * 60 * 60,
         }
     }
 }

@@ -182,7 +182,7 @@ Additional tuning knobs:
 - `service_hello_min_interval_secs` (default `900`)
 - `service_maintenance_every_secs` (default `5`)
 - `service_max_failures` (default `5`)
-- `service_evict_age_secs` (default `3600`)
+- `service_evict_age_secs` (default `86400`)
 
 ## Logging Notes
 

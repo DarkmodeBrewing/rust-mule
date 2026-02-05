@@ -220,6 +220,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     // cycle), re-seed it from repo-bundled reference nodes to avoid getting stuck with too few
     // bootstrap candidates on the next run.
     if nodes_path == preferred_nodes_path && nodes.len() < 50 {
+        let original_count = nodes.len();
         let mut merged = BTreeMap::<String, crate::nodes::imule::ImuleNode>::new();
         for n in nodes.drain(..) {
             merged.insert(n.udp_dest_b64(), n);
@@ -241,9 +242,9 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         out_nodes.sort_by_key(|n| (std::cmp::Reverse(n.verified), std::cmp::Reverse(n.kad_version)));
         out_nodes.truncate(config.kad.service_max_persist_nodes.max(2000));
 
-        if out_nodes.len() >= 50 && out_nodes.len() > nodes.len() {
+        if out_nodes.len() >= 50 && out_nodes.len() > original_count {
             tracing::warn!(
-                from = nodes.len(),
+                from = original_count,
                 to = out_nodes.len(),
                 path = %preferred_nodes_path.display(),
                 "nodes.dat seed pool was small; re-seeded from bundled references"
