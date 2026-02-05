@@ -10,13 +10,17 @@ pub const KADEMLIA2_BOOTSTRAP_REQ: u8 = 0x0D;
 pub const KADEMLIA2_BOOTSTRAP_RES: u8 = 0x0E;
 pub const KADEMLIA2_HELLO_REQ: u8 = 0x0F;
 pub const KADEMLIA2_HELLO_RES: u8 = 0x10;
+pub const KADEMLIA2_REQ: u8 = 0x11;
 pub const KADEMLIA2_HELLO_RES_ACK: u8 = 0x12;
+pub const KADEMLIA2_RES: u8 = 0x13;
 pub const KADEMLIA2_PING: u8 = 0x1E;
 pub const KADEMLIA2_PONG: u8 = 0x1F;
 
 // Kademlia v1 (deprecated) opcodes. Still seen in the wild (and in iMule codepaths).
 pub const KADEMLIA_HELLO_REQ_DEPRECATED: u8 = 0x03;
 pub const KADEMLIA_HELLO_RES_DEPRECATED: u8 = 0x04;
+pub const KADEMLIA_REQ_DEPRECATED: u8 = 0x05;
+pub const KADEMLIA_RES_DEPRECATED: u8 = 0x06;
 
 pub const I2P_DEST_LEN: usize = 387;
 
@@ -89,6 +93,21 @@ pub struct Kad2Hello {
     pub tags: BTreeMap<u8, u64>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Kad2Req {
+    pub kind: u8,
+    pub target: KadId,
+    pub check: KadId,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Kad1Req {
+    pub kind: u8,
+    pub target: KadId,
+    pub check: KadId,
+    pub sender_id: KadId,
+}
+
 pub fn decode_kad2_bootstrap_res(payload: &[u8]) -> Result<Kad2BootstrapRes> {
     let mut r = Reader::new(payload);
 
@@ -142,6 +161,66 @@ pub fn decode_kad2_hello(payload: &[u8]) -> Result<Kad2Hello> {
         udp_dest,
         tags,
     })
+}
+
+pub fn decode_kad2_req(payload: &[u8]) -> Result<Kad2Req> {
+    let mut r = Reader::new(payload);
+    let kind = r.read_u8()? & 0x1F;
+    if kind == 0 {
+        bail!("kademlia2 req kind=0");
+    }
+    let target = r.read_uint128_emule()?;
+    let check = r.read_uint128_emule()?;
+    Ok(Kad2Req {
+        kind,
+        target,
+        check,
+    })
+}
+
+pub fn encode_kad2_res(target: KadId, contacts: &[Kad2Contact]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16 + 1 + contacts.len() * (1 + 16 + I2P_DEST_LEN));
+    out.extend_from_slice(&target.to_crypt_bytes());
+    out.push(contacts.len().min(255) as u8);
+    for c in contacts.iter().take(255) {
+        out.push(c.kad_version);
+        out.extend_from_slice(&c.node_id.to_crypt_bytes());
+        out.extend_from_slice(&c.udp_dest);
+    }
+    out
+}
+
+pub fn decode_kad1_req(payload: &[u8]) -> Result<Kad1Req> {
+    let mut r = Reader::new(payload);
+    let kind = r.read_u8()? & 0x1F;
+    if kind == 0 {
+        bail!("kademlia req kind=0");
+    }
+    let target = r.read_uint128_emule()?;
+    let check = r.read_uint128_emule()?;
+    let sender_id = r.read_uint128_emule()?;
+    Ok(Kad1Req {
+        kind,
+        target,
+        check,
+        sender_id,
+    })
+}
+
+pub fn encode_kad1_res(target: KadId, contacts: &[(KadId, [u8; I2P_DEST_LEN])]) -> Vec<u8> {
+    // Layout (iMule `WriteToKad1Contact`):
+    // <target u128><count u8><contact>*count
+    // where contact = <client_id u128><udp_dest 387><tcp_dest 387><type u8>
+    let mut out = Vec::with_capacity(16 + 1 + contacts.len() * (16 + 2 * I2P_DEST_LEN + 1));
+    out.extend_from_slice(&target.to_crypt_bytes());
+    out.push(contacts.len().min(255) as u8);
+    for (id, udp_dest) in contacts.iter().take(255) {
+        out.extend_from_slice(&id.to_crypt_bytes());
+        out.extend_from_slice(udp_dest);
+        out.extend_from_slice(udp_dest); // TCP dest == UDP dest for I2P in iMule
+        out.push(3); // default contact type
+    }
+    out
 }
 
 struct Reader<'a> {

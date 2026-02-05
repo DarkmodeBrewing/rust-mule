@@ -2,9 +2,11 @@ use crate::{
     i2p::sam::SamKadSocket,
     kad::wire::{
         I2P_DEST_LEN, KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED,
-        KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
-        KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PONG, KadPacket, TAG_KADMISCOPTIONS,
-        decode_kad2_bootstrap_res, decode_kad2_hello, encode_kad2_hello,
+        KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
+        KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES, KADEMLIA2_HELLO_RES_ACK,
+        KADEMLIA2_PONG, KADEMLIA2_REQ, KADEMLIA2_RES, KadPacket, TAG_KADMISCOPTIONS,
+        decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello, decode_kad2_req,
+        encode_kad1_res, encode_kad2_hello, encode_kad2_res,
     },
     kad::{KadId, udp_crypto},
     nodes::imule::ImuleNode,
@@ -26,6 +28,70 @@ pub struct BootstrapCrypto {
     pub my_dest_hash: u32,
     pub udp_key_secret: u32,
     pub my_dest: [u8; I2P_DEST_LEN],
+}
+
+fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    for i in 0..16 {
+        out[i] = a.0[i] ^ b.0[i];
+    }
+    out
+}
+
+fn closest_kad2_contacts(
+    known: impl IntoIterator<Item = ImuleNode>,
+    target: KadId,
+    max: usize,
+    exclude_dest_hash: u32,
+) -> Vec<crate::kad::wire::Kad2Contact> {
+    let mut candidates = Vec::new();
+    for n in known {
+        if n.kad_version == 0 {
+            continue;
+        }
+        if u32::from_le_bytes(n.udp_dest[0..4].try_into().unwrap()) == exclude_dest_hash {
+            continue;
+        }
+        candidates.push(n);
+    }
+
+    candidates.sort_by_key(|n| xor_distance(KadId(n.client_id), target));
+
+    candidates
+        .into_iter()
+        .take(max)
+        .map(|n| crate::kad::wire::Kad2Contact {
+            kad_version: n.kad_version,
+            node_id: KadId(n.client_id),
+            udp_dest: n.udp_dest,
+        })
+        .collect()
+}
+
+fn closest_kad1_contacts(
+    known: impl IntoIterator<Item = ImuleNode>,
+    target: KadId,
+    max: usize,
+    exclude_dest_hash: u32,
+) -> Vec<(KadId, [u8; I2P_DEST_LEN])> {
+    let mut candidates = Vec::new();
+    for n in known {
+        if n.kad_version == 0 {
+            continue;
+        }
+        if u32::from_le_bytes(n.udp_dest[0..4].try_into().unwrap()) == exclude_dest_hash {
+            continue;
+        }
+        candidates.push(n);
+    }
+
+    candidates.sort_by_key(|n| xor_distance(KadId(n.client_id), target));
+
+    candidates
+        .into_iter()
+        .take(max)
+        .map(|n| (KadId(n.client_id), n.udp_dest))
+        .collect()
 }
 
 impl Default for BootstrapConfig {
@@ -135,6 +201,10 @@ pub async fn bootstrap(
     let mut hello2_ress = 0usize;
     let mut hello2_ack_sent = 0usize;
     let mut hello2_ack_recv = 0usize;
+    let mut kad2_reqs = 0usize;
+    let mut kad2_res_sent = 0usize;
+    let mut kad1_reqs = 0usize;
+    let mut kad1_res_sent = 0usize;
 
     let mut discovered = BTreeMap::<String, ImuleNode>::new();
 
@@ -404,6 +474,111 @@ pub async fn bootstrap(
                 hello2_ack_recv += 1;
                 tracing::info!(from = %recv.from_destination, valid_receiver_key, "got KAD2 HELLO_RES_ACK");
             }
+            KADEMLIA2_REQ => {
+                kad2_reqs += 1;
+                let req = match decode_kad2_req(&pkt.payload) {
+                    Ok(r) => r,
+                    Err(err) => {
+                        dropped_unparsable += 1;
+                        tracing::debug!(
+                            error = %err,
+                            from = %recv.from_destination,
+                            "failed to decode KAD2 REQ payload"
+                        );
+                        continue;
+                    }
+                };
+
+                if req.check != crypto.my_kad_id {
+                    tracing::debug!(
+                        from = %recv.from_destination,
+                        "ignoring KAD2 REQ with mismatched check id"
+                    );
+                    continue;
+                }
+
+                let max = (req.kind as usize).min(32);
+                let known = nodes
+                    .iter()
+                    .cloned()
+                    .chain(discovered.values().cloned())
+                    .collect::<Vec<_>>();
+                let contacts = closest_kad2_contacts(known, req.target, max, from_hash);
+                let res_payload = encode_kad2_res(req.target, &contacts);
+                let res_plain = KadPacket::encode(KADEMLIA2_RES, &res_payload);
+
+                let sender_verify_key =
+                    udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+                let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                    // iMule encrypts KADEMLIA2_RES using the receiver verify key (senderVerifyKey of remote).
+                    udp_crypto::encrypt_kad_packet_with_receiver_key(
+                        &res_plain,
+                        decrypted.sender_verify_key,
+                        sender_verify_key,
+                    )?
+                } else {
+                    res_plain
+                };
+
+                if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
+                    tracing::warn!(
+                        error = %err,
+                        to = %recv.from_destination,
+                        "failed sending KAD2 RES"
+                    );
+                } else {
+                    kad2_res_sent += 1;
+                    tracing::debug!(
+                        to = %recv.from_destination,
+                        contacts = contacts.len(),
+                        "sent KAD2 RES"
+                    );
+                }
+            }
+            KADEMLIA_REQ_DEPRECATED => {
+                kad1_reqs += 1;
+                let req = match decode_kad1_req(&pkt.payload) {
+                    Ok(r) => r,
+                    Err(err) => {
+                        dropped_unparsable += 1;
+                        tracing::debug!(
+                            error = %err,
+                            from = %recv.from_destination,
+                            "failed to decode KAD1 REQ payload"
+                        );
+                        continue;
+                    }
+                };
+
+                if req.check != crypto.my_kad_id {
+                    continue;
+                }
+
+                let max = (req.kind as usize).min(16);
+                let known = nodes
+                    .iter()
+                    .cloned()
+                    .chain(discovered.values().cloned())
+                    .collect::<Vec<_>>();
+                let contacts = closest_kad1_contacts(known, req.target, max, from_hash);
+                let res_payload = encode_kad1_res(req.target, &contacts);
+                let res_plain = KadPacket::encode(KADEMLIA_RES_DEPRECATED, &res_payload);
+
+                if let Err(err) = sock.send_to(&recv.from_destination, &res_plain).await {
+                    tracing::warn!(
+                        error = %err,
+                        to = %recv.from_destination,
+                        "failed sending KAD1 RES"
+                    );
+                } else {
+                    kad1_res_sent += 1;
+                    tracing::debug!(
+                        to = %recv.from_destination,
+                        contacts = contacts.len(),
+                        "sent KAD1 RES"
+                    );
+                }
+            }
             KADEMLIA2_PONG => {
                 if pong_from.insert(recv.from_destination.clone()) {
                     tracing::info!(from = %recv.from_destination, "got KAD2 PONG");
@@ -488,6 +663,10 @@ pub async fn bootstrap(
         hello2_ress,
         hello2_ack_sent,
         hello2_ack_recv,
+        kad2_reqs,
+        kad2_res_sent,
+        kad1_reqs,
+        kad1_res_sent,
         pongs = pong_from.len(),
         boot_responses = bootstrap_from.len(),
         boot_contacts = new_contacts,
