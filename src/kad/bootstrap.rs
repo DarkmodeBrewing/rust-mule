@@ -4,8 +4,8 @@ use crate::{
         I2P_DEST_LEN, KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED,
         KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
         KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES, KADEMLIA2_HELLO_RES_ACK,
-        KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ,
-        KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
+        KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ,
+        KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
         TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
         decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_search_source_req,
         encode_kad1_res, encode_kad2_hello, encode_kad2_publish_res_for_source, encode_kad2_res,
@@ -212,6 +212,8 @@ pub async fn bootstrap(
     let mut search_res_sent = 0usize;
     let mut kad1_reqs = 0usize;
     let mut kad1_res_sent = 0usize;
+    let mut pings = 0usize;
+    let mut pongs_sent = 0usize;
 
     let mut discovered = BTreeMap::<String, ImuleNode>::new();
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
@@ -713,6 +715,35 @@ pub async fn bootstrap(
                     tracing::info!(from = %recv.from_destination, "got KAD2 PONG");
                 }
             }
+            KADEMLIA2_PING => {
+                pings += 1;
+
+                // iMule answers PING with an (empty) PONG; if the incoming packet was obfuscated and
+                // carried a sender verify key, iMule encrypts the response using receiver-key crypto.
+                let pong_plain = KadPacket::encode(KADEMLIA2_PONG, &[]);
+                let sender_verify_key =
+                    udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+                let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                    udp_crypto::encrypt_kad_packet_with_receiver_key(
+                        &pong_plain,
+                        decrypted.sender_verify_key,
+                        sender_verify_key,
+                    )?
+                } else {
+                    pong_plain
+                };
+
+                if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
+                    tracing::warn!(
+                        error = %err,
+                        to = %recv.from_destination,
+                        "failed sending KAD2 PONG"
+                    );
+                } else {
+                    pongs_sent += 1;
+                    tracing::debug!(to = %recv.from_destination, "sent KAD2 PONG");
+                }
+            }
             KADEMLIA2_BOOTSTRAP_RES => {
                 if bootstrap_from.insert(recv.from_destination.clone()) {
                     tracing::info!(from = %recv.from_destination, "got KAD2 BOOTSTRAP_RES");
@@ -800,6 +831,8 @@ pub async fn bootstrap(
         search_res_sent,
         kad1_reqs,
         kad1_res_sent,
+        pings,
+        pongs_sent,
         pongs = pong_from.len(),
         boot_responses = bootstrap_from.len(),
         boot_contacts = new_contacts,
