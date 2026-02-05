@@ -8,8 +8,10 @@ use crate::{
             KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
             KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES,
             KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket, TAG_KADMISCOPTIONS,
-            decode_kad2_bootstrap_res, decode_kad2_hello, decode_kad2_publish_source_req_min,
-            decode_kad2_req, decode_kad2_res, decode_kad2_search_source_req, encode_kad2_hello,
+            KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED, KADEMLIA_REQ_DEPRECATED,
+            KADEMLIA_RES_DEPRECATED, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
+            decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_res,
+            decode_kad2_search_source_req, encode_kad1_res, encode_kad2_hello,
             encode_kad2_publish_res_for_source, encode_kad2_req, encode_kad2_res,
             encode_kad2_search_res_sources,
         },
@@ -237,6 +239,19 @@ async fn handle_inbound(
     };
 
     match pkt.opcode {
+        KADEMLIA_HELLO_REQ_DEPRECATED => {
+            // Reply with our Kad1 contact details, iMule-style:
+            //   <ClientID 16><UDPDest 387><TCPDest 387><Type 1>
+            let mut payload = Vec::with_capacity(16 + 2 * I2P_DEST_LEN + 1);
+            payload.extend_from_slice(&crypto.my_kad_id.to_crypt_bytes());
+            payload.extend_from_slice(&crypto.my_dest);
+            payload.extend_from_slice(&crypto.my_dest);
+            payload.push(0); // self contact type in iMule
+
+            let res = KadPacket::encode(KADEMLIA_HELLO_RES_DEPRECATED, &payload);
+            let _ = sock.send_to(&from_dest_b64, &res).await;
+        }
+
         KADEMLIA2_BOOTSTRAP_RES => {
             if let Ok(res) = decode_kad2_bootstrap_res(&pkt.payload) {
                 // Sender itself.
@@ -395,6 +410,29 @@ async fn handle_inbound(
                 res_plain
             };
             let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        KADEMLIA_REQ_DEPRECATED => {
+            let req = match decode_kad1_req(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD1 REQ payload");
+                    return Ok(());
+                }
+            };
+            if req.check != crypto.my_kad_id {
+                return Ok(());
+            }
+
+            let max = (req.kind as usize).min(16);
+            let contacts = svc.routing.closest_to(req.target, max, from_hash);
+            let kad1_contacts = contacts
+                .iter()
+                .map(|n| (KadId(n.client_id), n.udp_dest))
+                .collect::<Vec<_>>();
+            let res_payload = encode_kad1_res(req.target, &kad1_contacts);
+            let res_plain = KadPacket::encode(KADEMLIA_RES_DEPRECATED, &res_payload);
+            let _ = sock.send_to(&from_dest_b64, &res_plain).await;
         }
 
         KADEMLIA2_RES => {
