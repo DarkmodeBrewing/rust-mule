@@ -141,6 +141,23 @@ If debugging SAM control protocol, set:
 - `general.log_level = "debug"` in `config.toml`, or
 - `RUST_LOG=rust_mule=debug` in the environment.
 
+## Kad Service Loop (Crawler)
+
+As of 2026-02-05, `rust-mule` runs a long-lived Kad service loop after the initial bootstrap by default.
+It:
+- listens/responds to inbound Kad traffic
+- periodically crawls the network by sending `KADEMLIA2_REQ` lookups and decoding `KADEMLIA2_RES` replies
+- periodically persists an updated `data/nodes.dat`
+
+Relevant config keys (all under `[kad]`):
+- `service_enabled` (default `true`)
+- `service_runtime_secs` (`0` = run until Ctrl-C)
+- `service_crawl_every_secs` (default `3`)
+- `service_persist_every_secs` (default `300`)
+- `service_alpha` (default `3`)
+- `service_req_contacts` (default `32`)
+- `service_max_persist_nodes` (default `5000`)
+
 ## Reference Material
 
 - iMule source + reference `nodes.dat` are under `source_ref/` (gitignored).

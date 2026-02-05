@@ -1,0 +1,528 @@
+use crate::{
+    i2p::sam::SamKadSocket,
+    kad::{
+        KadId, routing::RoutingTable,
+        udp_crypto,
+        wire::{
+            I2P_DEST_LEN, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
+            KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
+            KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES,
+            KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket, TAG_KADMISCOPTIONS,
+            decode_kad2_bootstrap_res, decode_kad2_hello, decode_kad2_publish_source_req_min,
+            decode_kad2_req, decode_kad2_res, decode_kad2_search_source_req, encode_kad2_hello,
+            encode_kad2_publish_res_for_source, encode_kad2_req, encode_kad2_res,
+            encode_kad2_search_res_sources,
+        },
+    },
+    nodes::imule::ImuleNode,
+};
+use anyhow::Result;
+use std::collections::BTreeMap;
+use tokio::time::{Duration, Instant, interval};
+
+#[derive(Debug, Clone, Copy)]
+pub struct KadServiceCrypto {
+    pub my_kad_id: KadId,
+    pub my_dest_hash: u32,
+    pub udp_key_secret: u32,
+    pub my_dest: [u8; I2P_DEST_LEN],
+}
+
+#[derive(Debug, Clone)]
+pub struct KadServiceConfig {
+    /// If 0, run until Ctrl-C.
+    pub runtime_secs: u64,
+    pub crawl_every_secs: u64,
+    pub persist_every_secs: u64,
+    pub alpha: usize,
+    /// Requested number of contacts in `KADEMLIA2_REQ` (1..=32 recommended).
+    pub req_contacts: u8,
+    pub max_persist_nodes: usize,
+}
+
+impl Default for KadServiceConfig {
+    fn default() -> Self {
+        Self {
+            runtime_secs: 0,
+            crawl_every_secs: 3,
+            persist_every_secs: 300,
+            alpha: 3,
+            req_contacts: 32,
+            max_persist_nodes: 5000,
+        }
+    }
+}
+
+pub struct KadService {
+    routing: RoutingTable,
+    // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
+    sources_by_file: BTreeMap<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>,
+}
+
+impl KadService {
+    pub fn new(my_id: KadId) -> Self {
+        Self {
+            routing: RoutingTable::new(my_id),
+            sources_by_file: BTreeMap::new(),
+        }
+    }
+
+    pub fn routing(&self) -> &RoutingTable {
+        &self.routing
+    }
+
+    pub fn routing_mut(&mut self) -> &mut RoutingTable {
+        &mut self.routing
+    }
+}
+
+pub async fn run_service(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    initial_nodes: impl IntoIterator<Item = ImuleNode>,
+    crypto: KadServiceCrypto,
+    cfg: KadServiceConfig,
+    persist_path: &std::path::Path,
+) -> Result<()> {
+    let now = Instant::now();
+    for n in initial_nodes {
+        svc.routing.upsert(n, now);
+    }
+    tracing::info!(nodes = svc.routing.len(), "kad service started");
+
+    let mut crawl_tick = interval(Duration::from_secs(cfg.crawl_every_secs.max(1)));
+    let mut persist_tick = interval(Duration::from_secs(cfg.persist_every_secs.max(5)));
+
+    // Optional runtime deadline (0 => forever).
+    let deadline = if cfg.runtime_secs == 0 {
+        None
+    } else {
+        Some(Instant::now() + Duration::from_secs(cfg.runtime_secs))
+    };
+
+    loop {
+        if let Some(d) = deadline
+            && Instant::now() >= d
+        {
+            tracing::info!("kad service runtime deadline reached");
+            break;
+        }
+
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("received Ctrl-C");
+                break;
+            }
+
+            _ = crawl_tick.tick() => {
+                crawl_once(svc, sock, crypto, &cfg).await?;
+            }
+
+            _ = persist_tick.tick() => {
+                persist_snapshot(svc, persist_path, cfg.max_persist_nodes).await;
+            }
+
+            recv = sock.recv() => {
+                let recv = recv?;
+                handle_inbound(svc, sock, recv.from_destination, recv.payload, crypto).await?;
+            }
+        }
+    }
+
+    persist_snapshot(svc, persist_path, cfg.max_persist_nodes).await;
+    tracing::info!("kad service stopped");
+    Ok(())
+}
+
+async fn persist_snapshot(svc: &KadService, path: &std::path::Path, max_nodes: usize) {
+    let nodes = svc.routing.snapshot_nodes(max_nodes);
+    if let Err(err) = crate::nodes::imule::persist_nodes_dat_v2(path, &nodes).await {
+        tracing::warn!(error = %err, path = %path.display(), "failed to persist nodes.dat");
+    } else {
+        tracing::info!(path = %path.display(), count = nodes.len(), "persisted nodes.dat");
+    }
+}
+
+async fn crawl_once(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+) -> Result<()> {
+    let target = KadId::random()?;
+    let peers = svc
+        .routing
+        .closest_to(target, cfg.alpha.max(1), 0);
+
+    if peers.is_empty() {
+        return Ok(());
+    }
+
+    let req_kind = cfg.req_contacts.clamp(1, 32);
+    let req_payload = encode_kad2_req(req_kind, target, crypto.my_kad_id);
+    let req_plain = KadPacket::encode(KADEMLIA2_REQ, &req_payload);
+
+    for p in peers {
+        let dest = p.udp_dest_b64();
+        let target_kad_id = KadId(p.client_id);
+        let sender_verify_key =
+            udp_crypto::udp_verify_key(crypto.udp_key_secret, p.udp_dest_hash_code());
+        let receiver_verify_key = if p.udp_key_ip == crypto.my_dest_hash {
+            p.udp_key
+        } else {
+            0
+        };
+
+        let out = if p.kad_version >= 6 {
+            udp_crypto::encrypt_kad_packet(
+                &req_plain,
+                target_kad_id,
+                receiver_verify_key,
+                sender_verify_key,
+            )?
+        } else {
+            req_plain.clone()
+        };
+
+        if let Err(err) = sock.send_to(&dest, &out).await {
+            tracing::debug!(error = %err, to = %dest, "failed sending KAD2 REQ (crawl)");
+        } else {
+            tracing::debug!(to = %dest, "sent KAD2 REQ (crawl)");
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_inbound(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    from_dest_b64: String,
+    payload: Vec<u8>,
+    crypto: KadServiceCrypto,
+) -> Result<()> {
+    let now = Instant::now();
+    let from_dest_raw = crate::i2p::b64::decode(&from_dest_b64).ok();
+    let from_hash = match &from_dest_raw {
+        Some(b) if b.len() >= 4 => u32::from_le_bytes(b[0..4].try_into().unwrap()),
+        _ => 0,
+    };
+
+    let decrypted =
+        match udp_crypto::decrypt_kad_packet(&payload, crypto.my_kad_id, crypto.udp_key_secret, from_hash) {
+            Ok(d) => d,
+            Err(err) => {
+                tracing::debug!(error = %err, from = %from_dest_b64, "dropping undecipherable/unknown KAD packet");
+                return Ok(());
+            }
+        };
+
+    let valid_receiver_key = if decrypted.was_obfuscated {
+        let expected = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+        expected == decrypted.receiver_verify_key
+    } else {
+        false
+    };
+
+    // Update liveness + (if known) sender UDP key.
+    svc.routing
+        .update_sender_keys_by_dest(&from_dest_b64, now, decrypted.sender_verify_key, crypto.my_dest_hash, valid_receiver_key);
+
+    let pkt = match KadPacket::decode(&decrypted.payload) {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::debug!(error = %err, from = %from_dest_b64, "dropping unparsable decrypted KAD packet");
+            return Ok(());
+        }
+    };
+
+    match pkt.opcode {
+        KADEMLIA2_BOOTSTRAP_RES => {
+            if let Ok(res) = decode_kad2_bootstrap_res(&pkt.payload) {
+                // Sender itself.
+                if let Some(raw) = &from_dest_raw
+                    && raw.len() == I2P_DEST_LEN
+                {
+                    let mut udp_dest = [0u8; I2P_DEST_LEN];
+                    udp_dest.copy_from_slice(raw);
+                    svc.routing.upsert(ImuleNode {
+                        kad_version: res.sender_kad_version,
+                        client_id: res.sender_id.0,
+                        udp_dest,
+                        udp_key: if decrypted.was_obfuscated { decrypted.sender_verify_key } else { 0 },
+                        udp_key_ip: if decrypted.was_obfuscated { crypto.my_dest_hash } else { 0 },
+                        verified: valid_receiver_key,
+                    }, now);
+                }
+
+                // Harvest contacts list.
+                for c in res.contacts {
+                    svc.routing.upsert(ImuleNode {
+                        kad_version: c.kad_version,
+                        client_id: c.node_id.0,
+                        udp_dest: c.udp_dest,
+                        udp_key: 0,
+                        udp_key_ip: 0,
+                        verified: false,
+                    }, now);
+                }
+            }
+        }
+
+        KADEMLIA2_HELLO_REQ => {
+            let hello = match decode_kad2_hello(&pkt.payload) {
+                Ok(h) => h,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 HELLO_REQ payload");
+                    return Ok(());
+                }
+            };
+
+            if let Some(raw) = &from_dest_raw
+                && raw.len() == I2P_DEST_LEN
+            {
+                let mut udp_dest = [0u8; I2P_DEST_LEN];
+                udp_dest.copy_from_slice(raw);
+                svc.routing.upsert(ImuleNode {
+                    kad_version: hello.kad_version,
+                    client_id: hello.node_id.0,
+                    udp_dest,
+                    udp_key: if decrypted.was_obfuscated { decrypted.sender_verify_key } else { 0 },
+                    udp_key_ip: if decrypted.was_obfuscated { crypto.my_dest_hash } else { 0 },
+                    verified: valid_receiver_key,
+                }, now);
+            }
+
+            let receiver_verify_key = decrypted.sender_verify_key;
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+
+            let mut res_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
+            // Ask for HELLO_RES_ACK (TAG_KADMISCOPTIONS bit 0x04).
+            let tag_count_idx = res_payload.len() - 1;
+            res_payload[tag_count_idx] = 1; // tag count
+            res_payload.push(0x89); // TAGTYPE_UINT8 | 0x80 (numeric)
+            res_payload.push(TAG_KADMISCOPTIONS);
+            res_payload.push(0x04);
+
+            let res_plain = KadPacket::encode(KADEMLIA2_HELLO_RES, &res_payload);
+            let out = if hello.kad_version >= 6 && decrypted.was_obfuscated {
+                udp_crypto::encrypt_kad_packet(&res_plain, hello.node_id, receiver_verify_key, sender_verify_key)?
+            } else {
+                res_plain
+            };
+
+            let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        KADEMLIA2_HELLO_RES => {
+            let hello = match decode_kad2_hello(&pkt.payload) {
+                Ok(h) => h,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 HELLO_RES payload");
+                    return Ok(());
+                }
+            };
+
+            if let Some(raw) = &from_dest_raw
+                && raw.len() == I2P_DEST_LEN
+            {
+                let mut udp_dest = [0u8; I2P_DEST_LEN];
+                udp_dest.copy_from_slice(raw);
+                svc.routing.upsert(ImuleNode {
+                    kad_version: hello.kad_version,
+                    client_id: hello.node_id.0,
+                    udp_dest,
+                    udp_key: if decrypted.was_obfuscated { decrypted.sender_verify_key } else { 0 },
+                    udp_key_ip: if decrypted.was_obfuscated { crypto.my_dest_hash } else { 0 },
+                    verified: valid_receiver_key,
+                }, now);
+            }
+
+            let misc = hello.tags.get(&TAG_KADMISCOPTIONS).copied().unwrap_or(0) as u8;
+            let wants_ack = (misc & 0x04) != 0;
+            if wants_ack && decrypted.sender_verify_key != 0 {
+                let mut ack_payload = Vec::with_capacity(16 + 1);
+                ack_payload.extend_from_slice(&crypto.my_kad_id.to_crypt_bytes());
+                ack_payload.push(0);
+                let ack_plain = KadPacket::encode(KADEMLIA2_HELLO_RES_ACK, &ack_payload);
+                let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+                let ack = udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &ack_plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?;
+                let _ = sock.send_to(&from_dest_b64, &ack).await;
+            }
+        }
+
+        KADEMLIA2_HELLO_RES_ACK => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+        }
+
+        KADEMLIA2_REQ => {
+            let req = match decode_kad2_req(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 REQ payload");
+                    return Ok(());
+                }
+            };
+            if req.check != crypto.my_kad_id {
+                return Ok(());
+            }
+
+            let max = (req.kind as usize).min(32);
+            let contacts = svc.routing.closest_to(req.target, max, from_hash);
+            let kad2_contacts = contacts
+                .iter()
+                .map(|n| crate::kad::wire::Kad2Contact {
+                    kad_version: n.kad_version,
+                    node_id: KadId(n.client_id),
+                    udp_dest: n.udp_dest,
+                })
+                .collect::<Vec<_>>();
+            let res_payload = encode_kad2_res(req.target, &kad2_contacts);
+            let res_plain = KadPacket::encode(KADEMLIA2_RES, &res_payload);
+
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+            let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &res_plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?
+            } else {
+                res_plain
+            };
+            let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        KADEMLIA2_RES => {
+            let res = match decode_kad2_res(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 RES payload");
+                    return Ok(());
+                }
+            };
+            tracing::debug!(from = %from_dest_b64, contacts = res.contacts.len(), "got KAD2 RES");
+            for c in res.contacts {
+                svc.routing.upsert(ImuleNode {
+                    kad_version: c.kad_version,
+                    client_id: c.node_id.0,
+                    udp_dest: c.udp_dest,
+                    udp_key: 0,
+                    udp_key_ip: 0,
+                    verified: false,
+                }, now);
+            }
+        }
+
+        KADEMLIA2_PING => {
+            // PONG has an empty payload.
+            let pong_plain = KadPacket::encode(KADEMLIA2_PONG, &[]);
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+            let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &pong_plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?
+            } else {
+                pong_plain
+            };
+            let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        KADEMLIA2_PONG => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+        }
+
+        KADEMLIA2_PUBLISH_SOURCE_REQ => {
+            let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 PUBLISH_SOURCE_REQ payload");
+                    return Ok(());
+                }
+            };
+
+            if let Some(raw) = &from_dest_raw
+                && raw.len() == I2P_DEST_LEN
+            {
+                let mut udp_dest = [0u8; I2P_DEST_LEN];
+                udp_dest.copy_from_slice(raw);
+                svc.sources_by_file.entry(req.file).or_default().insert(req.source, udp_dest);
+            }
+
+            let count = svc
+                .sources_by_file
+                .get(&req.file)
+                .map(|m| m.len() as u32)
+                .unwrap_or(0);
+
+            let res_payload = encode_kad2_publish_res_for_source(req.file, count, count, 0);
+            let res_plain = KadPacket::encode(KADEMLIA2_PUBLISH_RES, &res_payload);
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+            let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &res_plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?
+            } else {
+                res_plain
+            };
+
+            let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        KADEMLIA2_SEARCH_SOURCE_REQ => {
+            let req = match decode_kad2_search_source_req(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 SEARCH_SOURCE_REQ payload");
+                    return Ok(());
+                }
+            };
+
+            let results = svc
+                .sources_by_file
+                .get(&req.target)
+                .map(|m| {
+                    m.iter()
+                        .skip(req.start_position as usize)
+                        .take(64)
+                        .map(|(sid, dest)| (*sid, *dest))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let payload = encode_kad2_search_res_sources(crypto.my_kad_id, req.target, &results);
+            let plain = KadPacket::encode(KADEMLIA2_SEARCH_RES, &payload);
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+            let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?
+            } else {
+                plain
+            };
+
+            let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        other => {
+            tracing::debug!(
+                opcode = format_args!("0x{other:02x}"),
+                from = %from_dest_b64,
+                len = pkt.payload.len(),
+                "received unhandled KAD2 packet"
+            );
+        }
+    }
+
+    Ok(())
+}

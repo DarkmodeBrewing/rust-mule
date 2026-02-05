@@ -141,6 +141,12 @@ pub struct Kad2Req {
     pub check: KadId,
 }
 
+#[derive(Debug, Clone)]
+pub struct Kad2Res {
+    pub target: KadId,
+    pub contacts: Vec<Kad2Contact>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Kad1Req {
     pub kind: u8,
@@ -219,6 +225,15 @@ pub fn decode_kad2_req(payload: &[u8]) -> Result<Kad2Req> {
     })
 }
 
+pub fn encode_kad2_req(kind: u8, target: KadId, check: KadId) -> Vec<u8> {
+    let mut out = Vec::with_capacity(1 + 16 + 16);
+    let k = kind & 0x1F;
+    out.push(k.max(1)); // kind must be non-zero
+    out.extend_from_slice(&target.to_crypt_bytes());
+    out.extend_from_slice(&check.to_crypt_bytes());
+    out
+}
+
 pub fn encode_kad2_res(target: KadId, contacts: &[Kad2Contact]) -> Vec<u8> {
     let mut out = Vec::with_capacity(16 + 1 + contacts.len() * (1 + 16 + I2P_DEST_LEN));
     out.extend_from_slice(&target.to_crypt_bytes());
@@ -229,6 +244,26 @@ pub fn encode_kad2_res(target: KadId, contacts: &[Kad2Contact]) -> Vec<u8> {
         out.extend_from_slice(&c.udp_dest);
     }
     out
+}
+
+pub fn decode_kad2_res(payload: &[u8]) -> Result<Kad2Res> {
+    let mut r = Reader::new(payload);
+    let target = r.read_uint128_emule()?;
+    let count = r.read_u8()? as usize;
+
+    let mut contacts = Vec::with_capacity(count);
+    for _ in 0..count {
+        let kad_version = r.read_u8()?;
+        let node_id = r.read_uint128_emule()?;
+        let udp_dest = r.read_i2p_dest()?;
+        contacts.push(Kad2Contact {
+            kad_version,
+            node_id,
+            udp_dest,
+        });
+    }
+
+    Ok(Kad2Res { target, contacts })
 }
 
 pub fn decode_kad2_search_source_req(payload: &[u8]) -> Result<Kad2SearchSourceReq> {

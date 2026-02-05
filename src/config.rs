@@ -42,6 +42,27 @@ fn default_kad_udp_key_secret() -> u32 {
     // 0 means "generate on first run".
     0
 }
+fn default_kad_service_enabled() -> bool {
+    true
+}
+fn default_kad_service_runtime_secs() -> u64 {
+    0
+}
+fn default_kad_service_crawl_every_secs() -> u64 {
+    3
+}
+fn default_kad_service_persist_every_secs() -> u64 {
+    300
+}
+fn default_kad_service_alpha() -> usize {
+    3
+}
+fn default_kad_service_req_contacts() -> u8 {
+    32
+}
+fn default_kad_service_max_persist_nodes() -> usize {
+    5000
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -100,6 +121,16 @@ pub struct KadConfig {
     pub preferences_kad_path: String,
     /// Equivalent to iMule's `thePrefs::GetKadUDPKey()`; used for UDP obfuscation verify keys.
     pub udp_key_secret: u32,
+
+    /// Run the long-lived Kad service loop after the initial bootstrap.
+    pub service_enabled: bool,
+    /// If 0, run until Ctrl-C.
+    pub service_runtime_secs: u64,
+    pub service_crawl_every_secs: u64,
+    pub service_persist_every_secs: u64,
+    pub service_alpha: usize,
+    pub service_req_contacts: u8,
+    pub service_max_persist_nodes: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -138,6 +169,14 @@ impl Default for KadConfig {
             udp_port: 4665,
             preferences_kad_path: default_preferences_kad_path(),
             udp_key_secret: default_kad_udp_key_secret(),
+
+            service_enabled: default_kad_service_enabled(),
+            service_runtime_secs: default_kad_service_runtime_secs(),
+            service_crawl_every_secs: default_kad_service_crawl_every_secs(),
+            service_persist_every_secs: default_kad_service_persist_every_secs(),
+            service_alpha: default_kad_service_alpha(),
+            service_req_contacts: default_kad_service_req_contacts(),
+            service_max_persist_nodes: default_kad_service_max_persist_nodes(),
         }
     }
 }
