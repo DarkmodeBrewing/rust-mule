@@ -382,9 +382,10 @@ fn md5(input: &[u8]) -> [u8; 16] {
     let mut d0: u32 = 0x10325476;
 
     let mut k = [0u32; 64];
-    for i in 0..64 {
-        let v = ((f64::sin((i + 1) as f64).abs()) * (2u64.pow(32) as f64)).floor() as u64;
-        k[i] = v as u32;
+    for (i, v) in k.iter_mut().enumerate() {
+        let x =
+            ((f64::sin((i + 1) as f64).abs()) * (2u64.pow(32) as f64)).floor() as u64;
+        *v = x as u32;
     }
 
     let r: [u32; 64] = [

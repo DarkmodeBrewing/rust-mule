@@ -4,9 +4,12 @@ use crate::{
         I2P_DEST_LEN, KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED,
         KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
         KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES, KADEMLIA2_HELLO_RES_ACK,
-        KADEMLIA2_PONG, KADEMLIA2_REQ, KADEMLIA2_RES, KadPacket, TAG_KADMISCOPTIONS,
-        decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello, decode_kad2_req,
-        encode_kad1_res, encode_kad2_hello, encode_kad2_res,
+        KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ,
+        KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
+        TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
+        decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_search_source_req,
+        encode_kad1_res, encode_kad2_hello, encode_kad2_publish_res_for_source, encode_kad2_res,
+        encode_kad2_search_res_sources,
     },
     kad::{KadId, udp_crypto},
     nodes::imule::ImuleNode,
@@ -32,8 +35,8 @@ pub struct BootstrapCrypto {
 
 fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
     let mut out = [0u8; 16];
-    for i in 0..16 {
-        out[i] = a.0[i] ^ b.0[i];
+    for (i, v) in out.iter_mut().enumerate() {
+        *v = a.0[i] ^ b.0[i];
     }
     out
 }
@@ -203,10 +206,19 @@ pub async fn bootstrap(
     let mut hello2_ack_recv = 0usize;
     let mut kad2_reqs = 0usize;
     let mut kad2_res_sent = 0usize;
+    let mut publish_source_reqs = 0usize;
+    let mut publish_source_res_sent = 0usize;
+    let mut search_source_reqs = 0usize;
+    let mut search_res_sent = 0usize;
     let mut kad1_reqs = 0usize;
     let mut kad1_res_sent = 0usize;
 
     let mut discovered = BTreeMap::<String, ImuleNode>::new();
+    // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
+    //
+    // This exists mainly to support KADEMLIA2_PUBLISH_SOURCE_REQ (0x19) + KADEMLIA2_SEARCH_SOURCE_REQ (0x15)
+    // enough for peers to stop retransmitting publish requests during bootstrap.
+    let mut sources_by_file = BTreeMap::<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>::new();
 
     while Instant::now() < deadline {
         let remain = deadline.saturating_duration_since(Instant::now());
@@ -317,31 +329,31 @@ pub async fn bootstrap(
                     "got KAD2 HELLO_REQ"
                 );
 
-                if let Some(raw) = &from_dest_raw {
-                    if raw.len() == I2P_DEST_LEN {
-                        let mut udp_dest = [0u8; I2P_DEST_LEN];
-                        udp_dest.copy_from_slice(raw);
-                        let key = recv.from_destination.clone();
-                        discovered.insert(
-                            key,
-                            ImuleNode {
-                                kad_version: hello.kad_version,
-                                client_id: hello.node_id.0,
-                                udp_dest,
-                                udp_key: if decrypted.was_obfuscated {
-                                    decrypted.sender_verify_key
-                                } else {
-                                    0
-                                },
-                                udp_key_ip: if decrypted.was_obfuscated {
-                                    crypto.my_dest_hash
-                                } else {
-                                    0
-                                },
-                                verified: valid_receiver_key,
+                if let Some(raw) = &from_dest_raw
+                    && raw.len() == I2P_DEST_LEN
+                {
+                    let mut udp_dest = [0u8; I2P_DEST_LEN];
+                    udp_dest.copy_from_slice(raw);
+                    let key = recv.from_destination.clone();
+                    discovered.insert(
+                        key,
+                        ImuleNode {
+                            kad_version: hello.kad_version,
+                            client_id: hello.node_id.0,
+                            udp_dest,
+                            udp_key: if decrypted.was_obfuscated {
+                                decrypted.sender_verify_key
+                            } else {
+                                0
                             },
-                        );
-                    }
+                            udp_key_ip: if decrypted.was_obfuscated {
+                                crypto.my_dest_hash
+                            } else {
+                                0
+                            },
+                            verified: valid_receiver_key,
+                        },
+                    );
                 }
 
                 // If the peer didn't send a usable sender key, we can still reply, but can't use
@@ -408,31 +420,31 @@ pub async fn bootstrap(
                     "got KAD2 HELLO_RES"
                 );
 
-                if let Some(raw) = &from_dest_raw {
-                    if raw.len() == I2P_DEST_LEN {
-                        let mut udp_dest = [0u8; I2P_DEST_LEN];
-                        udp_dest.copy_from_slice(raw);
-                        let key = recv.from_destination.clone();
-                        discovered.insert(
-                            key,
-                            ImuleNode {
-                                kad_version: hello.kad_version,
-                                client_id: hello.node_id.0,
-                                udp_dest,
-                                udp_key: if decrypted.was_obfuscated {
-                                    decrypted.sender_verify_key
-                                } else {
-                                    0
-                                },
-                                udp_key_ip: if decrypted.was_obfuscated {
-                                    crypto.my_dest_hash
-                                } else {
-                                    0
-                                },
-                                verified: valid_receiver_key,
+                if let Some(raw) = &from_dest_raw
+                    && raw.len() == I2P_DEST_LEN
+                {
+                    let mut udp_dest = [0u8; I2P_DEST_LEN];
+                    udp_dest.copy_from_slice(raw);
+                    let key = recv.from_destination.clone();
+                    discovered.insert(
+                        key,
+                        ImuleNode {
+                            kad_version: hello.kad_version,
+                            client_id: hello.node_id.0,
+                            udp_dest,
+                            udp_key: if decrypted.was_obfuscated {
+                                decrypted.sender_verify_key
+                            } else {
+                                0
                             },
-                        );
-                    }
+                            udp_key_ip: if decrypted.was_obfuscated {
+                                crypto.my_dest_hash
+                            } else {
+                                0
+                            },
+                            verified: valid_receiver_key,
+                        },
+                    );
                 }
 
                 if wants_ack {
@@ -535,6 +547,123 @@ pub async fn bootstrap(
                     );
                 }
             }
+            KADEMLIA2_PUBLISH_SOURCE_REQ => {
+                publish_source_reqs += 1;
+                let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
+                    Ok(r) => r,
+                    Err(err) => {
+                        dropped_unparsable += 1;
+                        tracing::debug!(
+                            error = %err,
+                            from = %recv.from_destination,
+                            "failed to decode KAD2 PUBLISH_SOURCE_REQ payload"
+                        );
+                        continue;
+                    }
+                };
+
+                if let Some(raw) = &from_dest_raw
+                    && raw.len() == I2P_DEST_LEN
+                {
+                    let mut udp_dest = [0u8; I2P_DEST_LEN];
+                    udp_dest.copy_from_slice(raw);
+                    sources_by_file
+                        .entry(req.file)
+                        .or_default()
+                        .insert(req.source, udp_dest);
+                }
+
+                let count = sources_by_file
+                    .get(&req.file)
+                    .map(|m| m.len() as u32)
+                    .unwrap_or(0);
+                let res_payload = encode_kad2_publish_res_for_source(req.file, count, count, 0);
+                let res_plain = KadPacket::encode(KADEMLIA2_PUBLISH_RES, &res_payload);
+
+                let sender_verify_key =
+                    udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+                let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                    udp_crypto::encrypt_kad_packet_with_receiver_key(
+                        &res_plain,
+                        decrypted.sender_verify_key,
+                        sender_verify_key,
+                    )?
+                } else {
+                    res_plain
+                };
+
+                if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
+                    tracing::warn!(
+                        error = %err,
+                        to = %recv.from_destination,
+                        "failed sending KAD2 PUBLISH_RES"
+                    );
+                } else {
+                    publish_source_res_sent += 1;
+                    tracing::debug!(
+                        to = %recv.from_destination,
+                        sources_for_file = count,
+                        "sent KAD2 PUBLISH_RES (sources)"
+                    );
+                }
+            }
+            KADEMLIA2_SEARCH_SOURCE_REQ => {
+                search_source_reqs += 1;
+                let req = match decode_kad2_search_source_req(&pkt.payload) {
+                    Ok(r) => r,
+                    Err(err) => {
+                        dropped_unparsable += 1;
+                        tracing::debug!(
+                            error = %err,
+                            from = %recv.from_destination,
+                            "failed to decode KAD2 SEARCH_SOURCE_REQ payload"
+                        );
+                        continue;
+                    }
+                };
+
+                // iMule answers kad2 searches even if it has no results, to avoid clients waiting.
+                let results = sources_by_file
+                    .get(&req.target)
+                    .map(|m| {
+                        m.iter()
+                            .skip(req.start_position as usize)
+                            .take(64)
+                            .map(|(sid, dest)| (*sid, *dest))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                let payload = encode_kad2_search_res_sources(crypto.my_kad_id, req.target, &results);
+                let plain = KadPacket::encode(KADEMLIA2_SEARCH_RES, &payload);
+
+                let sender_verify_key =
+                    udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+                let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                    udp_crypto::encrypt_kad_packet_with_receiver_key(
+                        &plain,
+                        decrypted.sender_verify_key,
+                        sender_verify_key,
+                    )?
+                } else {
+                    plain
+                };
+
+                if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
+                    tracing::warn!(
+                        error = %err,
+                        to = %recv.from_destination,
+                        "failed sending KAD2 SEARCH_RES"
+                    );
+                } else {
+                    search_res_sent += 1;
+                    tracing::debug!(
+                        to = %recv.from_destination,
+                        results = results.len(),
+                        "sent KAD2 SEARCH_RES (sources)"
+                    );
+                }
+            }
             KADEMLIA_REQ_DEPRECATED => {
                 kad1_reqs += 1;
                 let req = match decode_kad1_req(&pkt.payload) {
@@ -597,31 +726,31 @@ pub async fn bootstrap(
                             "decoded BOOTSTRAP_RES"
                         );
 
-                        if let Some(raw) = &from_dest_raw {
-                            if raw.len() == I2P_DEST_LEN {
-                                let mut udp_dest = [0u8; I2P_DEST_LEN];
-                                udp_dest.copy_from_slice(raw);
-                                let key = recv.from_destination.clone();
-                                discovered.insert(
-                                    key,
-                                    ImuleNode {
-                                        kad_version: res.sender_kad_version,
-                                        client_id: res.sender_id.0,
-                                        udp_dest,
-                                        udp_key: if decrypted.was_obfuscated {
-                                            decrypted.sender_verify_key
-                                        } else {
-                                            0
-                                        },
-                                        udp_key_ip: if decrypted.was_obfuscated {
-                                            crypto.my_dest_hash
-                                        } else {
-                                            0
-                                        },
-                                        verified: valid_receiver_key,
+                        if let Some(raw) = &from_dest_raw
+                            && raw.len() == I2P_DEST_LEN
+                        {
+                            let mut udp_dest = [0u8; I2P_DEST_LEN];
+                            udp_dest.copy_from_slice(raw);
+                            let key = recv.from_destination.clone();
+                            discovered.insert(
+                                key,
+                                ImuleNode {
+                                    kad_version: res.sender_kad_version,
+                                    client_id: res.sender_id.0,
+                                    udp_dest,
+                                    udp_key: if decrypted.was_obfuscated {
+                                        decrypted.sender_verify_key
+                                    } else {
+                                        0
                                     },
-                                );
-                            }
+                                    udp_key_ip: if decrypted.was_obfuscated {
+                                        crypto.my_dest_hash
+                                    } else {
+                                        0
+                                    },
+                                    verified: valid_receiver_key,
+                                },
+                            );
                         }
 
                         // Also harvest the contacts list. Those entries don't include UDP keys,
@@ -665,6 +794,10 @@ pub async fn bootstrap(
         hello2_ack_recv,
         kad2_reqs,
         kad2_res_sent,
+        publish_source_reqs,
+        publish_source_res_sent,
+        search_source_reqs,
+        search_res_sent,
         kad1_reqs,
         kad1_res_sent,
         pongs = pong_from.len(),

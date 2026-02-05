@@ -9,7 +9,7 @@ pub mod wire;
 /// 128-bit Kademlia node ID (aMule/iMule: "ClientID").
 ///
 /// Storage convention: big-endian bytes for display and interop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct KadId(pub [u8; 16]);
 
 impl KadId {

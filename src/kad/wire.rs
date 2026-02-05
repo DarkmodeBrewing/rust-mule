@@ -13,6 +13,15 @@ pub const KADEMLIA2_HELLO_RES: u8 = 0x10;
 pub const KADEMLIA2_REQ: u8 = 0x11;
 pub const KADEMLIA2_HELLO_RES_ACK: u8 = 0x12;
 pub const KADEMLIA2_RES: u8 = 0x13;
+pub const KADEMLIA2_SEARCH_KEY_REQ: u8 = 0x14;
+pub const KADEMLIA2_SEARCH_SOURCE_REQ: u8 = 0x15;
+pub const KADEMLIA2_SEARCH_NOTES_REQ: u8 = 0x16;
+pub const KADEMLIA2_SEARCH_RES: u8 = 0x17;
+pub const KADEMLIA2_PUBLISH_KEY_REQ: u8 = 0x18;
+pub const KADEMLIA2_PUBLISH_SOURCE_REQ: u8 = 0x19;
+pub const KADEMLIA2_PUBLISH_NOTES_REQ: u8 = 0x1A;
+pub const KADEMLIA2_PUBLISH_RES: u8 = 0x1B;
+pub const KADEMLIA2_PUBLISH_RES_ACK: u8 = 0x1C;
 pub const KADEMLIA2_PING: u8 = 0x1E;
 pub const KADEMLIA2_PONG: u8 = 0x1F;
 
@@ -26,6 +35,25 @@ pub const I2P_DEST_LEN: usize = 387;
 
 // FileTags.h (iMule/aMule). Used in Kad2 HELLO taglists.
 pub const TAG_KADMISCOPTIONS: u8 = 88; // 0x58
+pub const TAG_FILESIZE: u8 = 36; // 0x24
+pub const TAG_SERVERDEST: u8 = 81; // 0x51
+pub const TAG_SOURCEUDEST: u8 = 82; // 0x52
+pub const TAG_SOURCEDEST: u8 = 83; // 0x53
+pub const TAG_SOURCETYPE: u8 = 84; // 0x54
+
+const TAGTYPE_UINT8: u8 = 0x09;
+const TAGTYPE_UINT16: u8 = 0x08;
+const TAGTYPE_UINT32: u8 = 0x03;
+const TAGTYPE_UINT64: u8 = 0x29;
+const TAGTYPE_STRING: u8 = 0x02;
+const TAGTYPE_FLOAT32: u8 = 0x04;
+const TAGTYPE_BOOL: u8 = 0x05;
+const TAGTYPE_BOOLARRAY: u8 = 0x06;
+const TAGTYPE_BLOB: u8 = 0x07;
+const TAGTYPE_BSOB: u8 = 0x0A;
+const TAGTYPE_ADDRESS: u8 = 0x27;
+const TAGTYPE_STR1: u8 = 0x11;
+const TAGTYPE_STR16: u8 = 0x20;
 
 #[derive(Debug, Clone)]
 pub struct KadPacket {
@@ -82,6 +110,19 @@ pub struct Kad2Contact {
     pub kad_version: u8,
     pub node_id: KadId,
     pub udp_dest: [u8; I2P_DEST_LEN],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Kad2SearchSourceReq {
+    pub target: KadId,
+    pub start_position: u16,
+    pub file_size: u64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Kad2PublishSourceReq {
+    pub file: KadId,
+    pub source: KadId,
 }
 
 #[derive(Debug, Clone)]
@@ -190,6 +231,78 @@ pub fn encode_kad2_res(target: KadId, contacts: &[Kad2Contact]) -> Vec<u8> {
     out
 }
 
+pub fn decode_kad2_search_source_req(payload: &[u8]) -> Result<Kad2SearchSourceReq> {
+    let mut r = Reader::new(payload);
+    let target = r.read_uint128_emule()?;
+    // startPosition is u16; MSB is used for options (restrictive), so mask it off.
+    let start_position = r.read_u16_le()? & 0x7FFF;
+    let lo = r.read_u32_le()? as u64;
+    let hi = r.read_u32_le()? as u64;
+    let file_size = (hi << 32) | lo;
+    Ok(Kad2SearchSourceReq {
+        target,
+        start_position,
+        file_size,
+    })
+}
+
+pub fn decode_kad2_publish_source_req_min(payload: &[u8]) -> Result<Kad2PublishSourceReq> {
+    let mut r = Reader::new(payload);
+    let file = r.read_uint128_emule()?;
+    let source = r.read_uint128_emule()?;
+    Ok(Kad2PublishSourceReq { file, source })
+}
+
+pub fn encode_kad2_publish_res_for_source(file: KadId, source_count: u32, complete_count: u32, load: u8) -> Vec<u8> {
+    let mut out = Vec::with_capacity(16 + 4 + 4 + 1);
+    out.extend_from_slice(&file.to_crypt_bytes());
+    out.extend_from_slice(&source_count.to_le_bytes());
+    out.extend_from_slice(&complete_count.to_le_bytes());
+    out.push(load);
+    out
+}
+
+pub fn encode_kad2_search_res_sources(
+    my_id: KadId,
+    key: KadId,
+    results: &[(KadId, [u8; I2P_DEST_LEN])],
+) -> Vec<u8> {
+    // iMule `CIndexed::SendResults` (kad2):
+    // <sender KadID u128><key u128><count u16><result>*count
+    // where result = <answer u128><taglist>
+    let mut out = Vec::new();
+    out.extend_from_slice(&my_id.to_crypt_bytes());
+    out.extend_from_slice(&key.to_crypt_bytes());
+    out.extend_from_slice(&(results.len().min(u16::MAX as usize) as u16).to_le_bytes());
+    for (source_id, udp_dest) in results.iter().take(u16::MAX as usize) {
+        out.extend_from_slice(&source_id.to_crypt_bytes());
+        write_source_taglist(&mut out, udp_dest);
+    }
+    out
+}
+
+fn write_source_taglist(out: &mut Vec<u8>, udp_dest: &[u8; I2P_DEST_LEN]) {
+    // Minimum tagset required by iMule/aMule to treat a result as usable.
+    // See iMule `Search.cpp::ProcessResultFile`.
+    out.push(3); // tag count
+
+    write_tag_uint8(out, TAG_SOURCETYPE, 1);
+    write_tag_address(out, TAG_SOURCEDEST, udp_dest);
+    write_tag_address(out, TAG_SOURCEUDEST, udp_dest);
+}
+
+fn write_tag_uint8(out: &mut Vec<u8>, id: u8, val: u8) {
+    out.push(TAGTYPE_UINT8 | 0x80);
+    out.push(id);
+    out.push(val);
+}
+
+fn write_tag_address(out: &mut Vec<u8>, id: u8, addr: &[u8; I2P_DEST_LEN]) {
+    out.push(TAGTYPE_ADDRESS | 0x80);
+    out.push(id);
+    out.extend_from_slice(addr);
+}
+
 pub fn decode_kad1_req(payload: &[u8]) -> Result<Kad1Req> {
     let mut r = Reader::new(payload);
     let kind = r.read_u8()? & 0x1F;
@@ -295,63 +408,63 @@ impl<'a> Reader<'a> {
 
             match ty {
                 // TagTypes.h (iMule/aMule)
-                0x09 => {
+                TAGTYPE_UINT8 => {
                     // TAGTYPE_UINT8
                     out.insert(id, self.read_u8()? as u64);
                 }
-                0x08 => {
+                TAGTYPE_UINT16 => {
                     // TAGTYPE_UINT16
                     out.insert(id, self.read_u16_le()? as u64);
                 }
-                0x03 => {
+                TAGTYPE_UINT32 => {
                     // TAGTYPE_UINT32
                     out.insert(id, self.read_u32_le()? as u64);
                 }
-                0x29 => {
+                TAGTYPE_UINT64 => {
                     // TAGTYPE_UINT64
                     let lo = self.read_u32_le()? as u64;
                     let hi = self.read_u32_le()? as u64;
                     out.insert(id, (hi << 32) | lo);
                 }
-                0x01 => {
-                    // TAGTYPE_HASH16
-                    self.skip(16)?;
-                }
-                0x02 => {
+                TAGTYPE_STRING => {
                     // TAGTYPE_STRING: <u16 len><bytes...>
                     let len = self.read_u16_le()? as usize;
                     self.skip(len)?;
                 }
-                0x04 => {
+                TAGTYPE_FLOAT32 => {
                     // TAGTYPE_FLOAT32
                     self.skip(4)?;
                 }
-                0x05 => {
+                TAGTYPE_BOOL => {
                     // TAGTYPE_BOOL
                     self.skip(1)?;
                 }
-                0x06 => {
+                TAGTYPE_BOOLARRAY => {
                     // TAGTYPE_BOOLARRAY: <u16 len><bytes...> (best-effort skip)
                     let len = self.read_u16_le()? as usize;
                     self.skip(len)?;
                 }
-                0x07 => {
+                TAGTYPE_BLOB => {
                     // TAGTYPE_BLOB: <u32 len><bytes...>
                     let len = self.read_u32_le()? as usize;
                     self.skip(len)?;
                 }
-                0x0A => {
+                TAGTYPE_BSOB => {
                     // TAGTYPE_BSOB: <u8 len><bytes...>
                     let len = self.read_u8()? as usize;
                     self.skip(len)?;
                 }
-                0x27 => {
+                TAGTYPE_ADDRESS => {
                     // TAGTYPE_ADDRESS
                     self.skip(I2P_DEST_LEN)?;
                 }
-                0x11..=0x20 => {
+                0x01 => {
+                    // TAGTYPE_HASH16
+                    self.skip(16)?;
+                }
+                TAGTYPE_STR1..=TAGTYPE_STR16 => {
                     // TAGTYPE_STR1..TAGTYPE_STR16 (length encoded in type)
-                    let len = (ty - 0x11 + 1) as usize;
+                    let len = (ty - TAGTYPE_STR1 + 1) as usize;
                     self.skip(len)?;
                 }
                 other => {

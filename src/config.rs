@@ -43,7 +43,7 @@ fn default_kad_udp_key_secret() -> u32 {
     0
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub sam: SamConfig,
@@ -114,17 +114,6 @@ pub struct I2PConfig {
 pub struct GeneralConfig {
     pub log_level: String,
     pub data_dir: String,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            sam: SamConfig::default(),
-            kad: KadConfig::default(),
-            i2p: I2PConfig::default(),
-            general: GeneralConfig::default(),
-        }
-    }
 }
 
 impl Default for SamConfig {

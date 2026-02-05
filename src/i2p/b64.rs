@@ -11,7 +11,7 @@ pub fn encode(input: &[u8]) -> String {
     }
 
     // 4 chars per 3 bytes, rounded up.
-    let out_len = ((input.len() + 2) / 3) * 4;
+    let out_len = input.len().div_ceil(3) * 4;
     let mut out = String::with_capacity(out_len);
 
     let mut i = 0usize;

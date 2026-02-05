@@ -97,7 +97,7 @@ fn decode_compressed_block(
             }
             256 => break,
             257..=285 => {
-                let (len_base, len_extra) = length_code(sym as u16)?;
+                let (len_base, len_extra) = length_code(sym)?;
                 let extra = if len_extra == 0 {
                     0
                 } else {
@@ -157,15 +157,11 @@ fn decode_dynamic_tables(br: &mut BitReader<'_>) -> Result<(HuffmanTable, Huffma
             }
             17 => {
                 let repeat = br.read_bits(3)? as usize + 3;
-                for _ in 0..repeat {
-                    lengths.push(0);
-                }
+                lengths.extend(std::iter::repeat_n(0, repeat));
             }
             18 => {
                 let repeat = br.read_bits(7)? as usize + 11;
-                for _ in 0..repeat {
-                    lengths.push(0);
-                }
+                lengths.extend(std::iter::repeat_n(0, repeat));
             }
             _ => bail!("invalid code-length symbol {sym}"),
         }
@@ -405,18 +401,10 @@ fn reverse_bits(code: u16, len: usize) -> u16 {
 
 fn fixed_litlen() -> HuffmanTable {
     let mut lens = [0u8; 288];
-    for i in 0..=143 {
-        lens[i] = 8;
-    }
-    for i in 144..=255 {
-        lens[i] = 9;
-    }
-    for i in 256..=279 {
-        lens[i] = 7;
-    }
-    for i in 280..=287 {
-        lens[i] = 8;
-    }
+    lens[..144].fill(8);
+    lens[144..256].fill(9);
+    lens[256..280].fill(7);
+    lens[280..288].fill(8);
     HuffmanTable::build(&lens).expect("fixed litlen table must build")
 }
 
