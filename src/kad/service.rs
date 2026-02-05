@@ -583,7 +583,11 @@ async fn handle_inbound(
             };
             tracing::debug!(from = %from_dest_b64, contacts = res.contacts.len(), "got KAD2 RES");
             svc.pending_reqs.remove(&from_dest_b64);
+            let mut new_nodes = 0usize;
             for c in res.contacts {
+                if !svc.routing.contains_id(c.node_id) {
+                    new_nodes += 1;
+                }
                 svc.routing.upsert(ImuleNode {
                     kad_version: c.kad_version,
                     client_id: c.node_id.0,
@@ -592,6 +596,9 @@ async fn handle_inbound(
                     udp_key_ip: 0,
                     verified: false,
                 }, now);
+            }
+            if new_nodes > 0 {
+                tracing::debug!(from = %from_dest_b64, new_nodes, routing = svc.routing.len(), "learned new nodes from KAD2 RES");
             }
         }
 
