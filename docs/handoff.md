@@ -144,3 +144,16 @@ If debugging SAM control protocol, set:
 ## Reference Material
 
 - iMule source + reference `nodes.dat` are under `source_ref/` (gitignored).
+
+## Roadmap (Agreed Next Steps)
+
+Priority is to stabilize the network layer first, so we can reliably discover peers and maintain a healthy routing table over time:
+
+1. **Kad crawler + routing table + stable loop (next)**
+   - Actively query peers (send `KADEMLIA2_REQ`) and **decode `KADEMLIA2_RES`** to learn more contacts.
+   - Maintain an in-memory routing table (k-buckets / closest contacts) with `last_seen`, `verified`, and UDP key metadata.
+   - Run as a long-lived service: keep SAM datagram session open, respond continuously, periodically refresh/ping, and periodically persist `data/nodes.dat`.
+
+2. **Publish/Search indexing (after routing is stable)**
+   - Implement remaining Kad2 publish/search opcodes (key/notes/source) with iMule-compatible responses.
+   - Add a real local index so we can answer searches meaningfully (not just “0 results but no retry”).
