@@ -26,6 +26,14 @@ pub struct RoutingTable {
     by_dest: HashMap<String, KadId>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpsertOutcome {
+    Inserted,
+    Updated,
+    IgnoredZeroId,
+    IgnoredSelf,
+}
+
 impl RoutingTable {
     pub fn new(my_id: KadId) -> Self {
         Self {
@@ -68,13 +76,13 @@ impl RoutingTable {
         self.by_id.get_mut(&id)
     }
 
-    pub fn upsert(&mut self, node: ImuleNode, now: Instant) {
+    pub fn upsert(&mut self, node: ImuleNode, now: Instant) -> UpsertOutcome {
         let id = KadId(node.client_id);
         if id.is_zero() {
-            return;
+            return UpsertOutcome::IgnoredZeroId;
         }
         if id == self.my_id {
-            return;
+            return UpsertOutcome::IgnoredSelf;
         }
 
         let dest_b64 = node.udp_dest_b64();
@@ -85,6 +93,7 @@ impl RoutingTable {
         }
         self.by_dest.insert(dest_b64.clone(), id);
 
+        let mut inserted = false;
         self.by_id
             .entry(id)
             .and_modify(|st| {
@@ -108,7 +117,9 @@ impl RoutingTable {
                 st.last_seen = now;
                 st.failures = 0;
             })
-            .or_insert(NodeState {
+            .or_insert_with(|| {
+                inserted = true;
+                NodeState {
                 node,
                 dest_b64,
                 last_seen: now,
@@ -117,7 +128,14 @@ impl RoutingTable {
                 last_hello: None,
                 needs_hello: true,
                 failures: 0,
+                }
             });
+
+        if inserted {
+            UpsertOutcome::Inserted
+        } else {
+            UpsertOutcome::Updated
+        }
     }
 
     pub fn mark_seen_by_dest(&mut self, dest_b64: &str, now: Instant) {

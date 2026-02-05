@@ -158,6 +158,12 @@ If you see the service loop sending lots of `KADEMLIA2_REQ` but reporting `recv_
 
 After the fix, long runs should start showing `recv_ress>0` and `new_nodes>0` as the crawler learns contacts.
 
+### Note: Why `routing` Might Not Grow Past The Seed Count
+
+If `kad service status` shows `recv_ress>0` but `routing` stays flat (e.g. stuck at the initial `nodes.dat` size), that can be normal in a small/stale network *or* it can indicate that peers are mostly returning contacts we already know (or echoing our own KadID back as a contact).
+
+The service now counts “new nodes” only when `routing.len()` actually increases after processing `KADEMLIA2_RES`, to avoid misleading logs.
+
 Relevant config keys (all under `[kad]`):
 - `service_enabled` (default `true`)
 - `service_runtime_secs` (`0` = run until Ctrl-C)
