@@ -149,6 +149,15 @@ It:
 - periodically crawls the network by sending `KADEMLIA2_REQ` lookups and decoding `KADEMLIA2_RES` replies
 - periodically persists an updated `data/nodes.dat`
 
+### Important Fix (2026-02-05): `KADEMLIA2_REQ` Check Field
+
+If you see the service loop sending lots of `KADEMLIA2_REQ` but reporting `recv_ress=0` in `kad service status`, the most likely culprit was a bug which was fixed on `feature/sam-protocol`:
+
+- In iMule, the `KADEMLIA2_REQ` payload includes a `check` KadID field which must match the **receiver's** KadID.
+- If we incorrectly put *our* KadID in the `check` field, peers will silently ignore the request and never send `KADEMLIA2_RES`.
+
+After the fix, long runs should start showing `recv_ress>0` and `new_nodes>0` as the crawler learns contacts.
+
 Relevant config keys (all under `[kad]`):
 - `service_enabled` (default `true`)
 - `service_runtime_secs` (`0` = run until Ctrl-C)

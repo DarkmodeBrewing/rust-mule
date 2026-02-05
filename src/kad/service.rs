@@ -233,12 +233,17 @@ async fn crawl_once(
     }
 
     let req_kind = cfg.req_contacts.clamp(1, 32);
-    let req_payload = encode_kad2_req(req_kind, target, crypto.my_kad_id);
-    let req_plain = KadPacket::encode(KADEMLIA2_REQ, &req_payload);
 
     for p in peers {
         let dest = p.udp_dest_b64();
         let target_kad_id = KadId(p.client_id);
+
+        // NOTE: iMule's `KADEMLIA2_REQ` includes a `check` field which must match the *receiver's*
+        // KadID (used to discard packets not intended for this node). If we put our own KadID here,
+        // peers will silently ignore the request and we'll never get `KADEMLIA2_RES`.
+        let req_payload = encode_kad2_req(req_kind, target, target_kad_id);
+        let req_plain = KadPacket::encode(KADEMLIA2_REQ, &req_payload);
+
         let sender_verify_key =
             udp_crypto::udp_verify_key(crypto.udp_key_secret, p.udp_dest_hash_code());
         let receiver_verify_key = if p.udp_key_ip == crypto.my_dest_hash {
