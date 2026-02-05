@@ -19,7 +19,7 @@ use crate::{
     nodes::imule::ImuleNode,
 };
 use anyhow::Result;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use tokio::time::{Duration, Instant, interval};
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +40,17 @@ pub struct KadServiceConfig {
     /// Requested number of contacts in `KADEMLIA2_REQ` (1..=32 recommended).
     pub req_contacts: u8,
     pub max_persist_nodes: usize,
+
+    pub req_timeout_secs: u64,
+    pub req_min_interval_secs: u64,
+
+    pub hello_every_secs: u64,
+    pub hello_batch: usize,
+    pub hello_min_interval_secs: u64,
+
+    pub maintenance_every_secs: u64,
+    pub max_failures: u32,
+    pub evict_age_secs: u64,
 }
 
 impl Default for KadServiceConfig {
@@ -51,6 +62,17 @@ impl Default for KadServiceConfig {
             alpha: 3,
             req_contacts: 32,
             max_persist_nodes: 5000,
+
+            req_timeout_secs: 45,
+            req_min_interval_secs: 15,
+
+            hello_every_secs: 10,
+            hello_batch: 2,
+            hello_min_interval_secs: 900,
+
+            maintenance_every_secs: 5,
+            max_failures: 5,
+            evict_age_secs: 3600,
         }
     }
 }
@@ -59,6 +81,9 @@ pub struct KadService {
     routing: RoutingTable,
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
     sources_by_file: BTreeMap<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>,
+
+    pending_reqs: HashMap<String, Instant>,
+    crawl_round: u64,
 }
 
 impl KadService {
@@ -66,6 +91,8 @@ impl KadService {
         Self {
             routing: RoutingTable::new(my_id),
             sources_by_file: BTreeMap::new(),
+            pending_reqs: HashMap::new(),
+            crawl_round: 0,
         }
     }
 
@@ -94,6 +121,8 @@ pub async fn run_service(
 
     let mut crawl_tick = interval(Duration::from_secs(cfg.crawl_every_secs.max(1)));
     let mut persist_tick = interval(Duration::from_secs(cfg.persist_every_secs.max(5)));
+    let mut hello_tick = interval(Duration::from_secs(cfg.hello_every_secs.max(1)));
+    let mut maintenance_tick = interval(Duration::from_secs(cfg.maintenance_every_secs.max(1)));
 
     // Optional runtime deadline (0 => forever).
     let deadline = if cfg.runtime_secs == 0 {
@@ -124,6 +153,14 @@ pub async fn run_service(
                 persist_snapshot(svc, persist_path, cfg.max_persist_nodes).await;
             }
 
+            _ = hello_tick.tick() => {
+                send_hello_batch(svc, sock, crypto, &cfg).await?;
+            }
+
+            _ = maintenance_tick.tick() => {
+                maintenance(svc, &cfg).await;
+            }
+
             recv = sock.recv() => {
                 let recv = recv?;
                 handle_inbound(svc, sock, recv.from_destination, recv.payload, crypto).await?;
@@ -151,11 +188,26 @@ async fn crawl_once(
     crypto: KadServiceCrypto,
     cfg: &KadServiceConfig,
 ) -> Result<()> {
-    let target = KadId::random()?;
-    let peers = svc
-        .routing
-        .closest_to(target, cfg.alpha.max(1), 0);
+    svc.crawl_round = svc.crawl_round.wrapping_add(1);
+    let now = Instant::now();
 
+    // Mix targets to avoid repeatedly sampling the same region:
+    // - mostly random IDs for exploration
+    // - occasionally our own ID to keep buckets around us fresh
+    let target = if svc.crawl_round.is_multiple_of(4) {
+        crypto.my_kad_id
+    } else {
+        KadId::random()?
+    };
+
+    let req_min = Duration::from_secs(cfg.req_min_interval_secs.max(1));
+    let mut peers = svc.routing.select_query_candidates(
+        cfg.alpha.max(1),
+        now,
+        req_min,
+        cfg.max_failures,
+    );
+    peers.retain(|p| !svc.pending_reqs.contains_key(&p.udp_dest_b64()));
     if peers.is_empty() {
         return Ok(());
     }
@@ -190,10 +242,96 @@ async fn crawl_once(
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 REQ (crawl)");
         } else {
             tracing::debug!(to = %dest, "sent KAD2 REQ (crawl)");
+            svc.pending_reqs.insert(
+                dest.clone(),
+                Instant::now() + Duration::from_secs(cfg.req_timeout_secs.max(5)),
+            );
+            svc.routing.mark_queried_by_dest(&dest, Instant::now());
         }
     }
 
     Ok(())
+}
+
+async fn send_hello_batch(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+) -> Result<()> {
+    if svc.routing.is_empty() {
+        return Ok(());
+    }
+
+    let now = Instant::now();
+    let min_interval = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
+    let mut peers = svc.routing.select_hello_candidates(
+        cfg.hello_batch.max(1),
+        now,
+        min_interval,
+        cfg.max_failures,
+    );
+    if peers.is_empty() {
+        return Ok(());
+    }
+
+    let hello_plain_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
+    let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_plain_payload);
+
+    for p in peers.drain(..) {
+        let dest = p.udp_dest_b64();
+        let target_kad_id = KadId(p.client_id);
+        let sender_verify_key =
+            udp_crypto::udp_verify_key(crypto.udp_key_secret, p.udp_dest_hash_code());
+        let receiver_verify_key = if p.udp_key_ip == crypto.my_dest_hash {
+            p.udp_key
+        } else {
+            0
+        };
+
+        let out = udp_crypto::encrypt_kad_packet(
+            &hello_plain,
+            target_kad_id,
+            receiver_verify_key,
+            sender_verify_key,
+        )?;
+
+        if let Err(err) = sock.send_to(&dest, &out).await {
+            tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
+        } else {
+            tracing::debug!(to = %dest, "sent KAD2 HELLO_REQ (service)");
+            svc.routing.mark_hello_sent_by_dest(&dest, now);
+        }
+    }
+
+    Ok(())
+}
+
+async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
+    let now = Instant::now();
+
+    // Expire pending queries and mark failures.
+    let mut expired = Vec::new();
+    for (dest, deadline) in &svc.pending_reqs {
+        if *deadline <= now {
+            expired.push(dest.clone());
+        }
+    }
+    for dest in expired {
+        svc.pending_reqs.remove(&dest);
+        svc.routing.mark_failure_by_dest(&dest);
+        tracing::debug!(to = %dest, "KAD2 REQ timed out; marking failure");
+    }
+
+    // Evict dead entries to keep the table healthy.
+    let evicted = svc.routing.evict(
+        now,
+        cfg.max_failures,
+        Duration::from_secs(cfg.evict_age_secs.max(60)),
+    );
+    if evicted > 0 {
+        tracing::info!(evicted, remaining = svc.routing.len(), "evicted stale peers");
+    }
 }
 
 async fn handle_inbound(
@@ -444,6 +582,7 @@ async fn handle_inbound(
                 }
             };
             tracing::debug!(from = %from_dest_b64, contacts = res.contacts.len(), "got KAD2 RES");
+            svc.pending_reqs.remove(&from_dest_b64);
             for c in res.contacts {
                 svc.routing.upsert(ImuleNode {
                     kad_version: c.kad_version,

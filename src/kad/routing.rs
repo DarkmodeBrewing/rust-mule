@@ -1,12 +1,15 @@
 use crate::{kad::KadId, nodes::imule::ImuleNode};
 use std::collections::{BTreeMap, HashMap};
-use tokio::time::Instant;
+use tokio::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub struct NodeState {
     pub node: ImuleNode,
     pub dest_b64: String,
     pub last_seen: Instant,
+    pub last_queried: Option<Instant>,
+    pub last_hello: Option<Instant>,
+    pub needs_hello: bool,
     pub failures: u32,
 }
 
@@ -80,6 +83,12 @@ impl RoutingTable {
                 if node.kad_version > st.node.kad_version {
                     st.node.kad_version = node.kad_version;
                 }
+                if node.udp_key != 0 && st.node.udp_key != node.udp_key {
+                    // UDP keys are bound to the sender/receiver tuple. If we learn a new one,
+                    // update it eagerly.
+                    st.node.udp_key = node.udp_key;
+                    st.node.udp_key_ip = node.udp_key_ip;
+                }
                 if st.node.udp_key == 0 && node.udp_key != 0 {
                     st.node.udp_key = node.udp_key;
                     st.node.udp_key_ip = node.udp_key_ip;
@@ -94,6 +103,9 @@ impl RoutingTable {
                 node,
                 dest_b64,
                 last_seen: now,
+                last_queried: None,
+                last_hello: None,
+                needs_hello: true,
                 failures: 0,
             });
     }
@@ -102,6 +114,25 @@ impl RoutingTable {
         if let Some(st) = self.get_mut_by_dest(dest_b64) {
             st.last_seen = now;
             st.failures = 0;
+        }
+    }
+
+    pub fn mark_queried_by_dest(&mut self, dest_b64: &str, now: Instant) {
+        if let Some(st) = self.get_mut_by_dest(dest_b64) {
+            st.last_queried = Some(now);
+        }
+    }
+
+    pub fn mark_hello_sent_by_dest(&mut self, dest_b64: &str, now: Instant) {
+        if let Some(st) = self.get_mut_by_dest(dest_b64) {
+            st.last_hello = Some(now);
+            st.needs_hello = false;
+        }
+    }
+
+    pub fn mark_failure_by_dest(&mut self, dest_b64: &str) {
+        if let Some(st) = self.get_mut_by_dest(dest_b64) {
+            st.failures = st.failures.saturating_add(1);
         }
     }
 
@@ -116,7 +147,7 @@ impl RoutingTable {
         if let Some(st) = self.get_mut_by_dest(dest_b64) {
             st.last_seen = now;
             st.failures = 0;
-            if sender_verify_key != 0 && st.node.udp_key == 0 {
+            if sender_verify_key != 0 && st.node.udp_key != sender_verify_key {
                 st.node.udp_key = sender_verify_key;
                 st.node.udp_key_ip = my_dest_hash;
             }
@@ -141,10 +172,95 @@ impl RoutingTable {
     }
 
     pub fn snapshot_nodes(&self, max: usize) -> Vec<ImuleNode> {
-        let mut out: Vec<ImuleNode> = self.by_id.values().map(|st| st.node.clone()).collect();
-        out.sort_by_key(|n| (std::cmp::Reverse(n.verified), std::cmp::Reverse(n.kad_version)));
-        out.truncate(max);
-        out
+        let mut out: Vec<&NodeState> = self.by_id.values().collect();
+        out.sort_by_key(|st| {
+            (
+                std::cmp::Reverse(st.node.verified),
+                std::cmp::Reverse(st.node.udp_key != 0),
+                std::cmp::Reverse(st.node.kad_version),
+                std::cmp::Reverse(st.last_seen),
+                st.failures,
+            )
+        });
+
+        out.into_iter()
+            .take(max)
+            .map(|st| st.node.clone())
+            .collect()
+    }
+
+    pub fn select_query_candidates(
+        &self,
+        max: usize,
+        now: Instant,
+        min_interval: Duration,
+        max_failures: u32,
+    ) -> Vec<ImuleNode> {
+        let mut out: Vec<&NodeState> = self
+            .by_id
+            .values()
+            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.failures < max_failures)
+            .filter(|st| match st.last_queried {
+                Some(t) => now.saturating_duration_since(t) >= min_interval,
+                None => true,
+            })
+            .collect();
+
+        out.sort_by_key(|st| (st.last_queried, std::cmp::Reverse(st.last_seen)));
+
+        out.into_iter()
+            .take(max)
+            .map(|st| st.node.clone())
+            .collect()
+    }
+
+    pub fn select_hello_candidates(
+        &self,
+        max: usize,
+        now: Instant,
+        min_interval: Duration,
+        max_failures: u32,
+    ) -> Vec<ImuleNode> {
+        let mut out: Vec<&NodeState> = self
+            .by_id
+            .values()
+            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.failures < max_failures)
+            .filter(|st| st.needs_hello || match st.last_hello {
+                Some(t) => now.saturating_duration_since(t) >= min_interval,
+                None => true,
+            })
+            .collect();
+
+        out.sort_by_key(|st| (!st.needs_hello, st.last_hello, std::cmp::Reverse(st.last_seen)));
+
+        out.into_iter()
+            .take(max)
+            .map(|st| st.node.clone())
+            .collect()
+    }
+
+    pub fn evict(
+        &mut self,
+        now: Instant,
+        max_failures: u32,
+        max_age: Duration,
+    ) -> usize {
+        let before = self.by_id.len();
+        let mut to_remove: Vec<KadId> = Vec::new();
+        for (id, st) in &self.by_id {
+            if st.failures >= max_failures && now.saturating_duration_since(st.last_seen) >= max_age
+            {
+                to_remove.push(*id);
+            }
+        }
+        for id in to_remove {
+            if let Some(st) = self.by_id.remove(&id) {
+                self.by_dest.remove(&st.dest_b64);
+            }
+        }
+        before - self.by_id.len()
     }
 }
 

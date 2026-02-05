@@ -63,6 +63,30 @@ fn default_kad_service_req_contacts() -> u8 {
 fn default_kad_service_max_persist_nodes() -> usize {
     5000
 }
+fn default_kad_service_req_timeout_secs() -> u64 {
+    45
+}
+fn default_kad_service_req_min_interval_secs() -> u64 {
+    15
+}
+fn default_kad_service_hello_every_secs() -> u64 {
+    10
+}
+fn default_kad_service_hello_batch() -> usize {
+    2
+}
+fn default_kad_service_hello_min_interval_secs() -> u64 {
+    900
+}
+fn default_kad_service_maintenance_every_secs() -> u64 {
+    5
+}
+fn default_kad_service_max_failures() -> u32 {
+    5
+}
+fn default_kad_service_evict_age_secs() -> u64 {
+    3600
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -131,6 +155,17 @@ pub struct KadConfig {
     pub service_alpha: usize,
     pub service_req_contacts: u8,
     pub service_max_persist_nodes: usize,
+
+    pub service_req_timeout_secs: u64,
+    pub service_req_min_interval_secs: u64,
+
+    pub service_hello_every_secs: u64,
+    pub service_hello_batch: usize,
+    pub service_hello_min_interval_secs: u64,
+
+    pub service_maintenance_every_secs: u64,
+    pub service_max_failures: u32,
+    pub service_evict_age_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +212,17 @@ impl Default for KadConfig {
             service_alpha: default_kad_service_alpha(),
             service_req_contacts: default_kad_service_req_contacts(),
             service_max_persist_nodes: default_kad_service_max_persist_nodes(),
+
+            service_req_timeout_secs: default_kad_service_req_timeout_secs(),
+            service_req_min_interval_secs: default_kad_service_req_min_interval_secs(),
+
+            service_hello_every_secs: default_kad_service_hello_every_secs(),
+            service_hello_batch: default_kad_service_hello_batch(),
+            service_hello_min_interval_secs: default_kad_service_hello_min_interval_secs(),
+
+            service_maintenance_every_secs: default_kad_service_maintenance_every_secs(),
+            service_max_failures: default_kad_service_max_failures(),
+            service_evict_age_secs: default_kad_service_evict_age_secs(),
         }
     }
 }

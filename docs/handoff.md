@@ -157,6 +157,15 @@ Relevant config keys (all under `[kad]`):
 - `service_alpha` (default `3`)
 - `service_req_contacts` (default `32`)
 - `service_max_persist_nodes` (default `5000`)
+Additional tuning knobs:
+- `service_req_timeout_secs` (default `45`)
+- `service_req_min_interval_secs` (default `15`)
+- `service_hello_every_secs` (default `10`)
+- `service_hello_batch` (default `2`)
+- `service_hello_min_interval_secs` (default `900`)
+- `service_maintenance_every_secs` (default `5`)
+- `service_max_failures` (default `5`)
+- `service_evict_age_secs` (default `3600`)
 
 ## Reference Material
 
