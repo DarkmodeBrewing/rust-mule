@@ -164,6 +164,8 @@ If `kad service status` shows `recv_ress>0` but `routing` stays flat (e.g. stuck
 
 The service now counts “new nodes” only when `routing.len()` actually increases after processing `KADEMLIA2_RES`, to avoid misleading logs.
 
+Also: the crawler now picks query targets Kademlia-style: it biases which peers it queries by XOR distance to the lookup target (not just “who is live”). This tends to explore new regions of the ID space faster and increases the odds of discovering nodes that weren't already in the seed `nodes.dat`.
+
 Relevant config keys (all under `[kad]`):
 - `service_enabled` (default `true`)
 - `service_runtime_secs` (`0` = run until Ctrl-C)

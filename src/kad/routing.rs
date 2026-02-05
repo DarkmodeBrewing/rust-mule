@@ -254,6 +254,46 @@ impl RoutingTable {
             .collect()
     }
 
+    /// Select query candidates for a specific lookup target (Kademlia-style).
+    ///
+    /// We prefer nodes we've heard from (`last_inbound`), but we also bias selection by XOR
+    /// distance to `target` so that repeated crawls explore different regions.
+    pub fn select_query_candidates_for_target(
+        &self,
+        target: KadId,
+        max: usize,
+        now: Instant,
+        base_interval: Duration,
+        max_failures: u32,
+    ) -> Vec<ImuleNode> {
+        let mut out: Vec<&NodeState> = self
+            .by_id
+            .values()
+            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.failures < max_failures)
+            .filter(|st| match st.last_queried {
+                Some(t) => {
+                    now.saturating_duration_since(t) >= backoff_interval(base_interval, st.failures)
+                }
+                None => true,
+            })
+            .collect();
+
+        out.sort_by_key(|st| {
+            (
+                st.last_inbound.is_none(),
+                xor_distance(KadId(st.node.client_id), target),
+                st.last_queried,
+                std::cmp::Reverse(st.last_seen),
+            )
+        });
+
+        out.into_iter()
+            .take(max)
+            .map(|st| st.node.clone())
+            .collect()
+    }
+
     pub fn select_hello_candidates(
         &self,
         max: usize,

@@ -221,7 +221,8 @@ async fn crawl_once(
     };
 
     let req_min = Duration::from_secs(cfg.req_min_interval_secs.max(1));
-    let mut peers = svc.routing.select_query_candidates(
+    let mut peers = svc.routing.select_query_candidates_for_target(
+        target,
         cfg.alpha.max(1),
         now,
         req_min,
