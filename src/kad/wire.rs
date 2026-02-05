@@ -227,8 +227,10 @@ pub fn decode_kad2_req(payload: &[u8]) -> Result<Kad2Req> {
 
 pub fn encode_kad2_req(kind: u8, target: KadId, check: KadId) -> Vec<u8> {
     let mut out = Vec::with_capacity(1 + 16 + 16);
-    let k = kind & 0x1F;
-    out.push(k.max(1)); // kind must be non-zero
+    // iMule masks this field with `0x1F` on decode, so only 1..=31 is representable.
+    // Use a safe clamp so config mistakes (e.g. 32) don't silently become 1.
+    let k = kind.clamp(1, 31) & 0x1F;
+    out.push(k); // kind must be non-zero
     out.extend_from_slice(&target.to_crypt_bytes());
     out.extend_from_slice(&check.to_crypt_bytes());
     out

@@ -67,7 +67,9 @@ fn default_kad_service_alpha() -> usize {
     3
 }
 fn default_kad_service_req_contacts() -> u8 {
-    32
+    // Kad2 `KADEMLIA2_REQ` encodes the requested number of contacts in the low 5 bits (1..=31).
+    // If we set 32 here, it would wrap to 0 and then be rejected/normalized to 1 by our encoder.
+    31
 }
 fn default_kad_service_max_persist_nodes() -> usize {
     5000

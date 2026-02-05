@@ -37,7 +37,7 @@ pub struct KadServiceConfig {
     pub crawl_every_secs: u64,
     pub persist_every_secs: u64,
     pub alpha: usize,
-    /// Requested number of contacts in `KADEMLIA2_REQ` (1..=32 recommended).
+    /// Requested number of contacts in `KADEMLIA2_REQ` (1..=31).
     pub req_contacts: u8,
     pub max_persist_nodes: usize,
 
@@ -61,7 +61,7 @@ impl Default for KadServiceConfig {
             crawl_every_secs: 3,
             persist_every_secs: 300,
             alpha: 3,
-            req_contacts: 32,
+            req_contacts: 31,
             max_persist_nodes: 5000,
 
             req_timeout_secs: 45,
@@ -194,7 +194,49 @@ pub async fn run_service(
 }
 
 async fn persist_snapshot(svc: &KadService, path: &std::path::Path, max_nodes: usize) {
-    let nodes = svc.routing.snapshot_nodes(max_nodes);
+    // Merge the current routing snapshot into whatever is already persisted on disk.
+    //
+    // This prevents `nodes.dat` from shrinking to a tiny set if we temporarily evict dead entries;
+    // we still want a broader seed pool across restarts.
+    let mut merged = std::collections::BTreeMap::<String, crate::nodes::imule::ImuleNode>::new();
+    if let Ok(existing) = crate::nodes::imule::nodes_dat_contacts(path).await {
+        for n in existing {
+            merged.insert(n.udp_dest_b64(), n);
+        }
+    }
+
+    for n in svc.routing.snapshot_nodes(max_nodes) {
+        let k = n.udp_dest_b64();
+        merged
+            .entry(k)
+            .and_modify(|old| {
+                if n.kad_version > old.kad_version {
+                    old.kad_version = n.kad_version;
+                }
+                if n.verified {
+                    old.verified = true;
+                }
+                if old.udp_key == 0 && n.udp_key != 0 {
+                    old.udp_key = n.udp_key;
+                    old.udp_key_ip = n.udp_key_ip;
+                }
+                if old.client_id == [0u8; 16] && n.client_id != [0u8; 16] {
+                    old.client_id = n.client_id;
+                }
+            })
+            .or_insert(n);
+    }
+
+    let mut nodes: Vec<_> = merged.into_values().collect();
+    nodes.sort_by_key(|n| {
+        (
+            std::cmp::Reverse(n.verified),
+            std::cmp::Reverse(n.udp_key != 0),
+            std::cmp::Reverse(n.kad_version),
+        )
+    });
+    nodes.truncate(max_nodes);
+
     if let Err(err) = crate::nodes::imule::persist_nodes_dat_v2(path, &nodes).await {
         tracing::warn!(error = %err, path = %path.display(), "failed to persist nodes.dat");
     } else {
@@ -233,7 +275,7 @@ async fn crawl_once(
         return Ok(());
     }
 
-    let req_kind = cfg.req_contacts.clamp(1, 32);
+    let req_kind = cfg.req_contacts.clamp(1, 31);
 
     for p in peers {
         let dest = p.udp_dest_b64();

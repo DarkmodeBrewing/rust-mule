@@ -172,7 +172,7 @@ Relevant config keys (all under `[kad]`):
 - `service_crawl_every_secs` (default `3`)
 - `service_persist_every_secs` (default `300`)
 - `service_alpha` (default `3`)
-- `service_req_contacts` (default `32`)
+- `service_req_contacts` (default `31`)
 - `service_max_persist_nodes` (default `5000`)
 Additional tuning knobs:
 - `service_req_timeout_secs` (default `45`)
@@ -210,5 +210,11 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
    - Run as a long-lived service: keep SAM datagram session open, respond continuously, periodically refresh/ping, and periodically persist `data/nodes.dat`.
 
 2. **Publish/Search indexing (after routing is stable)**
-   - Implement remaining Kad2 publish/search opcodes (key/notes/source) with iMule-compatible responses.
-   - Add a real local index so we can answer searches meaningfully (not just “0 results but no retry”).
+- Implement remaining Kad2 publish/search opcodes (key/notes/source) with iMule-compatible responses.
+- Add a real local index so we can answer searches meaningfully (not just “0 results but no retry”).
+
+## Tuning Notes / Gotchas
+
+- `kad.service_req_contacts` should be in `1..=31`. (Kad2 masks this field with `0x1F`.)
+  - If it is set to `32`, it will effectively become `1`, which slows discovery dramatically.
+- The service persists `nodes.dat` periodically. It now merges the current routing snapshot into the existing on-disk `nodes.dat` to avoid losing seed nodes after an eviction cycle.
