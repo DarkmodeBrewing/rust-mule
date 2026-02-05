@@ -246,7 +246,7 @@ pub async fn bootstrap(
                 if d.was_obfuscated {
                     decrypted_ok += 1;
                     tracing::debug!(
-                        from = %recv.from_destination,
+                        from = %crate::i2p::b64::short(&recv.from_destination),
                         rvk = d.receiver_verify_key,
                         svk = d.sender_verify_key,
                         "decrypted obfuscated KAD packet"
@@ -258,7 +258,7 @@ pub async fn bootstrap(
                 dropped_unparsable += 1;
                 tracing::debug!(
                     error = %err,
-                    from = %recv.from_destination,
+                    from = %crate::i2p::b64::short(&recv.from_destination),
                     "dropping undecipherable/unknown KAD packet"
                 );
                 continue;
@@ -278,7 +278,7 @@ pub async fn bootstrap(
                 dropped_unparsable += 1;
                 tracing::debug!(
                     error = %err,
-                    from = %recv.from_destination,
+                    from = %crate::i2p::b64::short(&recv.from_destination),
                     "dropping unparsable decrypted KAD packet"
                 );
                 continue;
@@ -288,7 +288,10 @@ pub async fn bootstrap(
         match pkt.opcode {
             KADEMLIA_HELLO_REQ_DEPRECATED => {
                 hello_reqs += 1;
-                tracing::info!(from = %recv.from_destination, "got KAD1 HELLO_REQ (deprecated)");
+                tracing::info!(
+                    from = %crate::i2p::b64::short(&recv.from_destination),
+                    "got KAD1 HELLO_REQ (deprecated)"
+                );
 
                 // Reply with our Kad1 contact details, iMule-style:
                 //   <ClientID 16><UDPDest 387><TCPDest 387><Type 1>
@@ -302,11 +305,14 @@ pub async fn bootstrap(
                 if let Err(err) = sock.send_to(&recv.from_destination, &res).await {
                     tracing::warn!(
                         error = %err,
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         "failed sending KAD1 HELLO_RES"
                     );
                 } else {
-                    tracing::info!(to = %recv.from_destination, "sent KAD1 HELLO_RES");
+                    tracing::info!(
+                        to = %crate::i2p::b64::short(&recv.from_destination),
+                        "sent KAD1 HELLO_RES"
+                    );
                 }
             }
             KADEMLIA2_HELLO_REQ => {
@@ -317,7 +323,7 @@ pub async fn bootstrap(
                         dropped_unparsable += 1;
                         tracing::debug!(
                             error = %err,
-                            from = %recv.from_destination,
+                            from = %crate::i2p::b64::short(&recv.from_destination),
                             "failed to decode KAD2 HELLO_REQ payload"
                         );
                         continue;
@@ -325,7 +331,7 @@ pub async fn bootstrap(
                 };
 
                 tracing::info!(
-                    from = %recv.from_destination,
+                    from = %crate::i2p::b64::short(&recv.from_destination),
                     kad_version = hello.kad_version,
                     valid_receiver_key,
                     "got KAD2 HELLO_REQ"
@@ -390,11 +396,14 @@ pub async fn bootstrap(
                 if let Err(err) = sock.send_to(&recv.from_destination, &res).await {
                     tracing::warn!(
                         error = %err,
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         "failed sending KAD2 HELLO_RES"
                     );
                 } else {
-                    tracing::info!(to = %recv.from_destination, "sent KAD2 HELLO_RES");
+                    tracing::info!(
+                        to = %crate::i2p::b64::short(&recv.from_destination),
+                        "sent KAD2 HELLO_RES"
+                    );
                 }
             }
             KADEMLIA2_HELLO_RES => {
@@ -405,7 +414,7 @@ pub async fn bootstrap(
                         dropped_unparsable += 1;
                         tracing::debug!(
                             error = %err,
-                            from = %recv.from_destination,
+                            from = %crate::i2p::b64::short(&recv.from_destination),
                             "failed to decode KAD2 HELLO_RES payload"
                         );
                         continue;
@@ -415,7 +424,7 @@ pub async fn bootstrap(
                 let misc = hello.tags.get(&TAG_KADMISCOPTIONS).copied().unwrap_or(0) as u8;
                 let wants_ack = (misc & 0x04) != 0;
                 tracing::info!(
-                    from = %recv.from_destination,
+                    from = %crate::i2p::b64::short(&recv.from_destination),
                     kad_version = hello.kad_version,
                     valid_receiver_key,
                     wants_ack,
@@ -453,7 +462,7 @@ pub async fn bootstrap(
                     let receiver_verify_key = decrypted.sender_verify_key;
                     if receiver_verify_key == 0 {
                         tracing::warn!(
-                            from = %recv.from_destination,
+                            from = %crate::i2p::b64::short(&recv.from_destination),
                             "peer requested HELLO_RES_ACK but sender_verify_key was 0"
                         );
                     } else {
@@ -474,19 +483,26 @@ pub async fn bootstrap(
                         if let Err(err) = sock.send_to(&recv.from_destination, &ack).await {
                             tracing::warn!(
                                 error = %err,
-                                to = %recv.from_destination,
+                                to = %crate::i2p::b64::short(&recv.from_destination),
                                 "failed sending KAD2 HELLO_RES_ACK"
                             );
                         } else {
                             hello2_ack_sent += 1;
-                            tracing::info!(to = %recv.from_destination, "sent KAD2 HELLO_RES_ACK");
+                            tracing::info!(
+                                to = %crate::i2p::b64::short(&recv.from_destination),
+                                "sent KAD2 HELLO_RES_ACK"
+                            );
                         }
                     }
                 }
             }
             KADEMLIA2_HELLO_RES_ACK => {
                 hello2_ack_recv += 1;
-                tracing::info!(from = %recv.from_destination, valid_receiver_key, "got KAD2 HELLO_RES_ACK");
+                tracing::info!(
+                    from = %crate::i2p::b64::short(&recv.from_destination),
+                    valid_receiver_key,
+                    "got KAD2 HELLO_RES_ACK"
+                );
             }
             KADEMLIA2_REQ => {
                 kad2_reqs += 1;
@@ -496,7 +512,7 @@ pub async fn bootstrap(
                         dropped_unparsable += 1;
                         tracing::debug!(
                             error = %err,
-                            from = %recv.from_destination,
+                            from = %crate::i2p::b64::short(&recv.from_destination),
                             "failed to decode KAD2 REQ payload"
                         );
                         continue;
@@ -505,7 +521,7 @@ pub async fn bootstrap(
 
                 if req.check != crypto.my_kad_id {
                     tracing::debug!(
-                        from = %recv.from_destination,
+                        from = %crate::i2p::b64::short(&recv.from_destination),
                         "ignoring KAD2 REQ with mismatched check id"
                     );
                     continue;
@@ -537,13 +553,13 @@ pub async fn bootstrap(
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
                     tracing::warn!(
                         error = %err,
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         "failed sending KAD2 RES"
                     );
                 } else {
                     kad2_res_sent += 1;
                     tracing::debug!(
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         contacts = contacts.len(),
                         "sent KAD2 RES"
                     );
@@ -557,7 +573,7 @@ pub async fn bootstrap(
                         dropped_unparsable += 1;
                         tracing::debug!(
                             error = %err,
-                            from = %recv.from_destination,
+                            from = %crate::i2p::b64::short(&recv.from_destination),
                             "failed to decode KAD2 PUBLISH_SOURCE_REQ payload"
                         );
                         continue;
@@ -597,13 +613,13 @@ pub async fn bootstrap(
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
                     tracing::warn!(
                         error = %err,
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         "failed sending KAD2 PUBLISH_RES"
                     );
                 } else {
                     publish_source_res_sent += 1;
                     tracing::debug!(
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         sources_for_file = count,
                         "sent KAD2 PUBLISH_RES (sources)"
                     );
@@ -617,7 +633,7 @@ pub async fn bootstrap(
                         dropped_unparsable += 1;
                         tracing::debug!(
                             error = %err,
-                            from = %recv.from_destination,
+                            from = %crate::i2p::b64::short(&recv.from_destination),
                             "failed to decode KAD2 SEARCH_SOURCE_REQ payload"
                         );
                         continue;
@@ -654,13 +670,13 @@ pub async fn bootstrap(
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
                     tracing::warn!(
                         error = %err,
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         "failed sending KAD2 SEARCH_RES"
                     );
                 } else {
                     search_res_sent += 1;
                     tracing::debug!(
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         results = results.len(),
                         "sent KAD2 SEARCH_RES (sources)"
                     );
@@ -674,7 +690,7 @@ pub async fn bootstrap(
                         dropped_unparsable += 1;
                         tracing::debug!(
                             error = %err,
-                            from = %recv.from_destination,
+                            from = %crate::i2p::b64::short(&recv.from_destination),
                             "failed to decode KAD1 REQ payload"
                         );
                         continue;
@@ -698,13 +714,13 @@ pub async fn bootstrap(
                 if let Err(err) = sock.send_to(&recv.from_destination, &res_plain).await {
                     tracing::warn!(
                         error = %err,
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         "failed sending KAD1 RES"
                     );
                 } else {
                     kad1_res_sent += 1;
                     tracing::debug!(
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         contacts = contacts.len(),
                         "sent KAD1 RES"
                     );
@@ -712,7 +728,10 @@ pub async fn bootstrap(
             }
             KADEMLIA2_PONG => {
                 if pong_from.insert(recv.from_destination.clone()) {
-                    tracing::info!(from = %recv.from_destination, "got KAD2 PONG");
+                    tracing::info!(
+                        from = %crate::i2p::b64::short(&recv.from_destination),
+                        "got KAD2 PONG"
+                    );
                 }
             }
             KADEMLIA2_PING => {
@@ -736,17 +755,23 @@ pub async fn bootstrap(
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
                     tracing::warn!(
                         error = %err,
-                        to = %recv.from_destination,
+                        to = %crate::i2p::b64::short(&recv.from_destination),
                         "failed sending KAD2 PONG"
                     );
                 } else {
                     pongs_sent += 1;
-                    tracing::debug!(to = %recv.from_destination, "sent KAD2 PONG");
+                    tracing::debug!(
+                        to = %crate::i2p::b64::short(&recv.from_destination),
+                        "sent KAD2 PONG"
+                    );
                 }
             }
             KADEMLIA2_BOOTSTRAP_RES => {
                 if bootstrap_from.insert(recv.from_destination.clone()) {
-                    tracing::info!(from = %recv.from_destination, "got KAD2 BOOTSTRAP_RES");
+                    tracing::info!(
+                        from = %crate::i2p::b64::short(&recv.from_destination),
+                        "got KAD2 BOOTSTRAP_RES"
+                    );
                 }
                 match decode_kad2_bootstrap_res(&pkt.payload) {
                     Ok(res) => {
@@ -806,7 +831,7 @@ pub async fn bootstrap(
             other => {
                 tracing::debug!(
                     opcode = format_args!("0x{other:02x}"),
-                    from = %recv.from_destination,
+                    from = %crate::i2p::b64::short(&recv.from_destination),
                     len = pkt.payload.len(),
                     "received unhandled KAD2 packet"
                 );

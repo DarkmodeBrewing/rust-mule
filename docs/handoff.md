@@ -186,6 +186,8 @@ As of 2026-02-05, logs can be persisted to disk via `tracing-appender`:
 
 The Kad service loop now emits a concise `INFO` line periodically: `kad service status` (default every 60s), and most per-packet send/timeout logs are `TRACE` to keep stdout readable at `debug`.
 
+To keep logs readable, long I2P base64 destination strings are now shortened in many log lines (they show a prefix + suffix rather than the full ~500 chars). See `src/i2p/b64.rs` (`b64::short()`).
+
 ## Reference Material
 
 - iMule source + reference `nodes.dat` are under `source_ref/` (gitignored).

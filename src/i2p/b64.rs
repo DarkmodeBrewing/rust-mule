@@ -3,7 +3,36 @@
 /// I2P uses the same bit-packing as standard base64, but with a different alphabet:
 /// `A-Z a-z 0-9 - ~` instead of `+ /`.
 /// This matches iMule's `b64codec.h`.
+use std::fmt;
+
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-~";
+
+/// Short, human-friendly formatter for very long I2P base64 destination strings.
+///
+/// This is meant for logs: it keeps the beginning/end (useful for correlation) without
+/// dumping ~500 bytes of destination on every line.
+pub fn short(s: &str) -> ShortB64<'_> {
+    ShortB64 { s }
+}
+
+pub struct ShortB64<'a> {
+    s: &'a str,
+}
+
+impl fmt::Display for ShortB64<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = self.s.trim();
+        const HEAD: usize = 16;
+        const TAIL: usize = 12;
+
+        if s.len() <= HEAD + TAIL + 3 {
+            return f.write_str(s);
+        }
+
+        // Safe because I2P base64 destinations are ASCII.
+        write!(f, "{}...{}", &s[..HEAD], &s[s.len() - TAIL..])
+    }
+}
 
 pub fn encode(input: &[u8]) -> String {
     if input.is_empty() {
