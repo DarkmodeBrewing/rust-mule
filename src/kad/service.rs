@@ -49,6 +49,7 @@ pub struct KadServiceConfig {
     pub hello_min_interval_secs: u64,
 
     pub maintenance_every_secs: u64,
+    pub status_every_secs: u64,
     pub max_failures: u32,
     pub evict_age_secs: u64,
 }
@@ -71,10 +72,22 @@ impl Default for KadServiceConfig {
             hello_min_interval_secs: 900,
 
             maintenance_every_secs: 5,
+            status_every_secs: 60,
             max_failures: 5,
             evict_age_secs: 3600,
         }
     }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct KadServiceStats {
+    sent_reqs: u64,
+    recv_ress: u64,
+    sent_hellos: u64,
+    recv_hello_ress: u64,
+    timeouts: u64,
+    new_nodes: u64,
+    evicted: u64,
 }
 
 pub struct KadService {
@@ -84,6 +97,7 @@ pub struct KadService {
 
     pending_reqs: HashMap<String, Instant>,
     crawl_round: u64,
+    stats_window: KadServiceStats,
 }
 
 impl KadService {
@@ -93,6 +107,7 @@ impl KadService {
             sources_by_file: BTreeMap::new(),
             pending_reqs: HashMap::new(),
             crawl_round: 0,
+            stats_window: KadServiceStats::default(),
         }
     }
 
@@ -123,6 +138,7 @@ pub async fn run_service(
     let mut persist_tick = interval(Duration::from_secs(cfg.persist_every_secs.max(5)));
     let mut hello_tick = interval(Duration::from_secs(cfg.hello_every_secs.max(1)));
     let mut maintenance_tick = interval(Duration::from_secs(cfg.maintenance_every_secs.max(1)));
+    let mut status_tick = interval(Duration::from_secs(cfg.status_every_secs.max(5)));
 
     // Optional runtime deadline (0 => forever).
     let deadline = if cfg.runtime_secs == 0 {
@@ -159,6 +175,10 @@ pub async fn run_service(
 
             _ = maintenance_tick.tick() => {
                 maintenance(svc, &cfg).await;
+            }
+
+            _ = status_tick.tick() => {
+                status_report(svc).await;
             }
 
             recv = sock.recv() => {
@@ -241,7 +261,8 @@ async fn crawl_once(
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 REQ (crawl)");
         } else {
-            tracing::debug!(to = %dest, "sent KAD2 REQ (crawl)");
+            tracing::trace!(to = %dest, "sent KAD2 REQ (crawl)");
+            svc.stats_window.sent_reqs += 1;
             svc.pending_reqs.insert(
                 dest.clone(),
                 Instant::now() + Duration::from_secs(cfg.req_timeout_secs.max(5)),
@@ -299,7 +320,8 @@ async fn send_hello_batch(
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
         } else {
-            tracing::debug!(to = %dest, "sent KAD2 HELLO_REQ (service)");
+            tracing::trace!(to = %dest, "sent KAD2 HELLO_REQ (service)");
+            svc.stats_window.sent_hellos += 1;
             svc.routing.mark_hello_sent_by_dest(&dest, now);
         }
     }
@@ -320,7 +342,9 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
     for dest in expired {
         svc.pending_reqs.remove(&dest);
         svc.routing.mark_failure_by_dest(&dest);
-        tracing::debug!(to = %dest, "KAD2 REQ timed out; marking failure");
+        svc.routing.mark_queried_by_dest(&dest, now);
+        svc.stats_window.timeouts += 1;
+        tracing::trace!(to = %dest, "KAD2 REQ timed out; marking failure");
     }
 
     // Evict dead entries to keep the table healthy.
@@ -330,8 +354,31 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
         Duration::from_secs(cfg.evict_age_secs.max(60)),
     );
     if evicted > 0 {
+        svc.stats_window.evicted += evicted as u64;
         tracing::info!(evicted, remaining = svc.routing.len(), "evicted stale peers");
     }
+}
+
+async fn status_report(svc: &mut KadService) {
+    let routing = svc.routing.len();
+    let live = svc.routing.live_count();
+    let pending = svc.pending_reqs.len();
+    let w = svc.stats_window;
+    svc.stats_window = KadServiceStats::default();
+
+    tracing::info!(
+        routing,
+        live,
+        pending,
+        sent_reqs = w.sent_reqs,
+        recv_ress = w.recv_ress,
+        sent_hellos = w.sent_hellos,
+        recv_hello_ress = w.recv_hello_ress,
+        timeouts = w.timeouts,
+        new_nodes = w.new_nodes,
+        evicted = w.evicted,
+        "kad service status"
+    );
 }
 
 async fn handle_inbound(
@@ -352,10 +399,10 @@ async fn handle_inbound(
         match udp_crypto::decrypt_kad_packet(&payload, crypto.my_kad_id, crypto.udp_key_secret, from_hash) {
             Ok(d) => d,
             Err(err) => {
-                tracing::debug!(error = %err, from = %from_dest_b64, "dropping undecipherable/unknown KAD packet");
-                return Ok(());
-            }
-        };
+            tracing::trace!(error = %err, from = %from_dest_b64, "dropping undecipherable/unknown KAD packet");
+            return Ok(());
+        }
+    };
 
     let valid_receiver_key = if decrypted.was_obfuscated {
         let expected = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
@@ -371,7 +418,7 @@ async fn handle_inbound(
     let pkt = match KadPacket::decode(&decrypted.payload) {
         Ok(p) => p,
         Err(err) => {
-            tracing::debug!(error = %err, from = %from_dest_b64, "dropping unparsable decrypted KAD packet");
+            tracing::trace!(error = %err, from = %from_dest_b64, "dropping unparsable decrypted KAD packet");
             return Ok(());
         }
     };
@@ -506,6 +553,7 @@ async fn handle_inbound(
                 )?;
                 let _ = sock.send_to(&from_dest_b64, &ack).await;
             }
+            svc.stats_window.recv_hello_ress += 1;
         }
 
         KADEMLIA2_HELLO_RES_ACK => {
@@ -581,8 +629,9 @@ async fn handle_inbound(
                     return Ok(());
                 }
             };
-            tracing::debug!(from = %from_dest_b64, contacts = res.contacts.len(), "got KAD2 RES");
+            tracing::trace!(from = %from_dest_b64, contacts = res.contacts.len(), "got KAD2 RES");
             svc.pending_reqs.remove(&from_dest_b64);
+            svc.stats_window.recv_ress += 1;
             let mut new_nodes = 0usize;
             for c in res.contacts {
                 if !svc.routing.contains_id(c.node_id) {
@@ -598,6 +647,7 @@ async fn handle_inbound(
                 }, now);
             }
             if new_nodes > 0 {
+                svc.stats_window.new_nodes += new_nodes as u64;
                 tracing::debug!(from = %from_dest_b64, new_nodes, routing = svc.routing.len(), "learned new nodes from KAD2 RES");
             }
         }
@@ -699,7 +749,7 @@ async fn handle_inbound(
         }
 
         other => {
-            tracing::debug!(
+            tracing::trace!(
                 opcode = format_args!("0x{other:02x}"),
                 from = %from_dest_b64,
                 len = pkt.payload.len(),

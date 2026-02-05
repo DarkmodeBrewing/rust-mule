@@ -321,6 +321,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                 hello_batch: config.kad.service_hello_batch,
                 hello_min_interval_secs: config.kad.service_hello_min_interval_secs,
                 maintenance_every_secs: config.kad.service_maintenance_every_secs,
+                status_every_secs: config.kad.service_status_every_secs,
                 max_failures: config.kad.service_max_failures,
                 evict_age_secs: config.kad.service_evict_age_secs,
             },

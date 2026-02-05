@@ -7,6 +7,8 @@ pub struct NodeState {
     pub node: ImuleNode,
     pub dest_b64: String,
     pub last_seen: Instant,
+    /// Last time we received *any* packet from this destination.
+    pub last_inbound: Option<Instant>,
     pub last_queried: Option<Instant>,
     pub last_hello: Option<Instant>,
     pub needs_hello: bool,
@@ -39,6 +41,13 @@ impl RoutingTable {
 
     pub fn is_empty(&self) -> bool {
         self.by_id.is_empty()
+    }
+
+    pub fn live_count(&self) -> usize {
+        self.by_id
+            .values()
+            .filter(|st| st.last_inbound.is_some())
+            .count()
     }
 
     pub fn contains_id(&self, id: KadId) -> bool {
@@ -103,6 +112,7 @@ impl RoutingTable {
                 node,
                 dest_b64,
                 last_seen: now,
+                last_inbound: None,
                 last_queried: None,
                 last_hello: None,
                 needs_hello: true,
@@ -113,6 +123,7 @@ impl RoutingTable {
     pub fn mark_seen_by_dest(&mut self, dest_b64: &str, now: Instant) {
         if let Some(st) = self.get_mut_by_dest(dest_b64) {
             st.last_seen = now;
+            st.last_inbound = Some(now);
             st.failures = 0;
         }
     }
@@ -146,6 +157,7 @@ impl RoutingTable {
     ) {
         if let Some(st) = self.get_mut_by_dest(dest_b64) {
             st.last_seen = now;
+            st.last_inbound = Some(now);
             st.failures = 0;
             if sender_verify_key != 0 && st.node.udp_key != sender_verify_key {
                 st.node.udp_key = sender_verify_key;
@@ -193,7 +205,7 @@ impl RoutingTable {
         &self,
         max: usize,
         now: Instant,
-        min_interval: Duration,
+        base_interval: Duration,
         max_failures: u32,
     ) -> Vec<ImuleNode> {
         let mut out: Vec<&NodeState> = self
@@ -202,12 +214,21 @@ impl RoutingTable {
             .filter(|st| st.node.kad_version >= 6)
             .filter(|st| st.failures < max_failures)
             .filter(|st| match st.last_queried {
-                Some(t) => now.saturating_duration_since(t) >= min_interval,
+                Some(t) => {
+                    now.saturating_duration_since(t) >= backoff_interval(base_interval, st.failures)
+                }
                 None => true,
             })
             .collect();
 
-        out.sort_by_key(|st| (st.last_queried, std::cmp::Reverse(st.last_seen)));
+        // Prefer nodes we've actually heard from, then oldest-queried, then most recently seen.
+        out.sort_by_key(|st| {
+            (
+                st.last_inbound.is_none(),
+                st.last_queried,
+                std::cmp::Reverse(st.last_seen),
+            )
+        });
 
         out.into_iter()
             .take(max)
@@ -219,7 +240,7 @@ impl RoutingTable {
         &self,
         max: usize,
         now: Instant,
-        min_interval: Duration,
+        base_interval: Duration,
         max_failures: u32,
     ) -> Vec<ImuleNode> {
         let mut out: Vec<&NodeState> = self
@@ -228,12 +249,21 @@ impl RoutingTable {
             .filter(|st| st.node.kad_version >= 6)
             .filter(|st| st.failures < max_failures)
             .filter(|st| st.needs_hello || match st.last_hello {
-                Some(t) => now.saturating_duration_since(t) >= min_interval,
+                Some(t) => {
+                    now.saturating_duration_since(t) >= backoff_interval(base_interval, st.failures)
+                }
                 None => true,
             })
             .collect();
 
-        out.sort_by_key(|st| (!st.needs_hello, st.last_hello, std::cmp::Reverse(st.last_seen)));
+        out.sort_by_key(|st| {
+            (
+                st.last_inbound.is_none(),
+                !st.needs_hello,
+                st.last_hello,
+                std::cmp::Reverse(st.last_seen),
+            )
+        });
 
         out.into_iter()
             .take(max)
@@ -270,4 +300,11 @@ fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
         *v = a.0[i] ^ b.0[i];
     }
     out
+}
+
+fn backoff_interval(base: Duration, failures: u32) -> Duration {
+    // Exponential backoff (capped) to avoid repeatedly hammering dead/stale peers.
+    let pow = failures.min(8);
+    let mul = 1u32 << pow;
+    base.checked_mul(mul).unwrap_or(Duration::from_secs(24 * 60 * 60))
 }

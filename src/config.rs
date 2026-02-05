@@ -34,6 +34,15 @@ fn default_log_level() -> String {
 fn default_data_dir() -> String {
     "data".to_string()
 }
+fn default_log_to_file() -> bool {
+    true
+}
+fn default_log_file_name() -> String {
+    "rust-mule.log".to_string()
+}
+fn default_log_file_level() -> String {
+    "debug".to_string()
+}
 fn default_preferences_kad_path() -> String {
     // Keep aMule/iMule naming for backwards compatibility.
     "preferencesKad.dat".to_string()
@@ -80,6 +89,9 @@ fn default_kad_service_hello_min_interval_secs() -> u64 {
 }
 fn default_kad_service_maintenance_every_secs() -> u64 {
     5
+}
+fn default_kad_service_status_every_secs() -> u64 {
+    60
 }
 fn default_kad_service_max_failures() -> u32 {
     5
@@ -164,6 +176,7 @@ pub struct KadConfig {
     pub service_hello_min_interval_secs: u64,
 
     pub service_maintenance_every_secs: u64,
+    pub service_status_every_secs: u64,
     pub service_max_failures: u32,
     pub service_evict_age_secs: u64,
 }
@@ -180,6 +193,9 @@ pub struct I2PConfig {
 pub struct GeneralConfig {
     pub log_level: String,
     pub data_dir: String,
+    pub log_to_file: bool,
+    pub log_file_name: String,
+    pub log_file_level: String,
 }
 
 impl Default for SamConfig {
@@ -221,6 +237,7 @@ impl Default for KadConfig {
             service_hello_min_interval_secs: default_kad_service_hello_min_interval_secs(),
 
             service_maintenance_every_secs: default_kad_service_maintenance_every_secs(),
+            service_status_every_secs: default_kad_service_status_every_secs(),
             service_max_failures: default_kad_service_max_failures(),
             service_evict_age_secs: default_kad_service_evict_age_secs(),
         }
@@ -241,6 +258,9 @@ impl Default for GeneralConfig {
         Self {
             log_level: default_log_level(),
             data_dir: default_data_dir(),
+            log_to_file: default_log_to_file(),
+            log_file_name: default_log_file_name(),
+            log_file_level: default_log_file_level(),
         }
     }
 }
@@ -255,18 +275,58 @@ pub fn init_tracing(config: &Config) {
     // RUST_LOG=info,rust_mule=debug
     // RUST_MULE_LOG=debug
 
-    let env_filter = std::env::var("RUST_LOG")
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    use tracing_subscriber::Layer as _;
+
+    // Stdout filter:
+    // - If user sets `RUST_LOG`, respect it (standard Rust convention).
+    // - Otherwise use `general.log_level`.
+    let stdout_filter = std::env::var("RUST_LOG")
         .ok()
-        .or_else(|| Some(config.general.log_level.clone()))
-        .unwrap_or_else(|| "info".to_string());
+        .unwrap_or_else(|| config.general.log_level.clone());
+    let stdout_filter = EnvFilter::try_new(stdout_filter).unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let filter = EnvFilter::try_new(env_filter).unwrap_or_else(|_| EnvFilter::new("info"));
-
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
+    let stdout_layer = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_thread_ids(false)
         .with_thread_names(false)
         .compact()
+        .with_filter(stdout_filter);
+
+    if !config.general.log_to_file {
+        tracing_subscriber::registry().with(stdout_layer).init();
+        return;
+    }
+
+    // File filter:
+    // - If user sets `RUST_MULE_LOG_FILE`, it overrides config (useful to keep stdout quiet and file verbose).
+    // - Otherwise use `general.log_file_level`.
+    let file_filter = std::env::var("RUST_MULE_LOG_FILE")
+        .ok()
+        .unwrap_or_else(|| config.general.log_file_level.clone());
+    let file_filter = EnvFilter::try_new(file_filter).unwrap_or_else(|_| EnvFilter::new("debug"));
+
+    let log_dir = &config.general.data_dir;
+    let _ = std::fs::create_dir_all(log_dir);
+    let file_appender = tracing_appender::rolling::daily(log_dir, &config.general.log_file_name);
+    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+
+    static GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> =
+        std::sync::OnceLock::new();
+    let _ = GUARD.set(guard);
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_ansi(false)
+        .with_target(true)
+        .with_thread_ids(false)
+        .with_thread_names(false)
+        .compact()
+        .with_writer(file_writer)
+        .with_filter(file_filter);
+
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(file_layer)
         .init();
 }

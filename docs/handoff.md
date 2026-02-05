@@ -167,6 +167,16 @@ Additional tuning knobs:
 - `service_max_failures` (default `5`)
 - `service_evict_age_secs` (default `3600`)
 
+## Logging Notes
+
+As of 2026-02-05, logs can be persisted to disk via `tracing-appender`:
+- Controlled by `[general].log_to_file` (default `true`)
+- Files are written under `[general].data_dir` and rolled daily as `rust-mule.log.YYYY-MM-DD` (configurable via `[general].log_file_name`)
+- Stdout verbosity is controlled by `[general].log_level` (or `RUST_LOG`).
+- File verbosity is controlled by `[general].log_file_level` (or `RUST_MULE_LOG_FILE`).
+
+The Kad service loop now emits a concise `INFO` line periodically: `kad service status` (default every 60s), and most per-packet send/timeout logs are `TRACE` to keep stdout readable at `debug`.
+
 ## Reference Material
 
 - iMule source + reference `nodes.dat` are under `source_ref/` (gitignored).
