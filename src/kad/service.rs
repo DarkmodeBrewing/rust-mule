@@ -604,7 +604,9 @@ async fn handle_inbound(
             payload.extend_from_slice(&crypto.my_kad_id.to_crypt_bytes());
             payload.extend_from_slice(&crypto.my_dest);
             payload.extend_from_slice(&crypto.my_dest);
-            payload.push(0); // self contact type in iMule
+            // iMule uses `CContact::Self().WriteToKad1Contact`, which writes `GetType()`.
+            // For KAD contacts, the default "good contact" type is 3.
+            payload.push(3);
 
             let res = KadPacket::encode(KADEMLIA_HELLO_RES_DEPRECATED, &payload);
             let _ = sock.send_to(&from_dest_b64, &res).await;
