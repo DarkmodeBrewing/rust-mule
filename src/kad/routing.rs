@@ -359,10 +359,11 @@ impl RoutingTable {
             })
             .collect();
 
-        // Prefer nodes we haven't heard from ("cold" exploration), then oldest-bootstrapped.
+        // Prefer nodes we have heard from (so we don't waste bootstrap refresh traffic on dead peers),
+        // then oldest-bootstrapped.
         out.sort_by_key(|st| {
             (
-                st.last_inbound.is_some(),
+                st.last_inbound.is_none(),
                 st.last_bootstrap,
                 std::cmp::Reverse(st.last_seen),
             )

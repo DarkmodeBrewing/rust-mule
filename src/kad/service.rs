@@ -96,6 +96,8 @@ impl Default for KadServiceConfig {
 struct KadServiceStats {
     sent_reqs: u64,
     recv_ress: u64,
+    res_contacts: u64,
+    sent_bootstrap_reqs: u64,
     recv_bootstrap_ress: u64,
     bootstrap_contacts: u64,
     sent_hellos: u64,
@@ -151,7 +153,11 @@ pub async fn run_service(
 
     let mut crawl_tick = interval(Duration::from_secs(cfg.crawl_every_secs.max(1)));
     let mut persist_tick = interval(Duration::from_secs(cfg.persist_every_secs.max(5)));
-    let mut bootstrap_tick = interval(Duration::from_secs(cfg.bootstrap_every_secs.max(30)));
+    // Don't fire immediately on service start; we already did an initial bootstrap.
+    let mut bootstrap_tick = tokio::time::interval_at(
+        Instant::now() + Duration::from_secs(cfg.bootstrap_every_secs.max(30)),
+        Duration::from_secs(cfg.bootstrap_every_secs.max(30)),
+    );
     let mut hello_tick = interval(Duration::from_secs(cfg.hello_every_secs.max(1)));
     let mut maintenance_tick = interval(Duration::from_secs(cfg.maintenance_every_secs.max(1)));
     let mut status_tick = interval(Duration::from_secs(cfg.status_every_secs.max(5)));
@@ -480,7 +486,11 @@ async fn send_bootstrap_batch(
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 BOOTSTRAP_REQ (service)");
         } else {
-            tracing::trace!(to = %dest, "sent KAD2 BOOTSTRAP_REQ (service)");
+            svc.stats_window.sent_bootstrap_reqs += 1;
+            tracing::info!(
+                to = %crate::i2p::b64::short(&dest),
+                "sent periodic KAD2 BOOTSTRAP_REQ (refresh)"
+            );
             svc.routing.mark_bootstrap_sent_by_dest(&dest, now);
         }
     }
@@ -531,6 +541,8 @@ async fn status_report(svc: &mut KadService) {
         pending,
         sent_reqs = w.sent_reqs,
         recv_ress = w.recv_ress,
+        res_contacts = w.res_contacts,
+        sent_bootstrap_reqs = w.sent_bootstrap_reqs,
         recv_bootstrap_ress = w.recv_bootstrap_ress,
         bootstrap_contacts = w.bootstrap_contacts,
         sent_hellos = w.sent_hellos,
@@ -808,6 +820,7 @@ async fn handle_inbound(
             tracing::trace!(from = %from_dest_b64, contacts = res.contacts.len(), "got KAD2 RES");
             svc.pending_reqs.remove(&from_dest_b64);
             svc.stats_window.recv_ress += 1;
+            svc.stats_window.res_contacts += res.contacts.len() as u64;
             let before = svc.routing.len();
             for c in res.contacts {
                 let _ = svc.routing.upsert(ImuleNode {

@@ -293,6 +293,8 @@ The Kad service loop now emits a concise `INFO` line periodically: `kad service 
 
 To keep logs readable, long I2P base64 destination strings are now shortened in many log lines (they show a prefix + suffix rather than the full ~500 chars). See `src/i2p/b64.rs` (`b64::short()`).
 
+As of 2026-02-06, the status line also includes aggregate counts like `res_contacts`, `sent_bootstrap_reqs`, `recv_bootstrap_ress`, and `bootstrap_contacts` to help tune discovery without turning on very verbose per-packet logging.
+
 ## Reference Material
 
 - iMule source + reference `nodes.dat` are under `source_ref/` (gitignored).
