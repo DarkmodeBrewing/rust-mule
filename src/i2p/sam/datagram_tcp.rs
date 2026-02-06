@@ -18,6 +18,7 @@ pub struct SamDatagramTcp {
 }
 
 const MAX_DGRAM_TCP_SIZE: usize = 64 * 1024;
+const MAX_SAM_LINE_LEN: usize = 8 * 1024;
 
 impl SamDatagramTcp {
     pub async fn connect(host: &str, port: u16) -> Result<Self> {
@@ -124,7 +125,22 @@ impl SamDatagramTcp {
             //
             // Higher-level code (e.g. bootstrap loops) should apply its own timeout/deadline
             // around `recv()`. This avoids turning "no traffic yet" into a hard error.
-            let line = self.read_line_blocking().await?;
+            let line_bytes = self.read_line_blocking_bytes().await?;
+            let line = match bytes_to_utf8_line(&line_bytes) {
+                Some(s) => s,
+                None => {
+                    // If we ever get binary junk here, we're likely out of sync (e.g. a previous
+                    // SIZE mismatch made us read part of a datagram payload as "line").
+                    // Don't crash the app - just skip until the next LF.
+                    tracing::warn!(
+                        len = line_bytes.len(),
+                        head_hex = %hex_head(&line_bytes, 24),
+                        "SAM line contained invalid UTF-8; skipping"
+                    );
+                    continue;
+                }
+            };
+
             let reply = match SamReply::parse(&line) {
                 Ok(r) => r,
                 Err(err) => {
@@ -216,7 +232,17 @@ impl SamDatagramTcp {
         // Read frames until we see the reply we were waiting for. If a datagram shows up, buffer
         // it by logging and dropping it (session creation happens before bootstrap traffic anyway).
         loop {
-            let reply_line = self.read_line_timeout().await?;
+            let reply_line_bytes = self.read_line_timeout_bytes().await?;
+            let Some(reply_line) = bytes_to_utf8_line(&reply_line_bytes) else {
+                tracing::warn!(
+                    expected = expected_verb,
+                    len = reply_line_bytes.len(),
+                    head_hex = %hex_head(&reply_line_bytes, 24),
+                    "SAM control reply contained invalid UTF-8; skipping"
+                );
+                continue;
+            };
+
             let reply: SamReply = SamReply::parse(&reply_line).with_context(|| {
                 format!("Bad SAM reply to: {line_dbg} (raw={})", reply_line.trim())
             })?;
@@ -248,30 +274,59 @@ impl SamDatagramTcp {
         Ok(())
     }
 
-    async fn read_line_timeout(&mut self) -> Result<String> {
+    async fn read_line_timeout_bytes(&mut self) -> Result<Vec<u8>> {
         timeout(self.io_timeout, async {
-            let mut buf = String::new();
-            let n = self.reader.read_line(&mut buf).await?;
+            let mut buf = Vec::new();
+            let n = self.reader.read_until(b'\n', &mut buf).await?;
             if n == 0 {
                 bail!("SAM closed the connection");
             }
-            Ok::<String, anyhow::Error>(buf.trim_end_matches(['\r', '\n']).to_string())
+            if buf.len() > MAX_SAM_LINE_LEN {
+                bail!("SAM line too long: {} bytes", buf.len());
+            }
+            Ok::<Vec<u8>, anyhow::Error>(trim_crlf_bytes(buf))
         })
         .await
         .context("SAM read timed out")?
         .context("SAM read failed")
     }
 
-    async fn read_line_blocking(&mut self) -> Result<String> {
-        let mut buf = String::new();
+    async fn read_line_blocking_bytes(&mut self) -> Result<Vec<u8>> {
+        let mut buf = Vec::new();
         let n = self
             .reader
-            .read_line(&mut buf)
+            .read_until(b'\n', &mut buf)
             .await
             .context("Failed to read SAM line")?;
         if n == 0 {
             bail!("SAM closed the connection");
         }
-        Ok(buf.trim_end_matches(['\r', '\n']).to_string())
+        if buf.len() > MAX_SAM_LINE_LEN {
+            bail!("SAM line too long: {} bytes", buf.len());
+        }
+        Ok(trim_crlf_bytes(buf))
     }
+}
+
+fn trim_crlf_bytes(mut b: Vec<u8>) -> Vec<u8> {
+    while matches!(b.last(), Some(b'\n' | b'\r')) {
+        b.pop();
+    }
+    b
+}
+
+fn bytes_to_utf8_line(b: &[u8]) -> Option<String> {
+    std::str::from_utf8(b).ok().map(|s| s.to_string())
+}
+
+fn hex_head(b: &[u8], max: usize) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for (i, v) in b.iter().take(max).enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        let _ = write!(&mut out, "{v:02x}");
+    }
+    out
 }
