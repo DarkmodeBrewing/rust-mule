@@ -9,7 +9,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 ## Change Log
 
 - 2026-02-06: Embed distributable nodes init seed at `assets/nodes.initseed.dat`; create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from embedded seed (best-effort) so runtime no longer depends on repo-local reference folders.
-- 2026-02-06: Reduce default stdout verbosity to `info` (file logging remains configurable and can stay `debug`).
+- 2026-02-06: Reduce default stdout verbosity to `info` (code default and repo `config.toml`; file logging remains configurable and can stay `debug`).
 
 ## Current State (As Of 2026-02-06)
 

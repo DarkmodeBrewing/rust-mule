@@ -15,5 +15,5 @@ preferences_kad_path = "preferencesKad.dat"
 udp_key_secret = 0
 
 [general]
-log_level = "debug"
+log_level = "info"
 data_dir = "data"
