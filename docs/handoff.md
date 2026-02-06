@@ -165,6 +165,18 @@ If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_trans
 
 ### Updated Run Notes (2026-02-04 20:42Z-ish)
 
+### Updated Run Notes (2026-02-06)
+
+- Confirmed logs now land in `data/logs/` (daily rolled).
+- Fresh run created `data/nodes.initseed.dat` + `data/nodes.fallback.dat` from embedded initseed (first run behavior).
+- `data/nodes.dat` loaded `154` entries (primary), service started with routing `153`.
+- Over ~20 minutes, service stayed healthy (periodic `kad service status` kept printing), but discovery was limited:
+  - `live` stabilized around `2`
+  - `recv_ress` > 0 (we do get some `KADEMLIA2_RES` back), but `new_nodes=0` during that window.
+  - No WARN/ERROR events were observed.
+
+If discovery remains flat over multi-hour runs, next tuning likely involves more aggressive exploration (higher `alpha`, lower `req_min_interval`, more frequent HELLOs) and/or adding periodic `KADEMLIA2_BOOTSTRAP_REQ` refresh queries in the service loop.
+
 - Bootstrap sent probes to `peers=103`.
 - Received:
 - `KADEMLIA2_BOOTSTRAP_RES` (decrypted OK), which contained `contacts=1`.
