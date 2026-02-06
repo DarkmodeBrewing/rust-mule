@@ -59,7 +59,8 @@ For each:
 - `src/` contains the Rust crate. `src/main.rs` is the CLI/entrypoint and `src/lib.rs` exposes modules.
 - Core modules live under `src/` (e.g., `config.rs`, `app.rs`, `protocol.rs`, `kad.rs`). Subsystems are grouped in folders like `src/i2p/`, `src/net/`, and `src/nodes/`.
 - `config.toml` in the repo root is the default configuration file loaded at startup.
-- `data/` and `datfiles/` hold runtime artifacts (e.g., `datfiles/nodes.dat`). `target/` is the Cargo build output.
+- `data/` holds runtime artifacts (e.g., `data/nodes.dat`, `data/preferencesKad.dat`). `target/` is the Cargo build output.
+- `assets/` holds repo-tracked bootstrapping snapshots used for first-run seeding (e.g., `assets/nodes.initseed.dat`).
 
 ## Build, Test, and Development Commands
 

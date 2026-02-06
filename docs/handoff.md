@@ -6,7 +6,12 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
-## Current State (As Of 2026-02-05)
+## Change Log
+
+- 2026-02-06: Embed distributable nodes init seed at `assets/nodes.initseed.dat`; create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from embedded seed (best-effort) so runtime no longer depends on repo-local reference folders.
+- 2026-02-06: Reduce default stdout verbosity to `info` (file logging remains configurable and can stay `debug`).
+
+## Current State (As Of 2026-02-06)
 
 - Active branch: `feature/sam-protocol`
 - Implemented:
@@ -15,6 +20,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - SAM `STYLE=DATAGRAM` session + UDP forwarding socket (`src/i2p/sam/datagram.rs`).
   - iMule-compatible KadID persisted in `data/preferencesKad.dat` (`src/kad.rs`).
   - iMule `nodes.dat` v2 parsing (I2P destinations, KadIDs, UDP keys) (`src/nodes/imule.rs`).
+  - Distributable bootstrap seed embedded at `assets/nodes.initseed.dat` and copied to `data/nodes.initseed.dat` / `data/nodes.fallback.dat` on first run (`src/app.rs`).
   - KAD packet encode/decode including iMule packed replies (pure-Rust zlib/deflate inflater) (`src/kad/wire.rs`, `src/kad/packed.rs`).
   - Minimal bootstrap probe: send `PING` + `BOOTSTRAP_REQ`, decode `PONG` + `BOOTSTRAP_RES` (`src/kad/bootstrap.rs`).
   - Kad1+Kad2 HELLO handling during bootstrap (reply to `HELLO_REQ`, parse `HELLO_RES`, send `HELLO_RES_ACK` when requested) (`src/kad/bootstrap.rs`, `src/kad/wire.rs`).
@@ -60,8 +66,9 @@ Format: iMule/aMule `nodes.dat` v2 (I2P destinations + KadIDs + optional UDP key
 
 These are local seed snapshots stored under `data/` so runtime behavior does not depend on repo paths:
 
-- `data/nodes.initseed.dat`: the initial seed snapshot (copied from reference nodes once).
-- `data/nodes.fallback.dat`: a merged/deduped fallback pool (built from whatever reference nodes are available).
+- `data/nodes.initseed.dat`: the initial seed snapshot (created on first run from the embedded initseed).
+- `data/nodes.fallback.dat`: currently just a copy of initseed (we can evolve this later into a "last-known-good"
+  snapshot if desired).
 
 They are used only when:
 
@@ -70,12 +77,17 @@ They are used only when:
 
 Selection logic lives in `src/app.rs` (`pick_nodes_dat()` + the re-seed block).
 
-### `source_ref/nodes.dat` and `datfiles/nodes.dat` (Repo Reference Inputs)
+### `assets/nodes.initseed.dat` (Embedded Distributable Init Seed)
 
-These repo files are reference inputs used only to **create** `data/nodes.initseed.dat` / `data/nodes.fallback.dat`:
+For distributable builds we track a baseline seed snapshot at:
 
-- `source_ref/nodes.dat`: user-provided “freshly downloaded” iMule nodes.dat snapshot (best reference input if present).
-- `datfiles/nodes.dat`: older bundled reference input.
+- `assets/nodes.initseed.dat`
+
+At runtime this is embedded into the binary via `include_bytes!()` and written out to `data/nodes.initseed.dat` /
+`data/nodes.fallback.dat` if they don't exist yet (best-effort).
+
+`source_ref/` remains a **dev-only** reference folder (gitignored) that contains iMule sources and reference files, but
+the app no longer depends on it for bootstrapping.
 
 ### `nodes2.dat` (Remote Bootstrap Download, If Available)
 
@@ -124,7 +136,7 @@ Mitigation:
 Observed with `sam.datagram_transport = "tcp"`:
 - SAM `HELLO` OK.
 - `SESSION CREATE STYLE=DATAGRAM ...` OK.
-- Loaded `datfiles/nodes.dat` (35 contacts).
+- Loaded a small seed pool (at that time it came from a repo reference `nodes.dat`; today we use the embedded initseed).
 - Sent initial `KADEMLIA2_BOOTSTRAP_REQ` to peers, but received **0** `PONG`/`BOOTSTRAP_RES` responses within the bootstrap window.
   - A likely root cause is that iMule nodes expect **obfuscated/encrypted KAD UDP** packets (RC4+MD5 framing), and will ignore plain `OP_KADEMLIAHEADER` packets.
   - Another likely root cause is that the nodes list is stale (the default iMule KadNodesUrl is `http://www.imule.i2p/nodes2.dat`).
@@ -133,7 +145,7 @@ Next things to try if this repeats:
 - Switch to `sam.datagram_transport = "udp_forward"` (some SAM bridges implement UDP forwarding more reliably than TCP datagrams).
 - Ensure Docker/host UDP forwarding is mapped correctly if using `udp_forward` (`sam.forward_host` must be reachable from the SAM host).
 - Increase the bootstrap runtime (I2P tunnel build + lease set publication can take time). Defaults are now more forgiving (`max_initial=256`, `runtime=180s`, `warmup=8s`).
-- Prefer a fresher/larger `nodes.dat` (we keep repo reference inputs in `source_ref/nodes.dat` / `datfiles/nodes.dat`, but runtime fallbacks use `data/nodes.initseed.dat` / `data/nodes.fallback.dat`).
+- Prefer a fresher/larger `nodes.dat` seed pool (the embedded `assets/nodes.initseed.dat` may age; real discovery + persistence in `data/nodes.dat` should keep things fresh over time).
 - Avoid forcing I2P lease set encryption types unless you know all peers support it (iMule doesn't set `i2cp.leaseSetEncType` for its datagram session).
 - The app will attempt to fetch a fresh `nodes2.dat` over I2P from `www.imule.i2p` and write it to `data/nodes.dat` when it had to fall back to initseed/fallback.
 

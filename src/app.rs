@@ -227,7 +227,10 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     let nodes_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
     let preferred_nodes_path = nodes_path.clone();
 
-    // Seed files under `data/` so we never depend on repo-local `source_ref/` paths at runtime.
+    // Seed files under `data/`.
+    //
+    // For distributable builds we embed an initseed snapshot in `assets/` (via `include_bytes!`)
+    // so we don't depend on repo-local reference folders like `source_ref/` at runtime.
     let initseed_path = data_dir.join("nodes.initseed.dat");
     let fallback_path = data_dir.join("nodes.fallback.dat");
     ensure_nodes_seed_files(&initseed_path, &fallback_path).await;
@@ -534,61 +537,41 @@ async fn ensure_nodes_seed_files(initseed: &Path, fallback: &Path) {
     // We intentionally keep this best-effort: failures should not prevent startup.
     let _ = tokio::fs::create_dir_all(initseed.parent().unwrap_or_else(|| Path::new("data"))).await;
 
+    // Bundled seed snapshot for first-run bootstrapping.
+    // This is embedded in the binary so distributed builds don't require extra files.
+    const INITSEED_BYTES: &[u8] = include_bytes!("../assets/nodes.initseed.dat");
+
     if !initseed.exists() {
-        for p in ["source_ref/nodes.dat", "datfiles/nodes.dat"] {
-            let src = Path::new(p);
-            if !src.exists() {
-                continue;
-            }
-            if let Ok(bytes) = tokio::fs::read(src).await {
-                let tmp = initseed.with_extension("tmp");
-                if tokio::fs::write(&tmp, bytes).await.is_ok()
-                    && tokio::fs::rename(&tmp, initseed).await.is_ok()
-                {
-                    tracing::info!(
-                        src = %src.display(),
-                        dst = %initseed.display(),
-                        "created nodes.initseed.dat"
-                    );
-                    break;
-                }
-            }
+        let tmp = initseed.with_extension("tmp");
+        if tokio::fs::write(&tmp, INITSEED_BYTES).await.is_ok()
+            && tokio::fs::rename(&tmp, initseed).await.is_ok()
+        {
+            tracing::info!(
+                dst = %initseed.display(),
+                bytes = INITSEED_BYTES.len(),
+                "created nodes.initseed.dat from embedded initseed"
+            );
         }
     }
 
     if !fallback.exists() {
-        let mut merged = BTreeMap::<String, crate::nodes::imule::ImuleNode>::new();
-        for p in [
-            initseed,
-            Path::new("source_ref/nodes.dat"),
-            Path::new("datfiles/nodes.dat"),
-        ] {
-            if !p.exists() {
-                continue;
-            }
-            if let Ok(nodes) = crate::nodes::imule::nodes_dat_contacts(p).await {
-                for n in nodes {
-                    merged.entry(n.udp_dest_b64()).or_insert(n);
-                }
-            }
-        }
+        // For now, fallback is just a copy of initseed. We can evolve this later into a
+        // "last-known-good" snapshot if desired.
+        let src_bytes = if initseed.exists() {
+            tokio::fs::read(initseed).await.ok()
+        } else {
+            Some(INITSEED_BYTES.to_vec())
+        };
 
-        if !merged.is_empty() {
-            let mut nodes: Vec<_> = merged.into_values().collect();
-            nodes.sort_by_key(|n| {
-                (
-                    std::cmp::Reverse(n.verified),
-                    std::cmp::Reverse(n.kad_version),
-                )
-            });
-            if crate::nodes::imule::persist_nodes_dat_v2(fallback, &nodes)
-                .await
-                .is_ok()
+        if let Some(bytes) = src_bytes {
+            let tmp = fallback.with_extension("tmp");
+            if tokio::fs::write(&tmp, &bytes).await.is_ok()
+                && tokio::fs::rename(&tmp, fallback).await.is_ok()
             {
                 tracing::info!(
                     dst = %fallback.display(),
-                    count = nodes.len(),
-                    "created nodes.fallback.dat"
+                    bytes = bytes.len(),
+                    "created nodes.fallback.dat from initseed"
                 );
             }
         }

@@ -29,7 +29,8 @@ fn default_sam_datagram_transport() -> SamDatagramTransport {
     SamDatagramTransport::Tcp
 }
 fn default_log_level() -> String {
-    "debug".to_string()
+    // Keep stdout reasonably quiet by default; file logging can stay verbose.
+    "info".to_string()
 }
 fn default_data_dir() -> String {
     "data".to_string()

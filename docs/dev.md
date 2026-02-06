@@ -26,9 +26,12 @@ This is not yet a full routing table implementation. It is a minimal end-to-end 
 ## Local Reference Sources
 
 - `source_ref/` contains iMule sources and reference files. It is intentionally gitignored.
-- `datfiles/nodes.dat` is a small nodes list.
 
-The app will prefer `data/nodes.dat`, but falls back to `datfiles/nodes.dat` and `source_ref/nodes.dat` if those exist.
+For distributable builds we embed a baseline seed snapshot in `assets/nodes.initseed.dat`. On startup, the app will
+create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from that embedded snapshot (best-effort).
+
+The app will prefer `data/nodes.dat`. If that file doesn't exist yet, it falls back to `data/nodes.initseed.dat` and
+`data/nodes.fallback.dat`.
 
 ## Running
 
@@ -45,7 +48,7 @@ cargo run
 Optional tooling:
 
 ```bash
-cargo run --bin imule_nodes_inspect -- datfiles/nodes.dat
+cargo run --bin imule_nodes_inspect -- assets/nodes.initseed.dat
 ```
 
 ## Remote SAM Bridging (Docker Scenario)
