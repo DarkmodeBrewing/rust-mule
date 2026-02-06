@@ -6,7 +6,8 @@ use crate::{
         wire::{
             I2P_DEST_LEN, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
             KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
-            KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES,
+            KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES,
+            KADEMLIA2_SEARCH_RES,
             KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket, TAG_KADMISCOPTIONS,
             KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED, KADEMLIA_REQ_DEPRECATED,
             KADEMLIA_RES_DEPRECATED, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
@@ -44,6 +45,10 @@ pub struct KadServiceConfig {
     pub req_timeout_secs: u64,
     pub req_min_interval_secs: u64,
 
+    pub bootstrap_every_secs: u64,
+    pub bootstrap_batch: usize,
+    pub bootstrap_min_interval_secs: u64,
+
     pub hello_every_secs: u64,
     pub hello_batch: usize,
     pub hello_min_interval_secs: u64,
@@ -67,6 +72,13 @@ impl Default for KadServiceConfig {
             req_timeout_secs: 45,
             req_min_interval_secs: 15,
 
+            // Keep this conservative: the iMule I2P-KAD network is small.
+            // This is a different query path than KADEMLIA2_REQ and sometimes yields contacts
+            // when lookups don't.
+            bootstrap_every_secs: 30 * 60,
+            bootstrap_batch: 1,
+            bootstrap_min_interval_secs: 6 * 60 * 60,
+
             hello_every_secs: 10,
             hello_batch: 2,
             hello_min_interval_secs: 900,
@@ -84,6 +96,8 @@ impl Default for KadServiceConfig {
 struct KadServiceStats {
     sent_reqs: u64,
     recv_ress: u64,
+    recv_bootstrap_ress: u64,
+    bootstrap_contacts: u64,
     sent_hellos: u64,
     recv_hello_ress: u64,
     timeouts: u64,
@@ -137,6 +151,7 @@ pub async fn run_service(
 
     let mut crawl_tick = interval(Duration::from_secs(cfg.crawl_every_secs.max(1)));
     let mut persist_tick = interval(Duration::from_secs(cfg.persist_every_secs.max(5)));
+    let mut bootstrap_tick = interval(Duration::from_secs(cfg.bootstrap_every_secs.max(30)));
     let mut hello_tick = interval(Duration::from_secs(cfg.hello_every_secs.max(1)));
     let mut maintenance_tick = interval(Duration::from_secs(cfg.maintenance_every_secs.max(1)));
     let mut status_tick = interval(Duration::from_secs(cfg.status_every_secs.max(5)));
@@ -168,6 +183,10 @@ pub async fn run_service(
 
             _ = persist_tick.tick() => {
                 persist_snapshot(svc, persist_path, cfg.max_persist_nodes).await;
+            }
+
+            _ = bootstrap_tick.tick() => {
+                send_bootstrap_batch(svc, sock, crypto, &cfg).await?;
             }
 
             _ = hello_tick.tick() => {
@@ -415,6 +434,60 @@ async fn send_hello_batch(
     Ok(())
 }
 
+async fn send_bootstrap_batch(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+) -> Result<()> {
+    if svc.routing.is_empty() {
+        return Ok(());
+    }
+
+    let now = Instant::now();
+    let min_interval = Duration::from_secs(cfg.bootstrap_min_interval_secs.max(60));
+    let mut peers = svc.routing.select_bootstrap_candidates(
+        cfg.bootstrap_batch.max(1),
+        now,
+        min_interval,
+        cfg.max_failures,
+    );
+    if peers.is_empty() {
+        return Ok(());
+    }
+
+    let plain = KadPacket::encode(KADEMLIA2_BOOTSTRAP_REQ, &[]);
+
+    for p in peers.drain(..) {
+        let dest = p.udp_dest_b64();
+        let target_kad_id = KadId(p.client_id);
+
+        let sender_verify_key =
+            udp_crypto::udp_verify_key(crypto.udp_key_secret, p.udp_dest_hash_code());
+        let receiver_verify_key = if p.udp_key_ip == crypto.my_dest_hash {
+            p.udp_key
+        } else {
+            0
+        };
+
+        let out = udp_crypto::encrypt_kad_packet(
+            &plain,
+            target_kad_id,
+            receiver_verify_key,
+            sender_verify_key,
+        )?;
+
+        if let Err(err) = sock.send_to(&dest, &out).await {
+            tracing::debug!(error = %err, to = %dest, "failed sending KAD2 BOOTSTRAP_REQ (service)");
+        } else {
+            tracing::trace!(to = %dest, "sent KAD2 BOOTSTRAP_REQ (service)");
+            svc.routing.mark_bootstrap_sent_by_dest(&dest, now);
+        }
+    }
+
+    Ok(())
+}
+
 async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
     let now = Instant::now();
 
@@ -458,6 +531,8 @@ async fn status_report(svc: &mut KadService) {
         pending,
         sent_reqs = w.sent_reqs,
         recv_ress = w.recv_ress,
+        recv_bootstrap_ress = w.recv_bootstrap_ress,
+        bootstrap_contacts = w.bootstrap_contacts,
         sent_hellos = w.sent_hellos,
         recv_hello_ress = w.recv_hello_ress,
         timeouts = w.timeouts,
@@ -525,6 +600,10 @@ async fn handle_inbound(
 
         KADEMLIA2_BOOTSTRAP_RES => {
             if let Ok(res) = decode_kad2_bootstrap_res(&pkt.payload) {
+                svc.stats_window.recv_bootstrap_ress += 1;
+                svc.stats_window.bootstrap_contacts += res.contacts.len() as u64;
+
+                let before = svc.routing.len();
                 // Sender itself.
                 if let Some(raw) = &from_dest_raw
                     && raw.len() == I2P_DEST_LEN
@@ -551,6 +630,17 @@ async fn handle_inbound(
                         udp_key_ip: 0,
                         verified: false,
                     }, now);
+                }
+
+                let inserted = svc.routing.len().saturating_sub(before);
+                if inserted > 0 {
+                    svc.stats_window.new_nodes += inserted as u64;
+                    tracing::debug!(
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        inserted,
+                        routing = svc.routing.len(),
+                        "learned new nodes from KAD2 BOOTSTRAP_RES"
+                    );
                 }
             }
         }

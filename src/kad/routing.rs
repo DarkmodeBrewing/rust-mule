@@ -10,6 +10,7 @@ pub struct NodeState {
     /// Last time we received *any* packet from this destination.
     pub last_inbound: Option<Instant>,
     pub last_queried: Option<Instant>,
+    pub last_bootstrap: Option<Instant>,
     pub last_hello: Option<Instant>,
     pub needs_hello: bool,
     pub failures: u32,
@@ -125,6 +126,7 @@ impl RoutingTable {
                 last_seen: now,
                 last_inbound: None,
                 last_queried: None,
+                last_bootstrap: None,
                 last_hello: None,
                 needs_hello: true,
                 failures: 0,
@@ -149,6 +151,12 @@ impl RoutingTable {
     pub fn mark_queried_by_dest(&mut self, dest_b64: &str, now: Instant) {
         if let Some(st) = self.get_mut_by_dest(dest_b64) {
             st.last_queried = Some(now);
+        }
+    }
+
+    pub fn mark_bootstrap_sent_by_dest(&mut self, dest_b64: &str, now: Instant) {
+        if let Some(st) = self.get_mut_by_dest(dest_b64) {
+            st.last_bootstrap = Some(now);
         }
     }
 
@@ -321,6 +329,41 @@ impl RoutingTable {
                 !st.needs_hello,
                 st.last_inbound.is_some(),
                 st.last_hello,
+                std::cmp::Reverse(st.last_seen),
+            )
+        });
+
+        out.into_iter()
+            .take(max)
+            .map(|st| st.node.clone())
+            .collect()
+    }
+
+    pub fn select_bootstrap_candidates(
+        &self,
+        max: usize,
+        now: Instant,
+        base_interval: Duration,
+        max_failures: u32,
+    ) -> Vec<ImuleNode> {
+        let mut out: Vec<&NodeState> = self
+            .by_id
+            .values()
+            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.failures < max_failures)
+            .filter(|st| match st.last_bootstrap {
+                Some(t) => {
+                    now.saturating_duration_since(t) >= backoff_interval(base_interval, st.failures)
+                }
+                None => true,
+            })
+            .collect();
+
+        // Prefer nodes we haven't heard from ("cold" exploration), then oldest-bootstrapped.
+        out.sort_by_key(|st| {
+            (
+                st.last_inbound.is_some(),
+                st.last_bootstrap,
                 std::cmp::Reverse(st.last_seen),
             )
         });

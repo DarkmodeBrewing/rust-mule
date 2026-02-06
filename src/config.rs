@@ -82,6 +82,17 @@ fn default_kad_service_req_timeout_secs() -> u64 {
 fn default_kad_service_req_min_interval_secs() -> u64 {
     15
 }
+fn default_kad_service_bootstrap_every_secs() -> u64 {
+    // Conservative refresh cadence: the iMule I2P-KAD network is small.
+    30 * 60
+}
+fn default_kad_service_bootstrap_batch() -> usize {
+    1
+}
+fn default_kad_service_bootstrap_min_interval_secs() -> u64 {
+    // Avoid repeatedly poking the same peer.
+    6 * 60 * 60
+}
 fn default_kad_service_hello_every_secs() -> u64 {
     10
 }
@@ -175,6 +186,10 @@ pub struct KadConfig {
     pub service_req_timeout_secs: u64,
     pub service_req_min_interval_secs: u64,
 
+    pub service_bootstrap_every_secs: u64,
+    pub service_bootstrap_batch: usize,
+    pub service_bootstrap_min_interval_secs: u64,
+
     pub service_hello_every_secs: u64,
     pub service_hello_batch: usize,
     pub service_hello_min_interval_secs: u64,
@@ -228,6 +243,10 @@ impl Default for KadConfig {
 
             service_req_timeout_secs: default_kad_service_req_timeout_secs(),
             service_req_min_interval_secs: default_kad_service_req_min_interval_secs(),
+
+            service_bootstrap_every_secs: default_kad_service_bootstrap_every_secs(),
+            service_bootstrap_batch: default_kad_service_bootstrap_batch(),
+            service_bootstrap_min_interval_secs: default_kad_service_bootstrap_min_interval_secs(),
 
             service_hello_every_secs: default_kad_service_hello_every_secs(),
             service_hello_batch: default_kad_service_hello_batch(),
