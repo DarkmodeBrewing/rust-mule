@@ -139,6 +139,10 @@ pub struct Kad2Req {
     pub kind: u8,
     pub target: KadId,
     pub check: KadId,
+    /// Optional sender KadID.
+    ///
+    /// iMule includes this field so the receiver can request details if needed.
+    pub sender_id: Option<KadId>,
 }
 
 #[derive(Debug, Clone)]
@@ -218,21 +222,30 @@ pub fn decode_kad2_req(payload: &[u8]) -> Result<Kad2Req> {
     }
     let target = r.read_uint128_emule()?;
     let check = r.read_uint128_emule()?;
+    let sender_id = if payload.len().saturating_sub(r.i) >= 16 {
+        Some(r.read_uint128_emule()?)
+    } else {
+        None
+    };
     Ok(Kad2Req {
         kind,
         target,
         check,
+        sender_id,
     })
 }
 
-pub fn encode_kad2_req(kind: u8, target: KadId, check: KadId) -> Vec<u8> {
-    let mut out = Vec::with_capacity(1 + 16 + 16);
+pub fn encode_kad2_req(kind: u8, target: KadId, check: KadId, sender_id: KadId) -> Vec<u8> {
+    // iMule format:
+    // <kind u8><target u128><check(receiver) u128><sender(my) u128>
+    let mut out = Vec::with_capacity(1 + 16 + 16 + 16);
     // iMule masks this field with `0x1F` on decode, so only 1..=31 is representable.
     // Use a safe clamp so config mistakes (e.g. 32) don't silently become 1.
     let k = kind.clamp(1, 31) & 0x1F;
     out.push(k); // kind must be non-zero
     out.extend_from_slice(&target.to_crypt_bytes());
     out.extend_from_slice(&check.to_crypt_bytes());
+    out.extend_from_slice(&sender_id.to_crypt_bytes());
     out
 }
 

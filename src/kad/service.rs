@@ -338,7 +338,7 @@ async fn crawl_once(
         }
     }
 
-    let req_kind = cfg.req_contacts.clamp(1, 31);
+        let req_kind = cfg.req_contacts.clamp(1, 31);
 
     for p in peers {
         let dest = p.udp_dest_b64();
@@ -347,7 +347,7 @@ async fn crawl_once(
         // NOTE: iMule's `KADEMLIA2_REQ` includes a `check` field which must match the *receiver's*
         // KadID (used to discard packets not intended for this node). If we put our own KadID here,
         // peers will silently ignore the request and we'll never get `KADEMLIA2_RES`.
-        let req_payload = encode_kad2_req(req_kind, target, target_kad_id);
+        let req_payload = encode_kad2_req(req_kind, target, target_kad_id, crypto.my_kad_id);
         let req_plain = KadPacket::encode(KADEMLIA2_REQ, &req_payload);
 
         let sender_verify_key =
@@ -758,6 +758,36 @@ async fn handle_inbound(
             };
             if req.check != crypto.my_kad_id {
                 return Ok(());
+            }
+
+            // If this peer included its sender ID (iMule-style), learn it even if we haven't
+            // seen a HELLO yet. This helps the routing table grow when peers initiate contact.
+            if let (Some(sender_id), Some(raw)) = (req.sender_id, &from_dest_raw)
+                && raw.len() == I2P_DEST_LEN
+            {
+                let mut udp_dest = [0u8; I2P_DEST_LEN];
+                udp_dest.copy_from_slice(raw);
+                let _ = svc.routing.upsert(
+                    ImuleNode {
+                        // We only know it's Kad2 because it's using Kad2 opcodes. Use a conservative
+                        // minimum so we can query it; HELLO/BOOTSTRAP will refine this later.
+                        kad_version: 6,
+                        client_id: sender_id.0,
+                        udp_dest,
+                        udp_key: if decrypted.was_obfuscated {
+                            decrypted.sender_verify_key
+                        } else {
+                            0
+                        },
+                        udp_key_ip: if decrypted.was_obfuscated {
+                            crypto.my_dest_hash
+                        } else {
+                            0
+                        },
+                        verified: valid_receiver_key,
+                    },
+                    now,
+                );
             }
 
             let max = (req.kind as usize).min(32);
