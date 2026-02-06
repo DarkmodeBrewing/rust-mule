@@ -314,10 +314,12 @@ impl RoutingTable {
             })
             .collect();
 
+        // Prefer nodes which haven't been greeted yet, and among those, prefer nodes we haven't
+        // heard from (to explore and establish keys with "cold" peers).
         out.sort_by_key(|st| {
             (
-                st.last_inbound.is_none(),
                 !st.needs_hello,
+                st.last_inbound.is_some(),
                 st.last_hello,
                 std::cmp::Reverse(st.last_seen),
             )

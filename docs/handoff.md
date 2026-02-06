@@ -219,3 +219,7 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
   - If it is set to `32`, it will effectively become `1`, which slows discovery dramatically.
 - The service persists `nodes.dat` periodically. It now merges the current routing snapshot into the existing on-disk `nodes.dat` to avoid losing seed nodes after an eviction cycle.
 - If `data/nodes.dat` ever shrinks to a very small set (e.g. after a long run evicts lots of dead peers), startup will re-seed it by merging in `source_ref/nodes.dat` / `datfiles/nodes.dat` if present.
+
+- The crawler intentionally probes at least one “cold” peer (a peer we have never heard from) per crawl tick when available. This prevents the service from getting stuck talking only to 1–2 responsive nodes forever.
+
+- SAM TCP-DATAGRAM framing is now tolerant of occasional malformed frames (it logs and skips instead of crashing). Oversized datagrams are discarded with a hard cap to avoid memory blowups.

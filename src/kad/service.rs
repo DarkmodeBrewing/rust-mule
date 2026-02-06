@@ -264,16 +264,53 @@ async fn crawl_once(
     };
 
     let req_min = Duration::from_secs(cfg.req_min_interval_secs.max(1));
-    let mut peers = svc.routing.select_query_candidates_for_target(
+
+    // Exploration strategy:
+    // Prefer "live" peers, but always try to poke at least one "cold" peer as well.
+    let alpha = cfg.alpha.max(1);
+    let mut candidates = svc.routing.select_query_candidates_for_target(
         target,
-        cfg.alpha.max(1),
+        alpha * 10, // enough to pick a mix
         now,
         req_min,
         cfg.max_failures,
     );
-    peers.retain(|p| !svc.pending_reqs.contains_key(&p.udp_dest_b64()));
-    if peers.is_empty() {
+    candidates.retain(|p| !svc.pending_reqs.contains_key(&p.udp_dest_b64()));
+    if candidates.is_empty() {
         return Ok(());
+    }
+
+    let mut peers: Vec<ImuleNode> = Vec::with_capacity(alpha);
+    let mut have_cold = false;
+    for c in &candidates {
+        if peers.len() >= alpha {
+            break;
+        }
+        let id = KadId(c.client_id);
+        let is_cold = svc
+            .routing
+            .get_by_id(id)
+            .and_then(|st| st.last_inbound)
+            .is_none();
+        if is_cold {
+            have_cold = true;
+        }
+        peers.push(c.clone());
+    }
+
+    if !have_cold {
+        if let Some(cold) = candidates.iter().find(|c| {
+            let id = KadId(c.client_id);
+            svc.routing
+                .get_by_id(id)
+                .and_then(|st| st.last_inbound)
+                .is_none()
+        }) {
+            if !peers.is_empty() {
+                peers.pop();
+            }
+            peers.push(cold.clone());
+        }
     }
 
     let req_kind = cfg.req_contacts.clamp(1, 31);

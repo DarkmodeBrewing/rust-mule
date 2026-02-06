@@ -17,6 +17,8 @@ pub struct SamDatagramTcp {
     session_id: String,
 }
 
+const MAX_DGRAM_TCP_SIZE: usize = 64 * 1024;
+
 impl SamDatagramTcp {
     pub async fn connect(host: &str, port: u16) -> Result<Self> {
         let stream: TcpStream = TcpStream::connect((host, port))
@@ -123,19 +125,57 @@ impl SamDatagramTcp {
             // Higher-level code (e.g. bootstrap loops) should apply its own timeout/deadline
             // around `recv()`. This avoids turning "no traffic yet" into a hard error.
             let line = self.read_line_blocking().await?;
-            let reply = SamReply::parse(&line)
-                .with_context(|| format!("Bad SAM frame (raw={})", line.trim()))?;
+            let reply = match SamReply::parse(&line) {
+                Ok(r) => r,
+                Err(err) => {
+                    // The SAM bridge should never send malformed frames, but in practice we may
+                    // occasionally see junk/partial lines (esp. around network hiccups).
+                    // Don't crash the whole app; keep reading.
+                    tracing::warn!(error = %err, raw = %line.trim(), "bad SAM frame; skipping");
+                    continue;
+                }
+            };
 
             if reply.verb == "DATAGRAM" && reply.kind == "RECEIVED" {
-                let from_destination = reply.kv.get("DESTINATION").cloned().ok_or_else(|| {
-                    anyhow!("DATAGRAM RECEIVED missing DESTINATION: {}", reply.raw)
-                })?;
-                let size: usize = reply
-                    .kv
-                    .get("SIZE")
-                    .ok_or_else(|| anyhow!("DATAGRAM RECEIVED missing SIZE: {}", reply.raw))?
-                    .parse()
-                    .with_context(|| format!("Bad SIZE in DATAGRAM RECEIVED: {}", reply.raw))?;
+                let Some(from_destination) = reply.kv.get("DESTINATION").cloned() else {
+                    tracing::warn!(raw = %reply.raw_redacted(), "DATAGRAM RECEIVED missing DESTINATION; skipping");
+                    continue;
+                };
+
+                let Some(size_raw) = reply.kv.get("SIZE") else {
+                    tracing::warn!(raw = %reply.raw_redacted(), "DATAGRAM RECEIVED missing SIZE; skipping");
+                    continue;
+                };
+
+                let size: usize = match size_raw.parse() {
+                    Ok(s) => s,
+                    Err(err) => {
+                        tracing::warn!(error = %err, raw = %reply.raw_redacted(), "bad SIZE in DATAGRAM RECEIVED; skipping");
+                        continue;
+                    }
+                };
+
+                if size > MAX_DGRAM_TCP_SIZE {
+                    tracing::warn!(
+                        size,
+                        max = MAX_DGRAM_TCP_SIZE,
+                        raw = %reply.raw_redacted(),
+                        "DATAGRAM RECEIVED too large; skipping"
+                    );
+
+                    // Best-effort: discard payload to keep framing intact.
+                    let mut remaining = size;
+                    let mut buf = [0u8; 4096];
+                    while remaining > 0 {
+                        let n = remaining.min(buf.len());
+                        self.reader
+                            .read_exact(&mut buf[..n])
+                            .await
+                            .context("Failed discarding oversized DATAGRAM payload")?;
+                        remaining -= n;
+                    }
+                    continue;
+                }
 
                 let mut payload = vec![0u8; size];
                 self.reader
