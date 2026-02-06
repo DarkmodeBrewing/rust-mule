@@ -12,6 +12,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-06: Reduce default stdout verbosity to `info` (code default and repo `config.toml`; file logging remains configurable and can stay `debug`).
 - 2026-02-06: Make Kad UDP key secret file-backed only (`data/kad_udp_key_secret.dat`); `kad.udp_key_secret` is deprecated/ignored to reduce misconfiguration risk.
 - 2026-02-06: Implement iMule-style `KADEMLIA2_REQ` sender-id field and learn sender IDs from inbound `KADEMLIA2_REQ` to improve routing growth.
+- 2026-02-06: Clarify iMule `KADEMLIA2_REQ` first byte is a *requested contact count* (low 5 bits), and update Rust naming (`requested_contacts`) + parity docs.
 - 2026-02-06: Fix Kad1 `HELLO_RES` contact type to `3` (matches iMule `CContact::Self().WriteToKad1Contact` default).
 
 ## Current State (As Of 2026-02-06)
@@ -262,6 +263,13 @@ The service now counts “new nodes” only when `routing.len()` actually increa
 
 Also: the crawler now picks query targets Kademlia-style: it biases which peers it queries by XOR distance to the lookup target (not just “who is live”). This tends to explore new regions of the ID space faster and increases the odds of discovering nodes that weren't already in the seed `nodes.dat`.
 
+Recent observation (2026-02-06, ~50 min run):
+- `data/nodes.dat` stayed at `154` entries; routing stayed at `153`.
+- `live` peers stayed at `2`.
+- Periodic `KADEMLIA2_BOOTSTRAP_REQ` refresh got replies, but returned contact lists were typically `2` and did not introduce new IDs (`new_nodes=0`).
+
+Takeaway: this looks consistent with a very small / stagnant iMule I2P-KAD network *or* a seed which mostly points at dead peers. Next improvements should focus on discovery strategy and fresh seeding (see TODO below).
+
 Relevant config keys (all under `[kad]`):
 - `service_enabled` (default `true`)
 - `service_runtime_secs` (`0` = run until Ctrl-C)
@@ -310,6 +318,8 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
    - Actively query peers (send `KADEMLIA2_REQ`) and **decode `KADEMLIA2_RES`** to learn more contacts.
    - Maintain an in-memory routing table (k-buckets / closest contacts) with `last_seen`, `verified`, and UDP key metadata.
    - Run as a long-lived service: keep SAM datagram session open, respond continuously, periodically refresh/ping, and periodically persist `data/nodes.dat`.
+   - TODO (discovery): add a conservative “cold bootstrap probe” mode so periodic bootstrap refresh occasionally targets *non-live / never-seen* peers, to try to discover new clusters without increasing overall traffic.
+   - TODO (seeding): optionally fetch the latest public `nodes.dat` snapshot (when available) and merge it into `data/nodes.dat` with provenance logged.
 
 2. **Publish/Search indexing (after routing is stable)**
 - Implement remaining Kad2 publish/search opcodes (key/notes/source) with iMule-compatible responses.
