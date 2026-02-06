@@ -42,6 +42,57 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 If you don't want to deal with UDP forwarding, set `sam.datagram_transport = "tcp"` in `config.toml`.
 
+## Data Files (`*.dat`) And Which One Is Used
+
+### `data/nodes.dat` (Primary Bootstrap + Persisted Seed Pool)
+
+This is the **main** nodes file that `rust-mule` uses across runs. By default it is:
+
+- `kad.bootstrap_nodes_path = "nodes.dat"` (in `config.toml`)
+- resolved relative to `general.data_dir = "data"`
+- so the primary path is `data/nodes.dat`
+
+On startup, `rust-mule` will try to load nodes from this path first. During runtime it is also periodically overwritten with a refreshed list (but in a merge-preserving way; see below).
+
+Format: iMule/aMule `nodes.dat` v2 (I2P destinations + KadIDs + optional UDP keys).
+
+### `source_ref/nodes.dat` and `datfiles/nodes.dat` (Reference / Fallback Seeds)
+
+These are **reference** nodes lists bundled in the repo:
+
+- `source_ref/nodes.dat`: user-provided “freshly downloaded” iMule nodes.dat snapshot (best reference seed if present).
+- `datfiles/nodes.dat`: older bundled seed list.
+
+They are used only when:
+
+- `data/nodes.dat` does not exist, OR
+- `data/nodes.dat` exists but has become too small (currently `< 50` entries), in which case startup will re-seed `data/nodes.dat` by merging in reference nodes.
+
+Selection logic lives in `src/app.rs` (`pick_existing_nodes_dat()` + the re-seed block).
+
+### `nodes2.dat` (Remote Bootstrap Download, If Available)
+
+iMule historically hosted an HTTP bootstrap list at:
+
+- `http://www.imule.i2p/nodes2.dat`
+
+`rust-mule` will try to download this **only when it had to fall back** to reference nodes (`source_ref/...` or `datfiles/...`) because `data/nodes.dat` was missing.
+
+If the download succeeds, it is saved as `data/nodes.dat` (we don't keep a separate `nodes2.dat` file on disk right now).
+
+### `data/preferencesKad.dat` (Your KadID / Node Identity)
+
+This stores the Kademlia node ID (iMule/aMule format). It is loaded at startup and reused across runs so you keep a stable identity on the network.
+
+If you delete it, a new random KadID is generated and peers will treat you as a different node.
+
+### `data/kad_udp_key_secret.dat` (UDP Obfuscation Secret)
+
+This is the persistent secret used to compute UDP verify keys (iMule-style `GetUDPVerifyKey()` logic, adapted to I2P dest hash).
+
+If `kad.udp_key_secret = 0` in `config.toml`, we generate/load it from this file at startup.
+If you delete it, a new secret is generated and any learned UDP-key relationships may stop validating until re-established.
+
 ## Known Issue / Debugging
 
 If you see `SAM read timed out` right after a successful `HELLO`, the hang is likely on `SESSION CREATE ... STYLE=DATAGRAM` (session establishment can be slow on some routers).
