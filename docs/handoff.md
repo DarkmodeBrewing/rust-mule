@@ -98,8 +98,6 @@ PRIV=...
 
 This keeps secrets out of `config.toml` (which is easy to accidentally commit).
 
-If `config.toml` still contains `i2p.sam_private_key`/`i2p.sam_public_key`, `rust-mule` will migrate them into `data/sam.keys` on startup and blank the config fields.
-
 ### `data/preferencesKad.dat` (Your KadID / Node Identity)
 
 This stores the Kademlia node ID (iMule/aMule format). It is loaded at startup and reused across runs so you keep a stable identity on the network.

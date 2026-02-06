@@ -53,38 +53,9 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     // Load SAM destination keys.
     //
     // Canonical location is `data/sam.keys` (under `general.data_dir`) so we don't commit secrets
-    // in `config.toml`. We keep backwards compatibility by migrating from config on first run.
+    // in `config.toml`.
     let sam_keys_path = Path::new(&config.general.data_dir).join("sam.keys");
-    let mut sam_keys: Option<SamKeys> = SamKeys::load(&sam_keys_path).await?;
-
-    // Migration path: if config has keys but `data/sam.keys` doesn't, write them to file and
-    // blank them in config.toml (so they won't be accidentally committed).
-    if sam_keys.is_none()
-        && (!config.i2p.sam_private_key.trim().is_empty()
-            || !config.i2p.sam_public_key.trim().is_empty())
-    {
-        if config.i2p.sam_private_key.trim().is_empty()
-            || config.i2p.sam_public_key.trim().is_empty()
-        {
-            anyhow::bail!(
-                "config.toml has only one of sam_private_key/sam_public_key; please provide both or delete them to regenerate"
-            );
-        }
-        let keys = SamKeys {
-            pub_key: config.i2p.sam_public_key.clone(),
-            priv_key: config.i2p.sam_private_key.clone(),
-        };
-        SamKeys::store(&sam_keys_path, &keys).await?;
-        tracing::warn!(
-            path = %sam_keys_path.display(),
-            "migrated SAM keys from config.toml to data file"
-        );
-
-        config.i2p.sam_private_key.clear();
-        config.i2p.sam_public_key.clear();
-        config.persist().await?;
-        sam_keys = Some(keys);
-    }
+    let sam_keys: Option<SamKeys> = SamKeys::load(&sam_keys_path).await?;
 
     // Ensure we have a long-lived destination.
     let base_session_name = &config.sam.session_name;
@@ -117,10 +88,10 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     );
 
     let my_dest_bytes = crate::i2p::b64::decode(&keys.pub_key)
-        .context("failed to decode i2p.sam_public_key as I2P base64")?;
+        .context("failed to decode SAM PUB key as I2P base64")?;
     if my_dest_bytes.len() != crate::kad::wire::I2P_DEST_LEN {
         anyhow::bail!(
-            "decoded i2p.sam_public_key has wrong length: {} bytes (expected {})",
+            "decoded SAM PUB key has wrong length: {} bytes (expected {})",
             my_dest_bytes.len(),
             crate::kad::wire::I2P_DEST_LEN
         );

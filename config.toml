@@ -14,11 +14,6 @@ udp_port = 4665
 preferences_kad_path = "preferencesKad.dat"
 udp_key_secret = 0
 
-[i2p]
-# SAM destination keys are stored under `data/sam.keys` (gitignored) to avoid committing secrets.
-sam_private_key = ""
-sam_public_key = ""
-
 [general]
 log_level = "debug"
 data_dir = "data"

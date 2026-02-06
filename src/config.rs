@@ -99,7 +99,8 @@ fn default_kad_service_max_failures() -> u32 {
     5
 }
 fn default_kad_service_evict_age_secs() -> u64 {
-    3600
+    // I2P peers can be very intermittent; avoid aggressive eviction by default.
+    24 * 60 * 60
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -107,7 +108,6 @@ fn default_kad_service_evict_age_secs() -> u64 {
 pub struct Config {
     pub sam: SamConfig,
     pub kad: KadConfig,
-    pub i2p: I2PConfig,
     pub general: GeneralConfig,
 }
 
@@ -185,13 +185,6 @@ pub struct KadConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct I2PConfig {
-    pub sam_private_key: String,
-    pub sam_public_key: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
 pub struct GeneralConfig {
     pub log_level: String,
     pub data_dir: String,
@@ -246,15 +239,6 @@ impl Default for KadConfig {
     }
 }
 
-impl Default for I2PConfig {
-    fn default() -> Self {
-        Self {
-            sam_private_key: "".to_string(),
-            sam_public_key: "".to_string(),
-        }
-    }
-}
-
 impl Default for GeneralConfig {
     fn default() -> Self {
         Self {
@@ -277,9 +261,9 @@ pub fn init_tracing(config: &Config) {
     // RUST_LOG=info,rust_mule=debug
     // RUST_MULE_LOG=debug
 
+    use tracing_subscriber::Layer as _;
     use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
-    use tracing_subscriber::Layer as _;
 
     // Stdout filter:
     // - If user sets `RUST_LOG`, respect it (standard Rust convention).
@@ -287,7 +271,8 @@ pub fn init_tracing(config: &Config) {
     let stdout_filter = std::env::var("RUST_LOG")
         .ok()
         .unwrap_or_else(|| config.general.log_level.clone());
-    let stdout_filter = EnvFilter::try_new(stdout_filter).unwrap_or_else(|_| EnvFilter::new("info"));
+    let stdout_filter =
+        EnvFilter::try_new(stdout_filter).unwrap_or_else(|_| EnvFilter::new("info"));
 
     let stdout_layer = tracing_subscriber::fmt::layer()
         .with_target(true)
