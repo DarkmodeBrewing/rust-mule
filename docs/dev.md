@@ -45,6 +45,8 @@ The app will prefer `data/nodes.dat`. If that file doesn't exist yet, it falls b
 cargo run
 ```
 
+Logs are persisted under `data/logs/` by default (daily rolled) if `[general].log_to_file = true`.
+
 Optional tooling:
 
 ```bash

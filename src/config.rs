@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tracing_subscriber::EnvFilter;
 
 fn default_sam_host() -> String {
@@ -295,9 +296,10 @@ pub fn init_tracing(config: &Config) {
         .unwrap_or_else(|| config.general.log_file_level.clone());
     let file_filter = EnvFilter::try_new(file_filter).unwrap_or_else(|_| EnvFilter::new("debug"));
 
-    let log_dir = &config.general.data_dir;
-    let _ = std::fs::create_dir_all(log_dir);
-    let file_appender = tracing_appender::rolling::daily(log_dir, &config.general.log_file_name);
+    // Keep runtime artifacts in `data/` and logs in a dedicated subdir.
+    let log_dir = Path::new(&config.general.data_dir).join("logs");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file_appender = tracing_appender::rolling::daily(&log_dir, &config.general.log_file_name);
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     static GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> =

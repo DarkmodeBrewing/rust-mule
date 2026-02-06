@@ -269,7 +269,7 @@ Additional tuning knobs:
 
 As of 2026-02-05, logs can be persisted to disk via `tracing-appender`:
 - Controlled by `[general].log_to_file` (default `true`)
-- Files are written under `[general].data_dir` and rolled daily as `rust-mule.log.YYYY-MM-DD` (configurable via `[general].log_file_name`)
+- Files are written under `[general].data_dir/logs` and rolled daily as `rust-mule.log.YYYY-MM-DD` (configurable via `[general].log_file_name`)
 - Stdout verbosity is controlled by `[general].log_level` (or `RUST_LOG`).
 - File verbosity is controlled by `[general].log_file_level` (or `RUST_MULE_LOG_FILE`).
 
