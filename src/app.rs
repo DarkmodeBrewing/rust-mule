@@ -10,7 +10,7 @@ use std::{
 };
 use tokio::time::Duration;
 
-pub async fn run(mut config: Config) -> anyhow::Result<()> {
+pub async fn run(config: Config) -> anyhow::Result<()> {
     tracing::info!(
         log = %config.general.log_level,
         data_dir = %config.general.data_dir,
@@ -29,17 +29,21 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
 
     // Load or create a persistent Kad UDP obfuscation secret, iMule-style.
     //
-    // If `config.toml` provides a non-zero value, we treat it as an explicit override.
-    if config.kad.udp_key_secret == 0 {
-        let udp_key_path =
-            std::path::Path::new(&config.general.data_dir).join("kad_udp_key_secret.dat");
-        config.kad.udp_key_secret =
-            crate::kad::udp_key::load_or_create_udp_key_secret(&udp_key_path).await?;
-        tracing::info!(
-            path = %udp_key_path.display(),
-            "Loaded/generated Kad UDP key secret"
+    // This is intentionally not user-configurable (to prevent low-entropy values).
+    if let Some(v) = config.kad.deprecated_udp_key_secret
+        && v != 0
+    {
+        tracing::warn!(
+            configured = v,
+            "config option kad.udp_key_secret is deprecated and ignored; delete it from config.toml"
         );
     }
+    let udp_key_path = std::path::Path::new(&config.general.data_dir).join("kad_udp_key_secret.dat");
+    let udp_key_secret = crate::kad::udp_key::load_or_create_udp_key_secret(&udp_key_path).await?;
+    tracing::info!(
+        path = %udp_key_path.display(),
+        "Loaded/generated Kad UDP key secret"
+    );
 
     tracing::info!("Loading SAM keys");
 
@@ -316,7 +320,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         crate::kad::bootstrap::BootstrapCrypto {
             my_kad_id: kad_prefs.kad_id,
             my_dest_hash,
-            udp_key_secret: config.kad.udp_key_secret,
+            udp_key_secret,
             my_dest,
         },
         Default::default(),
@@ -386,7 +390,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
             crate::kad::service::KadServiceCrypto {
                 my_kad_id: kad_prefs.kad_id,
                 my_dest_hash,
-                udp_key_secret: config.kad.udp_key_secret,
+                udp_key_secret,
                 my_dest,
             },
             crate::kad::service::KadServiceConfig {

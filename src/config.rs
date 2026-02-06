@@ -49,10 +49,6 @@ fn default_preferences_kad_path() -> String {
     // Keep aMule/iMule naming for backwards compatibility.
     "preferencesKad.dat".to_string()
 }
-fn default_kad_udp_key_secret() -> u32 {
-    // 0 means "generate on first run".
-    0
-}
 fn default_kad_service_enabled() -> bool {
     true
 }
@@ -170,8 +166,12 @@ pub struct KadConfig {
     pub bootstrap_nodes_path: String,
     pub udp_port: u16,
     pub preferences_kad_path: String,
-    /// Equivalent to iMule's `thePrefs::GetKadUDPKey()`; used for UDP obfuscation verify keys.
-    pub udp_key_secret: u32,
+    /// Deprecated: `kad.udp_key_secret` used to be configurable.
+    ///
+    /// We now always load/store the secret in `data/kad_udp_key_secret.dat` to avoid users
+    /// accidentally setting low-entropy values which degrade interoperability.
+    #[serde(default, rename = "udp_key_secret", skip_serializing)]
+    pub deprecated_udp_key_secret: Option<u32>,
 
     /// Run the long-lived Kad service loop after the initial bootstrap.
     pub service_enabled: bool,
@@ -231,7 +231,7 @@ impl Default for KadConfig {
             bootstrap_nodes_path: "nodes.dat".to_string(),
             udp_port: 4665,
             preferences_kad_path: default_preferences_kad_path(),
-            udp_key_secret: default_kad_udp_key_secret(),
+            deprecated_udp_key_secret: None,
 
             service_enabled: default_kad_service_enabled(),
             service_runtime_secs: default_kad_service_runtime_secs(),

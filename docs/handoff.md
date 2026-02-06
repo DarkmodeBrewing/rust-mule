@@ -120,7 +120,7 @@ If you delete it, a new random KadID is generated and peers will treat you as a 
 
 This is the persistent secret used to compute UDP verify keys (iMule-style `GetUDPVerifyKey()` logic, adapted to I2P dest hash).
 
-If `kad.udp_key_secret = 0` in `config.toml`, we generate/load it from this file at startup.
+This value is generated on first run and loaded from this file on startup. It is intentionally not user-configurable.
 If you delete it, a new secret is generated and any learned UDP-key relationships may stop validating until re-established.
 
 ## Known Issue / Debugging
@@ -218,7 +218,7 @@ iMule encrypts/obfuscates KAD UDP packets (see `EncryptedDatagramSocket.cpp`) an
 Implemented in Rust:
 - `src/kad/udp_crypto.rs`: MD5 + RC4 + iMule framing, plus `udp_verify_key()` compatible with iMule (using I2P dest hash in place of IPv4).
 - `src/kad/udp_crypto.rs`: receiver-verify-key-based encryption path (needed for `KADEMLIA2_HELLO_RES_ACK` in iMule).
-- `kad.udp_key_secret` can be configured explicitly. If left as `0`, the app will generate one and persist it under `data/kad_udp_key_secret.dat` (analogous to iMule `thePrefs::GetKadUDPKey()`), without mutating `config.toml`.
+- `kad.udp_key_secret` used to be configurable, but is now deprecated/ignored. The secret is always generated/loaded from `data/kad_udp_key_secret.dat` (analogous to iMule `thePrefs::GetKadUDPKey()`).
 
 Bootstrap now:
 - Encrypts outgoing `KADEMLIA2_BOOTSTRAP_REQ` using the target's KadID.

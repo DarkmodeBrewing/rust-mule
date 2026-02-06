@@ -25,18 +25,17 @@ cargo run --bin rust-mule
 Logs:
 
 - Stdout is controlled by `[general].log_level` (or `RUST_LOG`)
-- File logs roll daily under `data/` when `[general].log_to_file=true`
+- File logs roll daily under `data/logs/` when `[general].log_to_file=true`
 
 ## Data Files
 
 Runtime state lives under `data/` (gitignored):
 
 - `data/nodes.dat`: primary persisted bootstrap pool (iMule `nodes.dat` v2 format)
-- `data/nodes.initseed.dat`: initial seed snapshot (copied from reference inputs)
-- `data/nodes.fallback.dat`: merged/deduped seed pool
+- `data/nodes.initseed.dat`: initial seed snapshot (created from embedded initseed on first run)
+- `data/nodes.fallback.dat`: fallback seed snapshot (currently same as initseed)
 - `data/preferencesKad.dat`: your KadID (stable node identity)
-- `data/kad_udp_key_secret.dat`: UDP obfuscation secret (iMule-style verify key seed)
+- `data/kad_udp_key_secret.dat`: UDP obfuscation secret (iMule-style verify key seed; generated on first run)
 - `data/sam.keys`: SAM destination keys (`PUB=...` / `PRIV=...`)
 
 For more details and current development notes, see `docs/handoff.md`.
-
