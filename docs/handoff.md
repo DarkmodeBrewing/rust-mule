@@ -300,6 +300,7 @@ As of 2026-02-06, the status line also includes aggregate counts like `res_conta
 ## Reference Material
 
 - iMule source + reference `nodes.dat` are under `source_ref/` (gitignored).
+- KAD wire-format parity notes: `docs/kad_parity.md`.
 
 ## Roadmap (Agreed Next Steps)
 
