@@ -9,6 +9,7 @@ async fn main() -> anyhow::Result<()> {
     validate_cfg(&cfg)?;
 
     rust_mule::config::init_tracing(&cfg);
+    tracing::trace!("🔥🔥 This is fine ... 🔥🔥");
     tracing::info!("rust-mule booted");
 
     rust_mule::app::run(cfg).await?;
