@@ -1,20 +1,20 @@
 use crate::{
     i2p::sam::SamKadSocket,
     kad::{
-        KadId, routing::RoutingTable,
+        KadId,
+        routing::RoutingTable,
         udp_crypto,
         wire::{
-            I2P_DEST_LEN, KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
+            I2P_DEST_LEN, KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED,
+            KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
+            KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
             KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
-            KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES,
-            KADEMLIA2_SEARCH_RES,
-            KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket, TAG_KADMISCOPTIONS,
-            KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED, KADEMLIA_REQ_DEPRECATED,
-            KADEMLIA_RES_DEPRECATED, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
-            decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_res,
-            decode_kad2_search_source_req, encode_kad1_res, encode_kad2_hello,
-            encode_kad2_publish_res_for_source, encode_kad2_req, encode_kad2_res,
-            encode_kad2_search_res_sources,
+            KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES,
+            KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket, TAG_KADMISCOPTIONS, decode_kad1_req,
+            decode_kad2_bootstrap_res, decode_kad2_hello, decode_kad2_publish_source_req_min,
+            decode_kad2_req, decode_kad2_res, decode_kad2_search_source_req, encode_kad1_res,
+            encode_kad2_hello, encode_kad2_publish_res_for_source, encode_kad2_req,
+            encode_kad2_res, encode_kad2_search_res_sources,
         },
     },
     nodes::imule::ImuleNode,
@@ -338,7 +338,7 @@ async fn crawl_once(
         }
     }
 
-        let req_kind = cfg.req_contacts.clamp(1, 31);
+    let requested_contacts = cfg.req_contacts.clamp(1, 31);
 
     for p in peers {
         let dest = p.udp_dest_b64();
@@ -347,7 +347,8 @@ async fn crawl_once(
         // NOTE: iMule's `KADEMLIA2_REQ` includes a `check` field which must match the *receiver's*
         // KadID (used to discard packets not intended for this node). If we put our own KadID here,
         // peers will silently ignore the request and we'll never get `KADEMLIA2_RES`.
-        let req_payload = encode_kad2_req(req_kind, target, target_kad_id, crypto.my_kad_id);
+        let req_payload =
+            encode_kad2_req(requested_contacts, target, target_kad_id, crypto.my_kad_id);
         let req_plain = KadPacket::encode(KADEMLIA2_REQ, &req_payload);
 
         let sender_verify_key =
@@ -524,7 +525,11 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
     );
     if evicted > 0 {
         svc.stats_window.evicted += evicted as u64;
-        tracing::info!(evicted, remaining = svc.routing.len(), "evicted stale peers");
+        tracing::info!(
+            evicted,
+            remaining = svc.routing.len(),
+            "evicted stale peers"
+        );
     }
 }
 
@@ -568,10 +573,14 @@ async fn handle_inbound(
         _ => 0,
     };
 
-    let decrypted =
-        match udp_crypto::decrypt_kad_packet(&payload, crypto.my_kad_id, crypto.udp_key_secret, from_hash) {
-            Ok(d) => d,
-            Err(err) => {
+    let decrypted = match udp_crypto::decrypt_kad_packet(
+        &payload,
+        crypto.my_kad_id,
+        crypto.udp_key_secret,
+        from_hash,
+    ) {
+        Ok(d) => d,
+        Err(err) => {
             tracing::trace!(error = %err, from = %from_dest_b64, "dropping undecipherable/unknown KAD packet");
             return Ok(());
         }
@@ -585,8 +594,13 @@ async fn handle_inbound(
     };
 
     // Update liveness + (if known) sender UDP key.
-    svc.routing
-        .update_sender_keys_by_dest(&from_dest_b64, now, decrypted.sender_verify_key, crypto.my_dest_hash, valid_receiver_key);
+    svc.routing.update_sender_keys_by_dest(
+        &from_dest_b64,
+        now,
+        decrypted.sender_verify_key,
+        crypto.my_dest_hash,
+        valid_receiver_key,
+    );
 
     let pkt = match KadPacket::decode(&decrypted.payload) {
         Ok(p) => p,
@@ -624,26 +638,40 @@ async fn handle_inbound(
                 {
                     let mut udp_dest = [0u8; I2P_DEST_LEN];
                     udp_dest.copy_from_slice(raw);
-                    let _ = svc.routing.upsert(ImuleNode {
-                        kad_version: res.sender_kad_version,
-                        client_id: res.sender_id.0,
-                        udp_dest,
-                        udp_key: if decrypted.was_obfuscated { decrypted.sender_verify_key } else { 0 },
-                        udp_key_ip: if decrypted.was_obfuscated { crypto.my_dest_hash } else { 0 },
-                        verified: valid_receiver_key,
-                    }, now);
+                    let _ = svc.routing.upsert(
+                        ImuleNode {
+                            kad_version: res.sender_kad_version,
+                            client_id: res.sender_id.0,
+                            udp_dest,
+                            udp_key: if decrypted.was_obfuscated {
+                                decrypted.sender_verify_key
+                            } else {
+                                0
+                            },
+                            udp_key_ip: if decrypted.was_obfuscated {
+                                crypto.my_dest_hash
+                            } else {
+                                0
+                            },
+                            verified: valid_receiver_key,
+                        },
+                        now,
+                    );
                 }
 
                 // Harvest contacts list.
                 for c in res.contacts {
-                    let _ = svc.routing.upsert(ImuleNode {
-                        kad_version: c.kad_version,
-                        client_id: c.node_id.0,
-                        udp_dest: c.udp_dest,
-                        udp_key: 0,
-                        udp_key_ip: 0,
-                        verified: false,
-                    }, now);
+                    let _ = svc.routing.upsert(
+                        ImuleNode {
+                            kad_version: c.kad_version,
+                            client_id: c.node_id.0,
+                            udp_dest: c.udp_dest,
+                            udp_key: 0,
+                            udp_key_ip: 0,
+                            verified: false,
+                        },
+                        now,
+                    );
                 }
 
                 let inserted = svc.routing.len().saturating_sub(before);
@@ -673,14 +701,25 @@ async fn handle_inbound(
             {
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
-                let _ = svc.routing.upsert(ImuleNode {
-                    kad_version: hello.kad_version,
-                    client_id: hello.node_id.0,
-                    udp_dest,
-                    udp_key: if decrypted.was_obfuscated { decrypted.sender_verify_key } else { 0 },
-                    udp_key_ip: if decrypted.was_obfuscated { crypto.my_dest_hash } else { 0 },
-                    verified: valid_receiver_key,
-                }, now);
+                let _ = svc.routing.upsert(
+                    ImuleNode {
+                        kad_version: hello.kad_version,
+                        client_id: hello.node_id.0,
+                        udp_dest,
+                        udp_key: if decrypted.was_obfuscated {
+                            decrypted.sender_verify_key
+                        } else {
+                            0
+                        },
+                        udp_key_ip: if decrypted.was_obfuscated {
+                            crypto.my_dest_hash
+                        } else {
+                            0
+                        },
+                        verified: valid_receiver_key,
+                    },
+                    now,
+                );
             }
 
             let receiver_verify_key = decrypted.sender_verify_key;
@@ -696,7 +735,12 @@ async fn handle_inbound(
 
             let res_plain = KadPacket::encode(KADEMLIA2_HELLO_RES, &res_payload);
             let out = if hello.kad_version >= 6 && decrypted.was_obfuscated {
-                udp_crypto::encrypt_kad_packet(&res_plain, hello.node_id, receiver_verify_key, sender_verify_key)?
+                udp_crypto::encrypt_kad_packet(
+                    &res_plain,
+                    hello.node_id,
+                    receiver_verify_key,
+                    sender_verify_key,
+                )?
             } else {
                 res_plain
             };
@@ -718,14 +762,25 @@ async fn handle_inbound(
             {
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
-                let _ = svc.routing.upsert(ImuleNode {
-                    kad_version: hello.kad_version,
-                    client_id: hello.node_id.0,
-                    udp_dest,
-                    udp_key: if decrypted.was_obfuscated { decrypted.sender_verify_key } else { 0 },
-                    udp_key_ip: if decrypted.was_obfuscated { crypto.my_dest_hash } else { 0 },
-                    verified: valid_receiver_key,
-                }, now);
+                let _ = svc.routing.upsert(
+                    ImuleNode {
+                        kad_version: hello.kad_version,
+                        client_id: hello.node_id.0,
+                        udp_dest,
+                        udp_key: if decrypted.was_obfuscated {
+                            decrypted.sender_verify_key
+                        } else {
+                            0
+                        },
+                        udp_key_ip: if decrypted.was_obfuscated {
+                            crypto.my_dest_hash
+                        } else {
+                            0
+                        },
+                        verified: valid_receiver_key,
+                    },
+                    now,
+                );
             }
 
             let misc = hello.tags.get(&TAG_KADMISCOPTIONS).copied().unwrap_or(0) as u8;
@@ -735,7 +790,8 @@ async fn handle_inbound(
                 ack_payload.extend_from_slice(&crypto.my_kad_id.to_crypt_bytes());
                 ack_payload.push(0);
                 let ack_plain = KadPacket::encode(KADEMLIA2_HELLO_RES_ACK, &ack_payload);
-                let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+                let sender_verify_key =
+                    udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
                 let ack = udp_crypto::encrypt_kad_packet_with_receiver_key(
                     &ack_plain,
                     decrypted.sender_verify_key,
@@ -767,6 +823,7 @@ async fn handle_inbound(
             if let (Some(sender_id), Some(raw)) = (req.sender_id, &from_dest_raw)
                 && raw.len() == I2P_DEST_LEN
             {
+                let before = svc.routing.len();
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
                 let _ = svc.routing.upsert(
@@ -790,9 +847,19 @@ async fn handle_inbound(
                     },
                     now,
                 );
+                let inserted = svc.routing.len().saturating_sub(before);
+                if inserted > 0 {
+                    svc.stats_window.new_nodes += inserted as u64;
+                    tracing::debug!(
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        inserted,
+                        routing = svc.routing.len(),
+                        "learned new node from inbound KAD2 REQ sender_id"
+                    );
+                }
             }
 
-            let max = (req.kind as usize).min(32);
+            let max = (req.requested_contacts as usize).min(32);
             let contacts = svc.routing.closest_to(req.target, max, from_hash);
             let kad2_contacts = contacts
                 .iter()
@@ -855,14 +922,17 @@ async fn handle_inbound(
             svc.stats_window.res_contacts += res.contacts.len() as u64;
             let before = svc.routing.len();
             for c in res.contacts {
-                let _ = svc.routing.upsert(ImuleNode {
-                    kad_version: c.kad_version,
-                    client_id: c.node_id.0,
-                    udp_dest: c.udp_dest,
-                    udp_key: 0,
-                    udp_key_ip: 0,
-                    verified: false,
-                }, now);
+                let _ = svc.routing.upsert(
+                    ImuleNode {
+                        kad_version: c.kad_version,
+                        client_id: c.node_id.0,
+                        udp_dest: c.udp_dest,
+                        udp_key: 0,
+                        udp_key_ip: 0,
+                        verified: false,
+                    },
+                    now,
+                );
             }
             let inserted = svc.routing.len().saturating_sub(before);
             if inserted > 0 {
@@ -910,7 +980,10 @@ async fn handle_inbound(
             {
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
-                svc.sources_by_file.entry(req.file).or_default().insert(req.source, udp_dest);
+                svc.sources_by_file
+                    .entry(req.file)
+                    .or_default()
+                    .insert(req.source, udp_dest);
             }
 
             let count = svc

@@ -38,7 +38,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             "config option kad.udp_key_secret is deprecated and ignored; delete it from config.toml"
         );
     }
-    let udp_key_path = std::path::Path::new(&config.general.data_dir).join("kad_udp_key_secret.dat");
+    let udp_key_path =
+        std::path::Path::new(&config.general.data_dir).join("kad_udp_key_secret.dat");
     let udp_key_secret = crate::kad::udp_key::load_or_create_udp_key_secret(&udp_key_path).await?;
     tracing::info!(
         path = %udp_key_path.display(),

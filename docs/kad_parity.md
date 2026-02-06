@@ -49,7 +49,7 @@ Primary files in `source_ref/iMule-2.3.1.5-src/`:
   - rust-mule: same.
 
 - **KADEMLIA2_REQ (0x11)**:
-  - iMule (`Search.cpp::SendFindPeersForTarget`): `<kind u8><target u128><check(receiver_id) u128><sender(my_id) u128>`
+  - iMule (`Search.cpp::SendFindPeersForTarget`): `<contactCount u8><target u128><check(receiver_id) u128><sender(my_id) u128>`
   - rust-mule: `encode_kad2_req()` includes sender id; `decode_kad2_req()` parses it when present.
 
 - **KADEMLIA2_RES (0x13)**:
@@ -58,7 +58,7 @@ Primary files in `source_ref/iMule-2.3.1.5-src/`:
 
 - **Kad1 (deprecated) REQ/RES + HELLO**
   - iMule uses the *same* request payload for Kad1+Kad2 searches:
-    `<kind u8><target u128><check(receiver_id) u128><sender(my_id) u128>`; opcode differs.
+    `<contactCount u8><target u128><check(receiver_id) u128><sender(my_id) u128>`; opcode differs.
   - rust-mule: `decode_kad1_req()` matches; Kad1 HELLO_RES now uses contact type `3` (matches iMule `WriteToKad1Contact` default).
 
 ## UDP Obfuscation (Crypto) Parity
@@ -88,4 +88,3 @@ Primary files in `source_ref/iMule-2.3.1.5-src/`:
   - This is a conscious Rust-native stepping stone.
 - iMule packet tracking / legacy challenge logic isn't replicated 1:1.
   - We use receiver-key validity + observed traffic as the primary "verified" signal.
-

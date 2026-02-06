@@ -136,7 +136,11 @@ pub struct Kad2Hello {
 
 #[derive(Debug, Clone, Copy)]
 pub struct Kad2Req {
-    pub kind: u8,
+    /// Requested number of contacts to return (low 5 bits, 1..=31).
+    ///
+    /// iMule names this `type` but uses it as a count (see
+    /// `KademliaUDPListener.cpp::ProcessKademlia2Request`).
+    pub requested_contacts: u8,
     pub target: KadId,
     pub check: KadId,
     /// Optional sender KadID.
@@ -216,9 +220,9 @@ pub fn decode_kad2_hello(payload: &[u8]) -> Result<Kad2Hello> {
 
 pub fn decode_kad2_req(payload: &[u8]) -> Result<Kad2Req> {
     let mut r = Reader::new(payload);
-    let kind = r.read_u8()? & 0x1F;
-    if kind == 0 {
-        bail!("kademlia2 req kind=0");
+    let requested_contacts = r.read_u8()? & 0x1F;
+    if requested_contacts == 0 {
+        bail!("kademlia2 req requested_contacts=0");
     }
     let target = r.read_uint128_emule()?;
     let check = r.read_uint128_emule()?;
@@ -228,21 +232,26 @@ pub fn decode_kad2_req(payload: &[u8]) -> Result<Kad2Req> {
         None
     };
     Ok(Kad2Req {
-        kind,
+        requested_contacts,
         target,
         check,
         sender_id,
     })
 }
 
-pub fn encode_kad2_req(kind: u8, target: KadId, check: KadId, sender_id: KadId) -> Vec<u8> {
+pub fn encode_kad2_req(
+    requested_contacts: u8,
+    target: KadId,
+    check: KadId,
+    sender_id: KadId,
+) -> Vec<u8> {
     // iMule format:
-    // <kind u8><target u128><check(receiver) u128><sender(my) u128>
+    // <contactCount u8><target u128><check(receiver) u128><sender(my) u128>
     let mut out = Vec::with_capacity(1 + 16 + 16 + 16);
     // iMule masks this field with `0x1F` on decode, so only 1..=31 is representable.
     // Use a safe clamp so config mistakes (e.g. 32) don't silently become 1.
-    let k = kind.clamp(1, 31) & 0x1F;
-    out.push(k); // kind must be non-zero
+    let c = requested_contacts.clamp(1, 31) & 0x1F;
+    out.push(c); // must be non-zero
     out.extend_from_slice(&target.to_crypt_bytes());
     out.extend_from_slice(&check.to_crypt_bytes());
     out.extend_from_slice(&sender_id.to_crypt_bytes());
@@ -303,7 +312,12 @@ pub fn decode_kad2_publish_source_req_min(payload: &[u8]) -> Result<Kad2PublishS
     Ok(Kad2PublishSourceReq { file, source })
 }
 
-pub fn encode_kad2_publish_res_for_source(file: KadId, source_count: u32, complete_count: u32, load: u8) -> Vec<u8> {
+pub fn encode_kad2_publish_res_for_source(
+    file: KadId,
+    source_count: u32,
+    complete_count: u32,
+    load: u8,
+) -> Vec<u8> {
     let mut out = Vec::with_capacity(16 + 4 + 4 + 1);
     out.extend_from_slice(&file.to_crypt_bytes());
     out.extend_from_slice(&source_count.to_le_bytes());

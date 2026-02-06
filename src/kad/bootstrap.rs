@@ -529,7 +529,7 @@ pub async fn bootstrap(
                     continue;
                 }
 
-                let max = (req.kind as usize).min(32);
+                let max = (req.requested_contacts as usize).min(32);
                 let known = nodes
                     .iter()
                     .cloned()
@@ -654,7 +654,8 @@ pub async fn bootstrap(
                     })
                     .unwrap_or_default();
 
-                let payload = encode_kad2_search_res_sources(crypto.my_kad_id, req.target, &results);
+                let payload =
+                    encode_kad2_search_res_sources(crypto.my_kad_id, req.target, &results);
                 let plain = KadPacket::encode(KADEMLIA2_SEARCH_RES, &payload);
 
                 let sender_verify_key =

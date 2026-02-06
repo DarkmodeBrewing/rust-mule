@@ -121,15 +121,15 @@ impl RoutingTable {
             .or_insert_with(|| {
                 inserted = true;
                 NodeState {
-                node,
-                dest_b64,
-                last_seen: now,
-                last_inbound: None,
-                last_queried: None,
-                last_bootstrap: None,
-                last_hello: None,
-                needs_hello: true,
-                failures: 0,
+                    node,
+                    dest_b64,
+                    last_seen: now,
+                    last_inbound: None,
+                    last_queried: None,
+                    last_bootstrap: None,
+                    last_hello: None,
+                    needs_hello: true,
+                    failures: 0,
                 }
             });
 
@@ -314,11 +314,15 @@ impl RoutingTable {
             .values()
             .filter(|st| st.node.kad_version >= 6)
             .filter(|st| st.failures < max_failures)
-            .filter(|st| st.needs_hello || match st.last_hello {
-                Some(t) => {
-                    now.saturating_duration_since(t) >= backoff_interval(base_interval, st.failures)
-                }
-                None => true,
+            .filter(|st| {
+                st.needs_hello
+                    || match st.last_hello {
+                        Some(t) => {
+                            now.saturating_duration_since(t)
+                                >= backoff_interval(base_interval, st.failures)
+                        }
+                        None => true,
+                    }
             })
             .collect();
 
@@ -375,12 +379,7 @@ impl RoutingTable {
             .collect()
     }
 
-    pub fn evict(
-        &mut self,
-        now: Instant,
-        max_failures: u32,
-        max_age: Duration,
-    ) -> usize {
+    pub fn evict(&mut self, now: Instant, max_failures: u32, max_age: Duration) -> usize {
         let before = self.by_id.len();
         let mut to_remove: Vec<KadId> = Vec::new();
         for (id, st) in &self.by_id {
@@ -410,5 +409,6 @@ fn backoff_interval(base: Duration, failures: u32) -> Duration {
     // Exponential backoff (capped) to avoid repeatedly hammering dead/stale peers.
     let pow = failures.min(8);
     let mul = 1u32 << pow;
-    base.checked_mul(mul).unwrap_or(Duration::from_secs(24 * 60 * 60))
+    base.checked_mul(mul)
+        .unwrap_or(Duration::from_secs(24 * 60 * 60))
 }
