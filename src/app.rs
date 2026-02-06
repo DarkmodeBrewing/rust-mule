@@ -55,6 +55,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     // Canonical location is `data/sam.keys` (under `general.data_dir`) so we don't commit secrets
     // in `config.toml`.
     let sam_keys_path = Path::new(&config.general.data_dir).join("sam.keys");
+    tracing::info!(path = %sam_keys_path.display(), "SAM keys file");
     let sam_keys: Option<SamKeys> = SamKeys::load(&sam_keys_path).await?;
 
     // Ensure we have a long-lived destination.
