@@ -13,6 +13,11 @@ bootstrap_nodes_path = "nodes.dat"
 udp_port = 4665
 preferences_kad_path = "preferencesKad.dat"
 udp_key_secret = 0
+# Advanced KAD configs, use with caution
+# service_alpha = 8
+# service_req_min_interval_secs = 5
+# service_hello_batch = 5
+# service_hello_min_interval_secs = 300
 
 [general]
 log_level = "info"
