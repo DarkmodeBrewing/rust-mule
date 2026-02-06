@@ -1,5 +1,16 @@
 # rust-mule
 
+<p align="center">
+  <img src="assets/this_is_fine_mule.png" alt="This is fine – rust-mule KAD bootstrap" width="420">
+</p>
+
+<p align="center">
+  <em>
+    Bootstrapping a decentralized KAD network over I2P.<br>
+    Sometimes it works immediately. Sometimes it sets the room on fire.
+  </em>
+</p>
+
 `rust-mule` is an experimental, **I2P-only** iMule-compatible Kademlia (KAD) crawler/overlay.
 It talks to the local (or remote) I2P router via **SAM v3** using `STYLE=DATAGRAM` sessions.
 
