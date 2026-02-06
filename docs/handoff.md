@@ -56,19 +56,26 @@ On startup, `rust-mule` will try to load nodes from this path first. During runt
 
 Format: iMule/aMule `nodes.dat` v2 (I2P destinations + KadIDs + optional UDP keys).
 
-### `source_ref/nodes.dat` and `datfiles/nodes.dat` (Reference / Fallback Seeds)
+### `data/nodes.initseed.dat` and `data/nodes.fallback.dat` (Local Seed Snapshots)
 
-These are **reference** nodes lists bundled in the repo:
+These are local seed snapshots stored under `data/` so runtime behavior does not depend on repo paths:
 
-- `source_ref/nodes.dat`: user-provided “freshly downloaded” iMule nodes.dat snapshot (best reference seed if present).
-- `datfiles/nodes.dat`: older bundled seed list.
+- `data/nodes.initseed.dat`: the initial seed snapshot (copied from reference nodes once).
+- `data/nodes.fallback.dat`: a merged/deduped fallback pool (built from whatever reference nodes are available).
 
 They are used only when:
 
 - `data/nodes.dat` does not exist, OR
 - `data/nodes.dat` exists but has become too small (currently `< 50` entries), in which case startup will re-seed `data/nodes.dat` by merging in reference nodes.
 
-Selection logic lives in `src/app.rs` (`pick_existing_nodes_dat()` + the re-seed block).
+Selection logic lives in `src/app.rs` (`pick_nodes_dat()` + the re-seed block).
+
+### `source_ref/nodes.dat` and `datfiles/nodes.dat` (Repo Reference Inputs)
+
+These repo files are reference inputs used only to **create** `data/nodes.initseed.dat` / `data/nodes.fallback.dat`:
+
+- `source_ref/nodes.dat`: user-provided “freshly downloaded” iMule nodes.dat snapshot (best reference input if present).
+- `datfiles/nodes.dat`: older bundled reference input.
 
 ### `nodes2.dat` (Remote Bootstrap Download, If Available)
 
@@ -76,9 +83,22 @@ iMule historically hosted an HTTP bootstrap list at:
 
 - `http://www.imule.i2p/nodes2.dat`
 
-`rust-mule` will try to download this **only when it had to fall back** to reference nodes (`source_ref/...` or `datfiles/...`) because `data/nodes.dat` was missing.
+`rust-mule` will try to download this only when it is not using the normal persisted `data/nodes.dat` seed pool (i.e. when it had to fall back to initseed/fallback).
 
 If the download succeeds, it is saved as `data/nodes.dat` (we don't keep a separate `nodes2.dat` file on disk right now).
+
+### `data/sam.keys` (SAM Destination Keys)
+
+SAM pub/priv keys are stored in `data/sam.keys` as a simple k/v file:
+
+```text
+PUB=...
+PRIV=...
+```
+
+This keeps secrets out of `config.toml` (which is easy to accidentally commit).
+
+If `config.toml` still contains `i2p.sam_private_key`/`i2p.sam_public_key`, `rust-mule` will migrate them into `data/sam.keys` on startup and blank the config fields.
 
 ### `data/preferencesKad.dat` (Your KadID / Node Identity)
 
@@ -115,9 +135,9 @@ Next things to try if this repeats:
 - Switch to `sam.datagram_transport = "udp_forward"` (some SAM bridges implement UDP forwarding more reliably than TCP datagrams).
 - Ensure Docker/host UDP forwarding is mapped correctly if using `udp_forward` (`sam.forward_host` must be reachable from the SAM host).
 - Increase the bootstrap runtime (I2P tunnel build + lease set publication can take time). Defaults are now more forgiving (`max_initial=256`, `runtime=180s`, `warmup=8s`).
-- Prefer a fresher/larger `nodes.dat` (this repo has both `datfiles/nodes.dat` and `source_ref/nodes.dat`; the app now prefers the `source_ref` one if `data/nodes.dat` is absent).
+- Prefer a fresher/larger `nodes.dat` (we keep repo reference inputs in `source_ref/nodes.dat` / `datfiles/nodes.dat`, but runtime fallbacks use `data/nodes.initseed.dat` / `data/nodes.fallback.dat`).
 - Avoid forcing I2P lease set encryption types unless you know all peers support it (iMule doesn't set `i2cp.leaseSetEncType` for its datagram session).
-- The app will attempt to fetch a fresh `nodes2.dat` over I2P from `www.imule.i2p` and write it to `data/nodes.dat` when it had to fall back to `source_ref/` or `datfiles/`.
+- The app will attempt to fetch a fresh `nodes2.dat` over I2P from `www.imule.i2p` and write it to `data/nodes.dat` when it had to fall back to initseed/fallback.
 
 If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_transport="tcp"`, that's a local read timeout on the SAM TCP socket (no inbound datagrams yet), not necessarily a SAM failure. The TCP datagram receiver was updated to block and let the bootstrap loop apply its own deadline.
 
@@ -269,7 +289,7 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
 - `kad.service_req_contacts` should be in `1..=31`. (Kad2 masks this field with `0x1F`.)
   - If it is set to `32`, it will effectively become `1`, which slows discovery dramatically.
 - The service persists `nodes.dat` periodically. It now merges the current routing snapshot into the existing on-disk `nodes.dat` to avoid losing seed nodes after an eviction cycle.
-- If `data/nodes.dat` ever shrinks to a very small set (e.g. after a long run evicts lots of dead peers), startup will re-seed it by merging in `source_ref/nodes.dat` / `datfiles/nodes.dat` if present.
+- If `data/nodes.dat` ever shrinks to a very small set (e.g. after a long run evicts lots of dead peers), startup will re-seed it by merging in `data/nodes.initseed.dat` / `data/nodes.fallback.dat` if present.
 
 - The crawler intentionally probes at least one “cold” peer (a peer we have never heard from) per crawl tick when available. This prevents the service from getting stuck talking only to 1–2 responsive nodes forever.
 

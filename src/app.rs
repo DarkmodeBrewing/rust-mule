@@ -1,6 +1,6 @@
 use crate::{
     config::{Config, SamDatagramTransport},
-    i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamKadSocket},
+    i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamKadSocket, SamKeys},
 };
 use anyhow::Context;
 use std::collections::BTreeMap;
@@ -41,11 +41,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         );
     }
 
-    tracing::info!(
-        priv_len = config.i2p.sam_private_key.trim().len(),
-        pub_len = config.i2p.sam_public_key.trim().len(),
-        "Loaded SAM keys from config"
-    );
+    tracing::info!("Loading SAM keys");
 
     tracing::info!("Testing i2p + SAM connectivity");
     let mut sam: SamClient = SamClient::connect(&config.sam.host, config.sam.port)
@@ -54,10 +50,46 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     let reply = sam.hello("3.0", "3.3").await?;
     tracing::info!("(RAW) SAM Replies: {}", reply.raw);
 
+    // Load SAM destination keys.
+    //
+    // Canonical location is `data/sam.keys` (under `general.data_dir`) so we don't commit secrets
+    // in `config.toml`. We keep backwards compatibility by migrating from config on first run.
+    let sam_keys_path = Path::new(&config.general.data_dir).join("sam.keys");
+    let mut sam_keys: Option<SamKeys> = SamKeys::load(&sam_keys_path).await?;
+
+    // Migration path: if config has keys but `data/sam.keys` doesn't, write them to file and
+    // blank them in config.toml (so they won't be accidentally committed).
+    if sam_keys.is_none()
+        && (!config.i2p.sam_private_key.trim().is_empty()
+            || !config.i2p.sam_public_key.trim().is_empty())
+    {
+        if config.i2p.sam_private_key.trim().is_empty()
+            || config.i2p.sam_public_key.trim().is_empty()
+        {
+            anyhow::bail!(
+                "config.toml has only one of sam_private_key/sam_public_key; please provide both or delete them to regenerate"
+            );
+        }
+        let keys = SamKeys {
+            pub_key: config.i2p.sam_public_key.clone(),
+            priv_key: config.i2p.sam_private_key.clone(),
+        };
+        SamKeys::store(&sam_keys_path, &keys).await?;
+        tracing::warn!(
+            path = %sam_keys_path.display(),
+            "migrated SAM keys from config.toml to data file"
+        );
+
+        config.i2p.sam_private_key.clear();
+        config.i2p.sam_public_key.clear();
+        config.persist().await?;
+        sam_keys = Some(keys);
+    }
+
     // Ensure we have a long-lived destination.
     let base_session_name = &config.sam.session_name;
-    let priv_key: String = if !config.i2p.sam_private_key.trim().is_empty() {
-        config.i2p.sam_private_key.clone()
+    let keys: SamKeys = if let Some(k) = sam_keys {
+        k
     } else {
         tracing::info!("No SAM destination in config; generating new identity");
 
@@ -68,14 +100,23 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
             "DEST generated"
         );
 
-        config.i2p.sam_private_key = generated_priv.clone();
-        config.i2p.sam_public_key = generated_pub.clone();
-        config.persist().await?;
-
-        generated_priv
+        let keys = SamKeys {
+            pub_key: generated_pub,
+            priv_key: generated_priv,
+        };
+        SamKeys::store(&sam_keys_path, &keys).await?;
+        tracing::info!(path = %sam_keys_path.display(), "saved SAM keys");
+        keys
     };
 
-    let my_dest_bytes = crate::i2p::b64::decode(&config.i2p.sam_public_key)
+    tracing::info!(
+        priv_len = keys.priv_key.trim().len(),
+        pub_len = keys.pub_key.trim().len(),
+        path = %sam_keys_path.display(),
+        "SAM keys ready"
+    );
+
+    let my_dest_bytes = crate::i2p::b64::decode(&keys.pub_key)
         .context("failed to decode i2p.sam_public_key as I2P base64")?;
     if my_dest_bytes.len() != crate::kad::wire::I2P_DEST_LEN {
         anyhow::bail!(
@@ -101,7 +142,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
             if let Err(err) = dg
                 .session_create_datagram(
                     &kad_session_id,
-                    &priv_key,
+                    &keys.priv_key,
                     ["i2cp.messageReliability=BestEffort"],
                 )
                 .await
@@ -118,7 +159,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                     let _ = dg.session_destroy(&kad_session_id).await;
                     dg.session_create_datagram(
                         &kad_session_id,
-                        &priv_key,
+                        &keys.priv_key,
                         ["i2cp.messageReliability=BestEffort"],
                     )
                     .await?;
@@ -173,7 +214,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
             if let Err(err) = sam
                 .session_create_datagram_forward(
                     &kad_session_id,
-                    &priv_key,
+                    &keys.priv_key,
                     dg.forward_port(),
                     sam_forward_ip,
                     ["i2cp.messageReliability=BestEffort"],
@@ -188,7 +229,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                     let _ = sam.session_destroy(&kad_session_id).await;
                     sam.session_create_datagram_forward(
                         &kad_session_id,
-                        &priv_key,
+                        &keys.priv_key,
                         dg.forward_port(),
                         sam_forward_ip,
                         ["i2cp.messageReliability=BestEffort"],
@@ -210,11 +251,25 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         }
     };
 
+    let data_dir = Path::new(&config.general.data_dir);
     let nodes_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
     let preferred_nodes_path = nodes_path.clone();
-    let nodes_path = pick_existing_nodes_dat(&nodes_path);
+
+    // Seed files under `data/` so we never depend on repo-local `source_ref/` paths at runtime.
+    let initseed_path = data_dir.join("nodes.initseed.dat");
+    let fallback_path = data_dir.join("nodes.fallback.dat");
+    ensure_nodes_seed_files(&initseed_path, &fallback_path).await;
+
+    // Pick which file we load from (and log why).
+    let (nodes_path, nodes_source) =
+        pick_nodes_dat(&preferred_nodes_path, &initseed_path, &fallback_path);
     let mut nodes = crate::nodes::imule::nodes_dat_contacts(&nodes_path).await?;
-    tracing::info!(path = %nodes_path.display(), count = nodes.len(), "loaded nodes.dat");
+    tracing::info!(
+        path = %nodes_path.display(),
+        source = nodes_source,
+        count = nodes.len(),
+        "loaded nodes.dat"
+    );
 
     // If our persisted `data/nodes.dat` ever shrinks to a tiny set (e.g. after a long eviction
     // cycle), re-seed it from repo-bundled reference nodes to avoid getting stuck with too few
@@ -226,8 +281,7 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
             merged.insert(n.udp_dest_b64(), n);
         }
 
-        for fallback in ["source_ref/nodes.dat", "datfiles/nodes.dat"] {
-            let p = Path::new(fallback);
+        for p in [&initseed_path, &fallback_path] {
             if !p.exists() {
                 continue;
             }
@@ -239,7 +293,12 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
         }
 
         let mut out_nodes: Vec<_> = merged.into_values().collect();
-        out_nodes.sort_by_key(|n| (std::cmp::Reverse(n.verified), std::cmp::Reverse(n.kad_version)));
+        out_nodes.sort_by_key(|n| {
+            (
+                std::cmp::Reverse(n.verified),
+                std::cmp::Reverse(n.kad_version),
+            )
+        });
         out_nodes.truncate(config.kad.service_max_persist_nodes.max(2000));
 
         if out_nodes.len() >= 50 && out_nodes.len() > original_count {
@@ -247,24 +306,25 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
                 from = original_count,
                 to = out_nodes.len(),
                 path = %preferred_nodes_path.display(),
-                "nodes.dat seed pool was small; re-seeded from bundled references"
+                "nodes.dat seed pool was small; re-seeded from initseed/fallback"
             );
-            let _ = crate::nodes::imule::persist_nodes_dat_v2(&preferred_nodes_path, &out_nodes).await;
+            let _ =
+                crate::nodes::imule::persist_nodes_dat_v2(&preferred_nodes_path, &out_nodes).await;
             nodes = out_nodes;
         } else {
             nodes = out_nodes;
         }
     }
 
-    // If we are forced to fall back to repo-bundled reference nodes, try to refresh them via I2P.
+    // If we are not using the persisted `data/nodes.dat`, try to refresh over I2P.
     // iMule defaults to `http://www.imule.i2p/nodes2.dat`.
-    if nodes_path.starts_with("source_ref") || nodes_path.starts_with("datfiles") {
+    if nodes_source != "primary" && nodes_source != "custom" {
         match try_download_nodes2_dat(
             &mut sam,
             &config.sam.host,
             config.sam.port,
             base_session_name,
-            &priv_key,
+            &keys.priv_key,
         )
         .await
         {
@@ -321,7 +381,12 @@ pub async fn run(mut config: Config) -> anyhow::Result<()> {
     }
 
     let mut out_nodes: Vec<crate::nodes::imule::ImuleNode> = merged.into_values().collect();
-    out_nodes.sort_by_key(|n| (std::cmp::Reverse(n.verified), std::cmp::Reverse(n.kad_version)));
+    out_nodes.sort_by_key(|n| {
+        (
+            std::cmp::Reverse(n.verified),
+            std::cmp::Reverse(n.kad_version),
+        )
+    });
     out_nodes.truncate(config.kad.service_max_persist_nodes.max(2000));
     if let Err(err) = crate::nodes::imule::persist_nodes_dat_v2(&out_path, &out_nodes).await {
         tracing::warn!(
@@ -472,17 +537,88 @@ fn resolve_path(data_dir: &str, p: &str) -> PathBuf {
     Path::new(data_dir).join(path)
 }
 
-fn pick_existing_nodes_dat(preferred: &Path) -> PathBuf {
+fn pick_nodes_dat(preferred: &Path, initseed: &Path, fallback: &Path) -> (PathBuf, &'static str) {
     if preferred.exists() {
-        return preferred.to_path_buf();
+        return (preferred.to_path_buf(), "primary");
     }
-    // Developer-friendly fallbacks.
-    // Prefer `source_ref/nodes.dat` if present; it tends to be the freshest reference snapshot.
-    for p in ["source_ref/nodes.dat", "datfiles/nodes.dat"] {
-        let c = Path::new(p);
-        if c.exists() {
-            return c.to_path_buf();
+
+    // Only fall back automatically for the default `data/nodes.dat` case.
+    let preferred_name = preferred.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    if preferred_name != "nodes.dat" {
+        return (preferred.to_path_buf(), "custom");
+    }
+
+    if initseed.exists() {
+        return (initseed.to_path_buf(), "initseed");
+    }
+    if fallback.exists() {
+        return (fallback.to_path_buf(), "fallback");
+    }
+
+    (preferred.to_path_buf(), "missing")
+}
+
+async fn ensure_nodes_seed_files(initseed: &Path, fallback: &Path) {
+    // We intentionally keep this best-effort: failures should not prevent startup.
+    let _ = tokio::fs::create_dir_all(initseed.parent().unwrap_or_else(|| Path::new("data"))).await;
+
+    if !initseed.exists() {
+        for p in ["source_ref/nodes.dat", "datfiles/nodes.dat"] {
+            let src = Path::new(p);
+            if !src.exists() {
+                continue;
+            }
+            if let Ok(bytes) = tokio::fs::read(src).await {
+                let tmp = initseed.with_extension("tmp");
+                if tokio::fs::write(&tmp, bytes).await.is_ok()
+                    && tokio::fs::rename(&tmp, initseed).await.is_ok()
+                {
+                    tracing::info!(
+                        src = %src.display(),
+                        dst = %initseed.display(),
+                        "created nodes.initseed.dat"
+                    );
+                    break;
+                }
+            }
         }
     }
-    preferred.to_path_buf()
+
+    if !fallback.exists() {
+        let mut merged = BTreeMap::<String, crate::nodes::imule::ImuleNode>::new();
+        for p in [
+            initseed,
+            Path::new("source_ref/nodes.dat"),
+            Path::new("datfiles/nodes.dat"),
+        ] {
+            if !p.exists() {
+                continue;
+            }
+            if let Ok(nodes) = crate::nodes::imule::nodes_dat_contacts(p).await {
+                for n in nodes {
+                    merged.entry(n.udp_dest_b64()).or_insert(n);
+                }
+            }
+        }
+
+        if !merged.is_empty() {
+            let mut nodes: Vec<_> = merged.into_values().collect();
+            nodes.sort_by_key(|n| {
+                (
+                    std::cmp::Reverse(n.verified),
+                    std::cmp::Reverse(n.kad_version),
+                )
+            });
+            if crate::nodes::imule::persist_nodes_dat_v2(fallback, &nodes)
+                .await
+                .is_ok()
+            {
+                tracing::info!(
+                    dst = %fallback.display(),
+                    count = nodes.len(),
+                    "created nodes.fallback.dat"
+                );
+            }
+        }
+    }
 }
