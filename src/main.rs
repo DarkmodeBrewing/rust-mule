@@ -9,7 +9,8 @@ async fn main() -> anyhow::Result<()> {
     validate_cfg(&cfg)?;
 
     rust_mule::config::init_tracing(&cfg);
-    tracing::trace!("🔥🔥 This is fine ... 🔥🔥");
+    // Friendly boot marker; keep at INFO so it shows with default config.
+    tracing::info!("🔥🔥 This is fine ... 🔥🔥");
     tracing::info!("rust-mule booted");
 
     rust_mule::app::run(cfg).await?;
