@@ -453,13 +453,15 @@ async fn send_bootstrap_batch(
 
     let now = Instant::now();
     let min_interval = Duration::from_secs(cfg.bootstrap_min_interval_secs.max(60));
-    let mut peers = svc.routing.select_bootstrap_candidates(
-        cfg.bootstrap_batch.max(1),
-        now,
-        min_interval,
-        cfg.max_failures,
-    );
+    let mut peers =
+        svc.routing
+            .select_bootstrap_candidates(cfg.bootstrap_batch.max(1), now, min_interval);
     if peers.is_empty() {
+        tracing::debug!(
+            routing = svc.routing.len(),
+            live = svc.routing.live_count(),
+            "no eligible peers for periodic BOOTSTRAP_REQ"
+        );
         return Ok(());
     }
 

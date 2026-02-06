@@ -348,13 +348,11 @@ impl RoutingTable {
         max: usize,
         now: Instant,
         base_interval: Duration,
-        max_failures: u32,
     ) -> Vec<ImuleNode> {
         let mut out: Vec<&NodeState> = self
             .by_id
             .values()
             .filter(|st| st.node.kad_version >= 6)
-            .filter(|st| st.failures < max_failures)
             .filter(|st| match st.last_bootstrap {
                 Some(t) => {
                     now.saturating_duration_since(t) >= backoff_interval(base_interval, st.failures)
