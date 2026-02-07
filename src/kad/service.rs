@@ -21,7 +21,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::collections::{BTreeMap, HashMap};
-use tokio::time::{Duration, Instant, interval};
+use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 #[derive(Debug, Clone, Copy)]
 pub struct KadServiceCrypto {
@@ -161,6 +161,16 @@ pub async fn run_service(
     let mut hello_tick = interval(Duration::from_secs(cfg.hello_every_secs.max(1)));
     let mut maintenance_tick = interval(Duration::from_secs(cfg.maintenance_every_secs.max(1)));
     let mut status_tick = interval(Duration::from_secs(cfg.status_every_secs.max(5)));
+
+    // If the process is paused (sleep / container suspension / busy host), default Tokio
+    // behavior is to "catch up" by running ticks in a tight loop. That's bad for network
+    // friendliness (and can overwhelm SAM). Skip missed ticks instead.
+    crawl_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    persist_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    bootstrap_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    hello_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    maintenance_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    status_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     // Optional runtime deadline (0 => forever).
     let deadline = if cfg.runtime_secs == 0 {

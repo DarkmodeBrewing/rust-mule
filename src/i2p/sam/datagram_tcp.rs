@@ -129,15 +129,14 @@ impl SamDatagramTcp {
             let line = match bytes_to_utf8_line(&line_bytes) {
                 Some(s) => s,
                 None => {
-                    // If we ever get binary junk here, we're likely out of sync (e.g. a previous
-                    // SIZE mismatch made us read part of a datagram payload as "line").
-                    // Don't crash the app - just skip until the next LF.
-                    tracing::warn!(
-                        len = line_bytes.len(),
-                        head_hex = %hex_head(&line_bytes, 24),
-                        "SAM line contained invalid UTF-8; skipping"
+                    // On a correctly-framed SAM TCP-DATAGRAM connection, every header line is
+                    // valid UTF-8. If we see binary junk, we're out of sync (e.g. we failed to
+                    // consume a payload). The only safe recovery is to reconnect.
+                    bail!(
+                        "SAM framing out of sync (invalid UTF-8 line): len={} head_hex={}",
+                        line_bytes.len(),
+                        hex_head(&line_bytes, 24)
                     );
-                    continue;
                 }
             };
 
@@ -154,13 +153,17 @@ impl SamDatagramTcp {
 
             if reply.verb == "DATAGRAM" && reply.kind == "RECEIVED" {
                 let Some(from_destination) = reply.kv.get("DESTINATION").cloned() else {
-                    tracing::warn!(raw = %reply.raw_redacted(), "DATAGRAM RECEIVED missing DESTINATION; skipping");
-                    continue;
+                    bail!(
+                        "SAM framing out of sync (DATAGRAM RECEIVED missing DESTINATION): raw={}",
+                        reply.raw_redacted()
+                    );
                 };
 
                 let Some(size_raw) = reply.kv.get("SIZE") else {
-                    tracing::warn!(raw = %reply.raw_redacted(), "DATAGRAM RECEIVED missing SIZE; skipping");
-                    continue;
+                    bail!(
+                        "SAM framing out of sync (DATAGRAM RECEIVED missing SIZE): raw={}",
+                        reply.raw_redacted()
+                    );
                 };
 
                 let size: usize = match size_raw.parse() {
