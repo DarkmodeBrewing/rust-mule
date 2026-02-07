@@ -75,6 +75,10 @@ Notes:
   - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
   - Enqueues a conservative Kad2 `KADEMLIA2_SEARCH_SOURCE_REQ` against a few closest known peers.
 
+- `GET /kad/sources/:file_id_hex`
+  - Auth required.
+  - Returns sources learned so far for that fileID (in-memory, not yet persisted).
+
 - `POST /kad/publish_source`
   - Auth required.
   - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`

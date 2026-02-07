@@ -24,7 +24,7 @@ use crate::{
 use anyhow::Result;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 #[derive(Debug, Clone, Copy)]
@@ -148,10 +148,26 @@ pub struct KadServiceStatus {
     pub recv_publish_ress: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum KadServiceCommand {
-    SearchSources { file: KadId, file_size: u64 },
-    PublishSource { file: KadId, file_size: u64 },
+    SearchSources {
+        file: KadId,
+        file_size: u64,
+    },
+    PublishSource {
+        file: KadId,
+        file_size: u64,
+    },
+    GetSources {
+        file: KadId,
+        respond_to: oneshot::Sender<Vec<KadSourceEntry>>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct KadSourceEntry {
+    pub source_id: KadId,
+    pub udp_dest: [u8; I2P_DEST_LEN],
 }
 
 pub struct KadService {
@@ -301,6 +317,22 @@ async fn handle_command(
         }
         KadServiceCommand::PublishSource { file, file_size } => {
             send_publish_source(svc, sock, crypto, file, file_size).await?;
+        }
+        KadServiceCommand::GetSources { file, respond_to } => {
+            let sources = svc
+                .sources_by_file
+                .get(&file)
+                .map(|m| {
+                    m.iter()
+                        .take(1024)
+                        .map(|(sid, dest)| KadSourceEntry {
+                            source_id: *sid,
+                            udp_dest: *dest,
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let _ = respond_to.send(sources);
         }
     }
     Ok(())

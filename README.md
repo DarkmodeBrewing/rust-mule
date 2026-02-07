@@ -58,6 +58,10 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"file_id_hex":"00112233445566778899aabbccddeeff","file_size":0}' \
   http://127.0.0.1:17835/kad/search_sources
+
+# Read sources discovered so far (in-memory).
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:17835/kad/sources/00112233445566778899aabbccddeeff | jq .
 ```
 
 ## Data Files

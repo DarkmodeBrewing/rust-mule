@@ -16,7 +16,7 @@ use crate::{
     config::ApiConfig,
     kad::{
         KadId,
-        service::{KadServiceCommand, KadServiceStatus},
+        service::{KadServiceCommand, KadServiceStatus, KadSourceEntry},
     },
 };
 
@@ -63,6 +63,7 @@ pub async fn serve(
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/events", get(events))
+        .route("/kad/sources/:file_id_hex", get(kad_sources))
         .route("/kad/search_sources", post(kad_search_sources))
         .route("/kad/publish_source", post(kad_publish_source))
         .with_state(state.clone())
@@ -84,6 +85,53 @@ struct KadSourcesReq {
 #[derive(Debug, Serialize)]
 struct QueuedResponse {
     queued: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct KadSourcesResponse {
+    file_id_hex: String,
+    sources: Vec<KadSourceJson>,
+}
+
+#[derive(Debug, Serialize)]
+struct KadSourceJson {
+    source_id_hex: String,
+    udp_dest_b64: String,
+}
+
+async fn kad_sources(
+    State(state): State<ApiState>,
+    axum::extract::Path(file_id_hex): axum::extract::Path<String>,
+) -> Result<Json<KadSourcesResponse>, StatusCode> {
+    let file = KadId::from_hex(&file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<KadSourceEntry>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetSources {
+            file,
+            respond_to: tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let sources = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let sources = sources
+        .into_iter()
+        .map(|s| KadSourceJson {
+            source_id_hex: s.source_id.to_hex_lower(),
+            udp_dest_b64: crate::i2p::b64::encode(&s.udp_dest),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(KadSourcesResponse {
+        file_id_hex: file.to_hex_lower(),
+        sources,
+    }))
 }
 
 async fn kad_search_sources(
