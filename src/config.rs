@@ -121,6 +121,28 @@ fn default_kad_service_evict_age_secs() -> u64 {
     24 * 60 * 60
 }
 
+fn default_kad_service_keyword_require_interest() -> bool {
+    // Only keep keyword results for searches we initiated (prevents unsolicited cache growth).
+    true
+}
+fn default_kad_service_keyword_interest_ttl_secs() -> u64 {
+    // Keep keywords "active" for a day after a search or results read.
+    24 * 60 * 60
+}
+fn default_kad_service_keyword_results_ttl_secs() -> u64 {
+    // Keyword results are ephemeral; drop entries we haven't re-seen after a day.
+    24 * 60 * 60
+}
+fn default_kad_service_keyword_max_keywords() -> usize {
+    64
+}
+fn default_kad_service_keyword_max_total_hits() -> usize {
+    50_000
+}
+fn default_kad_service_keyword_max_hits_per_keyword() -> usize {
+    2_000
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -208,6 +230,14 @@ pub struct KadConfig {
     pub service_status_every_secs: u64,
     pub service_max_failures: u32,
     pub service_evict_age_secs: u64,
+
+    // Keyword search result caching (in-memory)
+    pub service_keyword_require_interest: bool,
+    pub service_keyword_interest_ttl_secs: u64,
+    pub service_keyword_results_ttl_secs: u64,
+    pub service_keyword_max_keywords: usize,
+    pub service_keyword_max_total_hits: usize,
+    pub service_keyword_max_hits_per_keyword: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -277,6 +307,13 @@ impl Default for KadConfig {
             service_status_every_secs: default_kad_service_status_every_secs(),
             service_max_failures: default_kad_service_max_failures(),
             service_evict_age_secs: default_kad_service_evict_age_secs(),
+
+            service_keyword_require_interest: default_kad_service_keyword_require_interest(),
+            service_keyword_interest_ttl_secs: default_kad_service_keyword_interest_ttl_secs(),
+            service_keyword_results_ttl_secs: default_kad_service_keyword_results_ttl_secs(),
+            service_keyword_max_keywords: default_kad_service_keyword_max_keywords(),
+            service_keyword_max_total_hits: default_kad_service_keyword_max_total_hits(),
+            service_keyword_max_hits_per_keyword: default_kad_service_keyword_max_hits_per_keyword(),
         }
     }
 }

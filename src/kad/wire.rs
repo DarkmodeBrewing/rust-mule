@@ -58,6 +58,9 @@ const TAGTYPE_ADDRESS: u8 = 0x27;
 const TAGTYPE_STR1: u8 = 0x11;
 const TAGTYPE_STR16: u8 = 0x20;
 
+// Defensive bound: avoid allocating absurdly large strings from untrusted network packets.
+const MAX_TAG_STRING_LEN: usize = 4096;
+
 #[derive(Debug, Clone)]
 pub struct KadPacket {
     pub protocol: u8,
@@ -794,6 +797,10 @@ impl<'a> Reader<'a> {
                 }
                 TAGTYPE_STRING => {
                     let len = self.read_u16_le()? as usize;
+                    if len > MAX_TAG_STRING_LEN {
+                        self.skip(len)?;
+                        continue;
+                    }
                     let s = self
                         .b
                         .get(self.i..self.i + len)

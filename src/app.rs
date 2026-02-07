@@ -329,6 +329,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             status_every_secs: config.kad.service_status_every_secs,
             max_failures: config.kad.service_max_failures,
             evict_age_secs: config.kad.service_evict_age_secs,
+
+            keyword_require_interest: config.kad.service_keyword_require_interest,
+            keyword_interest_ttl_secs: config.kad.service_keyword_interest_ttl_secs,
+            keyword_results_ttl_secs: config.kad.service_keyword_results_ttl_secs,
+            keyword_max_keywords: config.kad.service_keyword_max_keywords,
+            keyword_max_total_hits: config.kad.service_keyword_max_total_hits,
+            keyword_max_hits_per_keyword: config.kad.service_keyword_max_hits_per_keyword,
         };
 
         let mut seed_once = Some(out_nodes);

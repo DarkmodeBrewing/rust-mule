@@ -17,6 +17,13 @@ preferences_kad_path = "preferencesKad.dat"
 # service_req_min_interval_secs = 5
 # service_hello_batch = 5
 # service_hello_min_interval_secs = 300
+# Keyword search cache limits (in-memory), use with caution
+# service_keyword_require_interest = true
+# service_keyword_interest_ttl_secs = 86400
+# service_keyword_results_ttl_secs = 86400
+# service_keyword_max_keywords = 64
+# service_keyword_max_total_hits = 50000
+# service_keyword_max_hits_per_keyword = 2000
 
 [general]
 log_level = "info"

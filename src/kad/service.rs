@@ -62,6 +62,21 @@ pub struct KadServiceConfig {
     pub status_every_secs: u64,
     pub max_failures: u32,
     pub evict_age_secs: u64,
+
+    // Keyword search result caching (in-memory)
+    /// If true, only accept/retain keyword results for keywords we are "interested in"
+    /// (i.e. we initiated a search for them, or requested their results via API).
+    pub keyword_require_interest: bool,
+    /// How long a keyword stays "active" (tracked) since last interest touch.
+    pub keyword_interest_ttl_secs: u64,
+    /// Drop keyword hits not re-seen for this long.
+    pub keyword_results_ttl_secs: u64,
+    /// Maximum number of active keywords to track.
+    pub keyword_max_keywords: usize,
+    /// Maximum total keyword hits across all keywords.
+    pub keyword_max_total_hits: usize,
+    /// Maximum hits to keep per keyword.
+    pub keyword_max_hits_per_keyword: usize,
 }
 
 impl Default for KadServiceConfig {
@@ -93,6 +108,13 @@ impl Default for KadServiceConfig {
             max_failures: 5,
             // I2P peers can be very intermittent; don't aggressively evict by default.
             evict_age_secs: 24 * 60 * 60,
+
+            keyword_require_interest: true,
+            keyword_interest_ttl_secs: 24 * 60 * 60,
+            keyword_results_ttl_secs: 24 * 60 * 60,
+            keyword_max_keywords: 64,
+            keyword_max_total_hits: 50_000,
+            keyword_max_hits_per_keyword: 2_000,
         }
     }
 }
@@ -119,6 +141,8 @@ struct KadServiceStats {
     sent_search_key_reqs: u64,
     keyword_results: u64,
     new_keyword_results: u64,
+    evicted_keyword_hits: u64,
+    evicted_keyword_keywords: u64,
 
     sent_publish_source_reqs: u64,
     recv_publish_ress: u64,
@@ -152,6 +176,10 @@ pub struct KadServiceStatus {
     pub sent_search_key_reqs: u64,
     pub keyword_results: u64,
     pub new_keyword_results: u64,
+    pub evicted_keyword_hits: u64,
+    pub evicted_keyword_keywords: u64,
+    pub keyword_keywords_tracked: usize,
+    pub keyword_hits_total: usize,
 
     pub sent_publish_source_reqs: u64,
     pub recv_publish_ress: u64,
@@ -199,8 +227,10 @@ pub struct KadService {
     routing: RoutingTable,
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
     sources_by_file: BTreeMap<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>,
-    // Minimal (in-memory) keyword index: keyword hash -> (file ID -> hit info).
-    keyword_hits_by_keyword: BTreeMap<KadId, BTreeMap<KadId, KadKeywordHit>>,
+    // Minimal (in-memory) keyword index: keyword hash -> (file ID -> hit state).
+    keyword_hits_by_keyword: BTreeMap<KadId, BTreeMap<KadId, KeywordHitState>>,
+    keyword_hits_total: usize,
+    keyword_interest: HashMap<KadId, Instant>,
 
     pending_reqs: HashMap<String, Instant>,
     crawl_round: u64,
@@ -209,12 +239,20 @@ pub struct KadService {
     cmd_rx: mpsc::Receiver<KadServiceCommand>,
 }
 
+#[derive(Debug, Clone)]
+struct KeywordHitState {
+    hit: KadKeywordHit,
+    last_seen: Instant,
+}
+
 impl KadService {
     pub fn new(my_id: KadId, cmd_rx: mpsc::Receiver<KadServiceCommand>) -> Self {
         Self {
             routing: RoutingTable::new(my_id),
             sources_by_file: BTreeMap::new(),
             keyword_hits_by_keyword: BTreeMap::new(),
+            keyword_hits_total: 0,
+            keyword_interest: HashMap::new(),
             pending_reqs: HashMap::new(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
@@ -317,13 +355,13 @@ pub async fn run_service(
 
             cmd = svc.cmd_rx.recv() => {
                 if let Some(cmd) = cmd {
-                    handle_command(svc, sock, crypto, cmd).await?;
+                    handle_command(svc, sock, crypto, &cfg, cmd).await?;
                 }
             }
 
             recv = sock.recv() => {
                 let recv = recv?;
-                handle_inbound(svc, sock, recv.from_destination, recv.payload, crypto).await?;
+                handle_inbound(svc, sock, recv.from_destination, recv.payload, crypto, &cfg).await?;
             }
         }
     }
@@ -337,13 +375,16 @@ async fn handle_command(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
     crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
     cmd: KadServiceCommand,
 ) -> Result<()> {
+    let now = Instant::now();
     match cmd {
         KadServiceCommand::SearchSources { file, file_size } => {
             send_search_sources(svc, sock, crypto, file, file_size).await?;
         }
         KadServiceCommand::SearchKeyword { keyword } => {
+            touch_keyword_interest(svc, cfg, keyword, now);
             send_search_keyword(svc, sock, crypto, keyword).await?;
         }
         KadServiceCommand::PublishSource { file, file_size } => {
@@ -369,10 +410,16 @@ async fn handle_command(
             keyword,
             respond_to,
         } => {
+            touch_keyword_interest(svc, cfg, keyword, now);
             let hits = svc
                 .keyword_hits_by_keyword
                 .get(&keyword)
-                .map(|m| m.values().take(1024).cloned().collect::<Vec<_>>())
+                .map(|m| {
+                    m.values()
+                        .take(1024)
+                        .map(|s| s.hit.clone())
+                        .collect::<Vec<_>>()
+                })
                 .unwrap_or_default();
             let _ = respond_to.send(hits);
         }
@@ -816,6 +863,145 @@ async fn send_bootstrap_batch(
     Ok(())
 }
 
+fn touch_keyword_interest(svc: &mut KadService, cfg: &KadServiceConfig, keyword: KadId, now: Instant) {
+    svc.keyword_interest.insert(keyword, now);
+    enforce_keyword_interest_limit(svc, cfg);
+}
+
+fn enforce_keyword_interest_limit(svc: &mut KadService, cfg: &KadServiceConfig) {
+    let max_keywords = cfg.keyword_max_keywords;
+    if max_keywords == 0 {
+        // Treat 0 as "disable caching": drop everything.
+        let removed = drop_all_keywords(svc);
+        if removed.keywords > 0 || removed.hits > 0 {
+            svc.stats_window.evicted_keyword_keywords += removed.keywords as u64;
+            svc.stats_window.evicted_keyword_hits += removed.hits as u64;
+        }
+        return;
+    }
+
+    if svc.keyword_interest.len() <= max_keywords {
+        return;
+    }
+
+    let mut v = svc
+        .keyword_interest
+        .iter()
+        .map(|(k, t)| (*k, *t))
+        .collect::<Vec<_>>();
+    v.sort_by_key(|(_, t)| *t);
+
+    let mut idx = 0usize;
+    while svc.keyword_interest.len() > max_keywords && idx < v.len() {
+        let k = v[idx].0;
+        idx += 1;
+        svc.keyword_interest.remove(&k);
+        let removed_hits = drop_keyword_hits_only(svc, k);
+        svc.stats_window.evicted_keyword_keywords += 1;
+        svc.stats_window.evicted_keyword_hits += removed_hits as u64;
+    }
+}
+
+fn enforce_keyword_size_limits(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
+    enforce_keyword_per_keyword_caps_all(svc, cfg);
+    enforce_keyword_total_cap(svc, cfg, now);
+}
+
+fn enforce_keyword_per_keyword_caps_all(svc: &mut KadService, cfg: &KadServiceConfig) {
+    let per = cfg.keyword_max_hits_per_keyword;
+    if per == 0 {
+        return;
+    }
+    let keys = svc.keyword_hits_by_keyword.keys().copied().collect::<Vec<_>>();
+    for k in keys {
+        prune_keyword_hits_per_keyword(svc, k, per);
+    }
+}
+
+fn enforce_keyword_per_keyword_cap(svc: &mut KadService, cfg: &KadServiceConfig, keyword: KadId) {
+    let per = cfg.keyword_max_hits_per_keyword;
+    if per == 0 {
+        return;
+    }
+    prune_keyword_hits_per_keyword(svc, keyword, per);
+}
+
+fn enforce_keyword_total_cap(svc: &mut KadService, cfg: &KadServiceConfig, _now: Instant) {
+    // Total cap. Evict oldest keywords by interest time first.
+    let max_total = cfg.keyword_max_total_hits;
+    if max_total == 0 || svc.keyword_hits_total <= max_total {
+        return;
+    }
+
+    let mut v = svc
+        .keyword_interest
+        .iter()
+        .map(|(k, t)| (*k, *t))
+        .collect::<Vec<_>>();
+    v.sort_by_key(|(_, t)| *t);
+
+    for (k, _) in v {
+        if svc.keyword_hits_total <= max_total {
+            break;
+        }
+        svc.keyword_interest.remove(&k);
+        let removed_hits = drop_keyword_hits_only(svc, k);
+        svc.stats_window.evicted_keyword_keywords += 1;
+        svc.stats_window.evicted_keyword_hits += removed_hits as u64;
+    }
+}
+
+fn prune_keyword_hits_per_keyword(svc: &mut KadService, keyword: KadId, max: usize) {
+    let Some(m) = svc.keyword_hits_by_keyword.get_mut(&keyword) else {
+        return;
+    };
+    if m.len() <= max {
+        return;
+    }
+
+    let mut entries = m
+        .iter()
+        .map(|(file_id, st)| (*file_id, st.last_seen))
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|(_, t)| *t);
+
+    let to_remove = m.len().saturating_sub(max);
+    for (file_id, _) in entries.into_iter().take(to_remove) {
+        if m.remove(&file_id).is_some() {
+            svc.keyword_hits_total = svc.keyword_hits_total.saturating_sub(1);
+            svc.stats_window.evicted_keyword_hits += 1;
+        }
+    }
+
+    if m.is_empty() {
+        svc.keyword_hits_by_keyword.remove(&keyword);
+    }
+}
+
+fn drop_keyword_hits_only(svc: &mut KadService, keyword: KadId) -> usize {
+    if let Some(m) = svc.keyword_hits_by_keyword.remove(&keyword) {
+        let n = m.len();
+        svc.keyword_hits_total = svc.keyword_hits_total.saturating_sub(n);
+        return n;
+    }
+    0
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct KeywordDropCount {
+    keywords: usize,
+    hits: usize,
+}
+
+fn drop_all_keywords(svc: &mut KadService) -> KeywordDropCount {
+    let keywords = svc.keyword_hits_by_keyword.len();
+    let hits = svc.keyword_hits_total;
+    svc.keyword_hits_by_keyword.clear();
+    svc.keyword_hits_total = 0;
+    svc.keyword_interest.clear();
+    KeywordDropCount { keywords, hits }
+}
+
 async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
     let now = Instant::now();
 
@@ -848,6 +1034,63 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
             "evicted stale peers"
         );
     }
+
+    maintain_keyword_cache(svc, cfg, now);
+}
+
+fn maintain_keyword_cache(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
+    // Expire keyword interest.
+    let interest_ttl = Duration::from_secs(cfg.keyword_interest_ttl_secs.max(60));
+    let mut expired_keywords = Vec::<KadId>::new();
+    for (k, t) in &svc.keyword_interest {
+        if now.saturating_duration_since(*t) >= interest_ttl {
+            expired_keywords.push(*k);
+        }
+    }
+    for k in expired_keywords {
+        svc.keyword_interest.remove(&k);
+        let removed_hits = drop_keyword_hits_only(svc, k);
+        svc.stats_window.evicted_keyword_keywords += 1;
+        svc.stats_window.evicted_keyword_hits += removed_hits as u64;
+    }
+
+    // Expire stale hits (per-hit TTL).
+    let results_ttl = Duration::from_secs(cfg.keyword_results_ttl_secs.max(60));
+    let keys = svc.keyword_hits_by_keyword.keys().copied().collect::<Vec<_>>();
+    for k in keys {
+        // If we're requiring interest and we've dropped interest, drop any remaining hits.
+        if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&k) {
+            let removed_hits = drop_keyword_hits_only(svc, k);
+            svc.stats_window.evicted_keyword_keywords += 1;
+            svc.stats_window.evicted_keyword_hits += removed_hits as u64;
+            continue;
+        }
+
+        let Some(m) = svc.keyword_hits_by_keyword.get_mut(&k) else {
+            continue;
+        };
+        let mut to_remove = Vec::<KadId>::new();
+        for (file_id, st) in m.iter() {
+            if now.saturating_duration_since(st.last_seen) >= results_ttl {
+                to_remove.push(*file_id);
+            }
+        }
+        if !to_remove.is_empty() {
+            for file_id in to_remove {
+                if m.remove(&file_id).is_some() {
+                    svc.keyword_hits_total = svc.keyword_hits_total.saturating_sub(1);
+                    svc.stats_window.evicted_keyword_hits += 1;
+                }
+            }
+        }
+        if m.is_empty() {
+            svc.keyword_hits_by_keyword.remove(&k);
+        }
+    }
+
+    // Finally, enforce size caps.
+    enforce_keyword_interest_limit(svc, cfg);
+    enforce_keyword_size_limits(svc, cfg, now);
 }
 
 fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
@@ -858,6 +1101,8 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         .routing
         .live_count_recent(now, Duration::from_secs(10 * 60));
     let pending = svc.pending_reqs.len();
+    let keyword_keywords_tracked = svc.keyword_hits_by_keyword.len();
+    let keyword_hits_total = svc.keyword_hits_total;
     let w = svc.stats_window;
     svc.stats_window = KadServiceStats::default();
 
@@ -887,6 +1132,10 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         sent_search_key_reqs: w.sent_search_key_reqs,
         keyword_results: w.keyword_results,
         new_keyword_results: w.new_keyword_results,
+        evicted_keyword_hits: w.evicted_keyword_hits,
+        evicted_keyword_keywords: w.evicted_keyword_keywords,
+        keyword_keywords_tracked,
+        keyword_hits_total,
 
         sent_publish_source_reqs: w.sent_publish_source_reqs,
         recv_publish_ress: w.recv_publish_ress,
@@ -924,6 +1173,10 @@ fn publish_status(
         sent_search_key_reqs = st.sent_search_key_reqs,
         keyword_results = st.keyword_results,
         new_keyword_results = st.new_keyword_results,
+        evicted_keyword_hits = st.evicted_keyword_hits,
+        evicted_keyword_keywords = st.evicted_keyword_keywords,
+        keyword_keywords_tracked = st.keyword_keywords_tracked,
+        keyword_hits_total = st.keyword_hits_total,
         sent_publish_source_reqs = st.sent_publish_source_reqs,
         recv_publish_ress = st.recv_publish_ress,
         "kad service status"
@@ -943,6 +1196,7 @@ async fn handle_inbound(
     from_dest_b64: String,
     payload: Vec<u8>,
     crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
 ) -> Result<()> {
     let now = Instant::now();
     let from_dest_raw = crate::i2p::b64::decode(&from_dest_b64).ok();
@@ -1457,6 +1711,9 @@ async fn handle_inbound(
                 if let (Some(filename), Some(file_size)) = (r.tags.filename.clone(), r.tags.file_size)
                 {
                     // Keyword-style result: key = keyword hash, answer = file ID.
+                    if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&res.key) {
+                        continue;
+                    }
                     keyword_entries += 1;
                     let hit = KadKeywordHit {
                         file_id: r.answer,
@@ -1466,10 +1723,29 @@ async fn handle_inbound(
                         publish_info: r.tags.publish_info,
                     };
                     let m = svc.keyword_hits_by_keyword.entry(res.key).or_default();
-                    if m.insert(hit.file_id, hit).is_none() {
-                        inserted_keywords += 1;
+                    match m.get_mut(&hit.file_id) {
+                        Some(state) => {
+                            state.hit = hit;
+                            state.last_seen = now;
+                        }
+                        None => {
+                            m.insert(
+                                hit.file_id,
+                                KeywordHitState {
+                                    hit,
+                                    last_seen: now,
+                                },
+                            );
+                            svc.keyword_hits_total = svc.keyword_hits_total.saturating_add(1);
+                            inserted_keywords += 1;
+                        }
                     }
                 }
+            }
+
+            if keyword_entries > 0 {
+                enforce_keyword_per_keyword_cap(svc, cfg, res.key);
+                enforce_keyword_total_cap(svc, cfg, now);
             }
 
             if inserted_sources > 0 {

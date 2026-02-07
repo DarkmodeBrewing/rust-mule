@@ -32,6 +32,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - `KADEMLIA2_SEARCH_KEY_REQ` encoding and unified `KADEMLIA2_SEARCH_RES` decoding (source + keyword/file results) (`src/kad/wire.rs`, `src/kad/service.rs`).
   - New API endpoints: `POST /kad/search_keyword`, `GET /kad/keyword_results/:keyword_id_hex` (`src/api/mod.rs`).
   - Curl cheat sheet updated (`docs/api_curl.md`).
+- 2026-02-07: Add bounded keyword result caching (prevents memory ballooning):
+  - Hard caps (max keywords, max total hits, max hits/keyword) + TTL pruning.
+  - All knobs are configurable in `config.toml` under `[kad]` (`service_keyword_*`).
+  - Status now reports keyword cache totals + eviction counters.
 
 ## Current State (As Of 2026-02-07)
 
