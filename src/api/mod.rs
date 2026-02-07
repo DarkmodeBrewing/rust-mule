@@ -16,7 +16,8 @@ use crate::{
     config::ApiConfig,
     kad::{
         KadId,
-        service::{KadServiceCommand, KadServiceStatus, KadSourceEntry},
+        keyword,
+        service::{KadKeywordHit, KadServiceCommand, KadServiceStatus, KadSourceEntry},
     },
 };
 
@@ -64,7 +65,9 @@ pub async fn serve(
         .route("/status", get(status))
         .route("/events", get(events))
         .route("/kad/sources/:file_id_hex", get(kad_sources))
+        .route("/kad/keyword_results/:keyword_id_hex", get(kad_keyword_results))
         .route("/kad/search_sources", post(kad_search_sources))
+        .route("/kad/search_keyword", post(kad_search_keyword))
         .route("/kad/publish_source", post(kad_publish_source))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, auth_mw));
@@ -82,6 +85,11 @@ struct KadSourcesReq {
     file_size: Option<u64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct KadSearchKeywordReq {
+    query: String,
+}
+
 #[derive(Debug, Serialize)]
 struct QueuedResponse {
     queued: bool,
@@ -97,6 +105,23 @@ struct KadSourcesResponse {
 struct KadSourceJson {
     source_id_hex: String,
     udp_dest_b64: String,
+}
+
+#[derive(Debug, Serialize)]
+struct KadKeywordResultsResponse {
+    keyword_id_hex: String,
+    hits: Vec<KadKeywordHitJson>,
+}
+
+#[derive(Debug, Serialize)]
+struct KadKeywordHitJson {
+    file_id_hex: String,
+    filename: String,
+    file_size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publish_info: Option<u32>,
 }
 
 async fn kad_sources(
@@ -134,6 +159,44 @@ async fn kad_sources(
     }))
 }
 
+async fn kad_keyword_results(
+    State(state): State<ApiState>,
+    axum::extract::Path(keyword_id_hex): axum::extract::Path<String>,
+) -> Result<Json<KadKeywordResultsResponse>, StatusCode> {
+    let keyword_id = KadId::from_hex(&keyword_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<KadKeywordHit>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetKeywordResults {
+            keyword: keyword_id,
+            respond_to: tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let hits = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let hits = hits
+        .into_iter()
+        .map(|h| KadKeywordHitJson {
+            file_id_hex: h.file_id.to_hex_lower(),
+            filename: h.filename,
+            file_size: h.file_size,
+            file_type: h.file_type,
+            publish_info: h.publish_info,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(KadKeywordResultsResponse {
+        keyword_id_hex: keyword_id.to_hex_lower(),
+        hits,
+    }))
+}
+
 async fn kad_search_sources(
     State(state): State<ApiState>,
     Json(req): Json<KadSourcesReq>,
@@ -146,6 +209,33 @@ async fn kad_search_sources(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Json(QueuedResponse { queued: true }))
+}
+
+#[derive(Debug, Serialize)]
+struct KadSearchKeywordResponse {
+    queued: bool,
+    keyword: String,
+    keyword_id_hex: String,
+}
+
+async fn kad_search_keyword(
+    State(state): State<ApiState>,
+    Json(req): Json<KadSearchKeywordReq>,
+) -> Result<Json<KadSearchKeywordResponse>, StatusCode> {
+    let (word, keyword_id) = keyword::query_to_keyword_id(&req.query)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::SearchKeyword { keyword: keyword_id })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(KadSearchKeywordResponse {
+        queued: true,
+        keyword: word,
+        keyword_id_hex: keyword_id.to_hex_lower(),
+    }))
 }
 
 async fn kad_publish_source(

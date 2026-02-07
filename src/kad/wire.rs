@@ -34,12 +34,15 @@ pub const KADEMLIA_RES_DEPRECATED: u8 = 0x06;
 pub const I2P_DEST_LEN: usize = 387;
 
 // FileTags.h (iMule/aMule). Used in Kad2 HELLO taglists.
+pub const TAG_FILENAME: u8 = 35; // 0x23 <string>
 pub const TAG_KADMISCOPTIONS: u8 = 88; // 0x58
 pub const TAG_FILESIZE: u8 = 36; // 0x24
+pub const TAG_FILETYPE: u8 = 37; // 0x25 <string>
 pub const TAG_SERVERDEST: u8 = 81; // 0x51
 pub const TAG_SOURCEUDEST: u8 = 82; // 0x52
 pub const TAG_SOURCEDEST: u8 = 83; // 0x53
 pub const TAG_SOURCETYPE: u8 = 84; // 0x54
+pub const TAG_PUBLISHINFO: u8 = 85; // 0x55 <uint32> (search results only)
 
 const TAGTYPE_UINT8: u8 = 0x09;
 const TAGTYPE_UINT16: u8 = 0x08;
@@ -341,6 +344,17 @@ pub fn encode_kad2_search_source_req(
     out
 }
 
+pub fn encode_kad2_search_key_req(target: KadId, start_position: u16) -> Vec<u8> {
+    // iMule (Kad2): <keyword u128><startPos u16>
+    //
+    // The MSB of startPos (0x8000) indicates a "restrictive" search with an attached expression
+    // tree. We don't implement expressions yet, so we always clear that bit.
+    let mut out = Vec::with_capacity(16 + 2);
+    out.extend_from_slice(&target.to_crypt_bytes());
+    out.extend_from_slice(&(start_position & 0x7FFF).to_le_bytes());
+    out
+}
+
 pub fn decode_kad2_publish_source_req_min(payload: &[u8]) -> Result<Kad2PublishSourceReq> {
     let mut r = Reader::new(payload);
     let file = r.read_uint128_emule()?;
@@ -462,6 +476,58 @@ fn write_tag_address(out: &mut Vec<u8>, id: u8, addr: &[u8; I2P_DEST_LEN]) {
 }
 
 pub fn decode_kad2_search_res_sources(payload: &[u8]) -> Result<Kad2SearchResSources> {
+    let res = decode_kad2_search_res(payload)?;
+    let mut results = Vec::with_capacity(res.results.len());
+    for r in res.results {
+        results.push(Kad2SearchResSourceResult {
+            source_id: r.answer,
+            udp_dest: r.tags.best_udp_dest(),
+            source_type: r.tags.source_type,
+        });
+    }
+    Ok(Kad2SearchResSources {
+        sender_id: res.sender_id,
+        key: res.key,
+        results,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub struct Kad2SearchRes {
+    pub sender_id: KadId,
+    /// The key which was searched: for sources this is the file ID, for keyword search it is the
+    /// keyword hash (MD4).
+    pub key: KadId,
+    pub results: Vec<Kad2SearchResEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Kad2SearchResEntry {
+    pub answer: KadId,
+    pub tags: TaglistSearchInfo,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct TaglistSearchInfo {
+    pub source_type: Option<u8>,
+    pub source_dest: Option<[u8; I2P_DEST_LEN]>,
+    pub source_udest: Option<[u8; I2P_DEST_LEN]>,
+    pub file_size: Option<u64>,
+    pub filename: Option<String>,
+    pub file_type: Option<String>,
+    pub publish_info: Option<u32>,
+    fallback_udpdest: Option<[u8; I2P_DEST_LEN]>,
+}
+
+impl TaglistSearchInfo {
+    pub fn best_udp_dest(&self) -> Option<[u8; I2P_DEST_LEN]> {
+        self.source_udest
+            .or(self.source_dest)
+            .or(self.fallback_udpdest)
+    }
+}
+
+pub fn decode_kad2_search_res(payload: &[u8]) -> Result<Kad2SearchRes> {
     // iMule `CIndexed::SendResults` (Kad2):
     // <sender u128><key u128><count u16><result>*count
     // result = <answer u128><taglist>
@@ -472,21 +538,12 @@ pub fn decode_kad2_search_res_sources(payload: &[u8]) -> Result<Kad2SearchResSou
 
     let mut results = Vec::with_capacity(count);
     for _ in 0..count {
-        let source_id = r.read_uint128_emule()?;
-        let info = r.read_taglist_source_info()?;
-        let udp_dest = info
-            .source_udest
-            .or(info.source_dest)
-            .or(info.fallback_udpdest);
-
-        results.push(Kad2SearchResSourceResult {
-            source_id,
-            udp_dest,
-            source_type: info.source_type,
-        });
+        let answer = r.read_uint128_emule()?;
+        let tags = r.read_taglist_search_info()?;
+        results.push(Kad2SearchResEntry { answer, tags });
     }
 
-    Ok(Kad2SearchResSources {
+    Ok(Kad2SearchRes {
         sender_id,
         key,
         results,
@@ -674,9 +731,10 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
-    fn read_taglist_source_info(&mut self) -> Result<TaglistSourceInfo> {
+    fn read_taglist_search_info(&mut self) -> Result<TaglistSearchInfo> {
         let count = self.read_u8()? as usize;
-        let mut out = TaglistSourceInfo::default();
+        let mut out = TaglistSearchInfo::default();
+
         for _ in 0..count {
             let type_raw = self.read_u8()?;
             let (tag_type, id) = if (type_raw & 0x80) != 0 {
@@ -690,7 +748,6 @@ impl<'a> Reader<'a> {
                     let id = self.read_u8()?;
                     (type_raw, Some(id))
                 } else {
-                    // We don't interpret string tag names in KAD; skip them.
                     self.skip(name_len)?;
                     (type_raw, None)
                 }
@@ -704,17 +761,27 @@ impl<'a> Reader<'a> {
                     }
                 }
                 TAGTYPE_UINT16 => {
-                    let _ = self.read_u16_le()?;
+                    let v = self.read_u16_le()? as u64;
+                    if id == Some(TAG_FILESIZE) {
+                        out.file_size = Some(v);
+                    }
                 }
                 TAGTYPE_UINT32 => {
-                    let _ = self.read_u32_le()?;
+                    let v = self.read_u32_le()? as u64;
+                    match id {
+                        Some(TAG_FILESIZE) => out.file_size = Some(v),
+                        Some(TAG_PUBLISHINFO) => out.publish_info = Some(v as u32),
+                        _ => {}
+                    }
                 }
                 TAGTYPE_UINT64 => {
                     let lo = self.read_u32_le()? as u64;
                     let hi = self.read_u32_le()? as u64;
                     let v = (hi << 32) | lo;
-                    if id == Some(TAG_FILESIZE) {
-                        out.file_size = Some(v);
+                    match id {
+                        Some(TAG_FILESIZE) => out.file_size = Some(v),
+                        Some(TAG_PUBLISHINFO) => out.publish_info = Some(v as u32),
+                        _ => {}
                     }
                 }
                 TAGTYPE_ADDRESS => {
@@ -725,7 +792,22 @@ impl<'a> Reader<'a> {
                         _ => out.fallback_udpdest = Some(v),
                     }
                 }
+                TAGTYPE_STRING => {
+                    let len = self.read_u16_le()? as usize;
+                    let s = self
+                        .b
+                        .get(self.i..self.i + len)
+                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                    self.i += len;
+                    let s = String::from_utf8_lossy(s).into_owned();
+                    match id {
+                        Some(TAG_FILENAME) => out.filename = Some(s),
+                        Some(TAG_FILETYPE) => out.file_type = Some(s),
+                        _ => {}
+                    }
+                }
                 0x01 => {
+                    // TAGTYPE_HASH16
                     self.skip(16)?;
                 }
                 TAGTYPE_FLOAT32 => {
@@ -735,6 +817,7 @@ impl<'a> Reader<'a> {
                     self.skip(1)?;
                 }
                 TAGTYPE_BOOLARRAY => {
+                    // TAGTYPE_BOOLARRAY: <u16 bitCount><bytes...>
                     let bits = self.read_u16_le()? as usize;
                     self.skip((bits + 7) / 8)?;
                 }
@@ -742,29 +825,29 @@ impl<'a> Reader<'a> {
                     let len = self.read_u32_le()? as usize;
                     self.skip(len)?;
                 }
-                TAGTYPE_STRING => {
-                    let len = self.read_u16_le()? as usize;
+                TAGTYPE_BSOB => {
+                    let len = self.read_u8()? as usize;
                     self.skip(len)?;
                 }
                 t if (TAGTYPE_STR1..=TAGTYPE_STR16).contains(&t) => {
                     let len = (t - TAGTYPE_STR1 + 1) as usize;
-                    self.skip(len)?;
+                    let s = self
+                        .b
+                        .get(self.i..self.i + len)
+                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                    self.i += len;
+                    let s = String::from_utf8_lossy(s).into_owned();
+                    match id {
+                        Some(TAG_FILENAME) => out.filename = Some(s),
+                        Some(TAG_FILETYPE) => out.file_type = Some(s),
+                        _ => {}
+                    }
                 }
                 other => bail!("unknown tag type 0x{other:02x}"),
             }
         }
         Ok(out)
     }
-}
-
-#[derive(Debug, Default, Clone)]
-struct TaglistSourceInfo {
-    source_type: Option<u8>,
-    source_dest: Option<[u8; I2P_DEST_LEN]>,
-    source_udest: Option<[u8; I2P_DEST_LEN]>,
-    file_size: Option<u64>,
-    // If we see an ADDRESS tag we don't understand, keep it so callers can still get *some* dest.
-    fallback_udpdest: Option<[u8; I2P_DEST_LEN]>,
 }
 
 #[cfg(test)]

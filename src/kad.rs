@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, bail};
 
 pub mod bootstrap;
+pub mod keyword;
+pub mod md4;
 pub mod packed;
 pub mod routing;
 pub mod service;

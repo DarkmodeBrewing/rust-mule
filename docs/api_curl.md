@@ -62,3 +62,20 @@ FILE_ID_HEX="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "$BASE_URL/kad/sources/$FILE_ID_HEX" | jq .
 ```
 
+## KAD: Keyword Search (Discover File IDs)
+
+This does a Kad2 keyword search using iMule-compatible keyword hashing (first extracted word).
+
+```bash
+QUERY="ubuntu iso"
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{\"query\":\"$QUERY\"}" \
+  "$BASE_URL/kad/search_keyword" | jq .
+```
+
+## KAD: Read Keyword Hits Learned So Far (In-Memory)
+
+```bash
+KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
+curl -sS "${AUTH[@]}" "$BASE_URL/kad/keyword_results/$KEYWORD_ID_HEX" | jq .
+```

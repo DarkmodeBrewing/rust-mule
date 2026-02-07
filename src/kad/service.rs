@@ -9,14 +9,15 @@ use crate::{
             KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
             KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
             KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
-            KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES,
-            KADEMLIA2_SEARCH_SOURCE_REQ, Kad2PublishRes, Kad2SearchResSources, KadPacket,
-            TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
-            decode_kad2_publish_res, decode_kad2_publish_source_req_min, decode_kad2_req,
-            decode_kad2_res, decode_kad2_search_res_sources, decode_kad2_search_source_req,
-            encode_kad1_res, encode_kad2_hello, encode_kad2_publish_res_for_source,
-            encode_kad2_publish_source_req, encode_kad2_req, encode_kad2_res,
-            encode_kad2_search_res_sources, encode_kad2_search_source_req,
+            KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_KEY_REQ,
+            KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, Kad2PublishRes, Kad2SearchRes,
+            KadPacket, TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res,
+            decode_kad2_hello, decode_kad2_publish_res, decode_kad2_publish_source_req_min,
+            decode_kad2_req, decode_kad2_res, decode_kad2_search_res,
+            decode_kad2_search_source_req, encode_kad1_res, encode_kad2_hello,
+            encode_kad2_publish_res_for_source, encode_kad2_publish_source_req, encode_kad2_req,
+            encode_kad2_res, encode_kad2_search_key_req, encode_kad2_search_res_sources,
+            encode_kad2_search_source_req,
         },
     },
     nodes::imule::ImuleNode,
@@ -115,6 +116,10 @@ struct KadServiceStats {
     search_results: u64,
     new_sources: u64,
 
+    sent_search_key_reqs: u64,
+    keyword_results: u64,
+    new_keyword_results: u64,
+
     sent_publish_source_reqs: u64,
     recv_publish_ress: u64,
 }
@@ -144,6 +149,10 @@ pub struct KadServiceStatus {
     pub search_results: u64,
     pub new_sources: u64,
 
+    pub sent_search_key_reqs: u64,
+    pub keyword_results: u64,
+    pub new_keyword_results: u64,
+
     pub sent_publish_source_reqs: u64,
     pub recv_publish_ress: u64,
 }
@@ -154,6 +163,9 @@ pub enum KadServiceCommand {
         file: KadId,
         file_size: u64,
     },
+    SearchKeyword {
+        keyword: KadId,
+    },
     PublishSource {
         file: KadId,
         file_size: u64,
@@ -161,6 +173,10 @@ pub enum KadServiceCommand {
     GetSources {
         file: KadId,
         respond_to: oneshot::Sender<Vec<KadSourceEntry>>,
+    },
+    GetKeywordResults {
+        keyword: KadId,
+        respond_to: oneshot::Sender<Vec<KadKeywordHit>>,
     },
 }
 
@@ -170,10 +186,21 @@ pub struct KadSourceEntry {
     pub udp_dest: [u8; I2P_DEST_LEN],
 }
 
+#[derive(Debug, Clone)]
+pub struct KadKeywordHit {
+    pub file_id: KadId,
+    pub filename: String,
+    pub file_size: u64,
+    pub file_type: Option<String>,
+    pub publish_info: Option<u32>,
+}
+
 pub struct KadService {
     routing: RoutingTable,
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
     sources_by_file: BTreeMap<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>,
+    // Minimal (in-memory) keyword index: keyword hash -> (file ID -> hit info).
+    keyword_hits_by_keyword: BTreeMap<KadId, BTreeMap<KadId, KadKeywordHit>>,
 
     pending_reqs: HashMap<String, Instant>,
     crawl_round: u64,
@@ -187,6 +214,7 @@ impl KadService {
         Self {
             routing: RoutingTable::new(my_id),
             sources_by_file: BTreeMap::new(),
+            keyword_hits_by_keyword: BTreeMap::new(),
             pending_reqs: HashMap::new(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
@@ -315,6 +343,9 @@ async fn handle_command(
         KadServiceCommand::SearchSources { file, file_size } => {
             send_search_sources(svc, sock, crypto, file, file_size).await?;
         }
+        KadServiceCommand::SearchKeyword { keyword } => {
+            send_search_keyword(svc, sock, crypto, keyword).await?;
+        }
         KadServiceCommand::PublishSource { file, file_size } => {
             send_publish_source(svc, sock, crypto, file, file_size).await?;
         }
@@ -333,6 +364,17 @@ async fn handle_command(
                 })
                 .unwrap_or_default();
             let _ = respond_to.send(sources);
+        }
+        KadServiceCommand::GetKeywordResults {
+            keyword,
+            respond_to,
+        } => {
+            let hits = svc
+                .keyword_hits_by_keyword
+                .get(&keyword)
+                .map(|m| m.values().take(1024).cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            let _ = respond_to.send(hits);
         }
     }
     Ok(())
@@ -372,6 +414,42 @@ async fn send_search_sources(
     }
 
     tracing::info!(file = %file.to_hex_lower(), "sent SEARCH_SOURCE_REQ");
+    Ok(())
+}
+
+async fn send_search_keyword(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    keyword: KadId,
+) -> Result<()> {
+    if svc.routing.is_empty() {
+        return Ok(());
+    }
+
+    // Conservative: ask only a small number of closest peers per request.
+    const PEERS: usize = 2;
+    let peers = svc.routing.closest_to(keyword, PEERS, 0);
+    for p in peers {
+        // iMule uses Kad2 search key only for version >= 3.
+        if p.kad_version < 3 {
+            continue;
+        }
+        let payload = encode_kad2_search_key_req(keyword, 0);
+        if let Err(err) =
+            send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload).await
+        {
+            tracing::debug!(
+                error = %err,
+                to = %p.udp_dest_b64(),
+                "failed sending SEARCH_KEY_REQ"
+            );
+            continue;
+        }
+        svc.stats_window.sent_search_key_reqs += 1;
+    }
+
+    tracing::info!(keyword = %keyword.to_hex_lower(), "sent SEARCH_KEY_REQ");
     Ok(())
 }
 
@@ -806,6 +884,10 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         search_results: w.search_results,
         new_sources: w.new_sources,
 
+        sent_search_key_reqs: w.sent_search_key_reqs,
+        keyword_results: w.keyword_results,
+        new_keyword_results: w.new_keyword_results,
+
         sent_publish_source_reqs: w.sent_publish_source_reqs,
         recv_publish_ress: w.recv_publish_ress,
     }
@@ -839,6 +921,9 @@ fn publish_status(
         recv_search_ress = st.recv_search_ress,
         search_results = st.search_results,
         new_sources = st.new_sources,
+        sent_search_key_reqs = st.sent_search_key_reqs,
+        keyword_results = st.keyword_results,
+        new_keyword_results = st.new_keyword_results,
         sent_publish_source_reqs = st.sent_publish_source_reqs,
         recv_publish_ress = st.recv_publish_ress,
         "kad service status"
@@ -1339,7 +1424,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_SEARCH_RES => {
-            let res: Kad2SearchResSources = match decode_kad2_search_res_sources(&pkt.payload) {
+            let res: Kad2SearchRes = match decode_kad2_search_res(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
                     tracing::debug!(
@@ -1355,37 +1440,56 @@ async fn handle_inbound(
             let results_len = res.results.len();
             svc.stats_window.search_results += results_len as u64;
 
-            let before = svc
-                .sources_by_file
-                .get(&res.key)
-                .map(|m| m.len())
-                .unwrap_or(0);
+            let mut keyword_entries = 0u64;
+            let mut inserted_sources = 0u64;
+            let mut inserted_keywords = 0u64;
 
             for r in res.results {
-                if let Some(dest) = r.udp_dest {
-                    svc.sources_by_file
-                        .entry(res.key)
-                        .or_default()
-                        .insert(r.source_id, dest);
+                if let Some(dest) = r.tags.best_udp_dest() {
+                    // Source-style result: key = file ID, answer = source ID.
+                    let m = svc.sources_by_file.entry(res.key).or_default();
+                    if m.insert(r.answer, dest).is_none() {
+                        inserted_sources += 1;
+                    }
+                    continue;
+                }
+
+                if let (Some(filename), Some(file_size)) = (r.tags.filename.clone(), r.tags.file_size)
+                {
+                    // Keyword-style result: key = keyword hash, answer = file ID.
+                    keyword_entries += 1;
+                    let hit = KadKeywordHit {
+                        file_id: r.answer,
+                        filename,
+                        file_size,
+                        file_type: r.tags.file_type.clone(),
+                        publish_info: r.tags.publish_info,
+                    };
+                    let m = svc.keyword_hits_by_keyword.entry(res.key).or_default();
+                    if m.insert(hit.file_id, hit).is_none() {
+                        inserted_keywords += 1;
+                    }
                 }
             }
 
-            let after = svc
-                .sources_by_file
-                .get(&res.key)
-                .map(|m| m.len())
-                .unwrap_or(0);
-            let inserted = after.saturating_sub(before);
-            if inserted > 0 {
-                svc.stats_window.new_sources += inserted as u64;
+            if inserted_sources > 0 {
+                svc.stats_window.new_sources += inserted_sources;
+            }
+            if keyword_entries > 0 {
+                svc.stats_window.keyword_results += keyword_entries;
+            }
+            if inserted_keywords > 0 {
+                svc.stats_window.new_keyword_results += inserted_keywords;
             }
 
             tracing::debug!(
                 from = %crate::i2p::b64::short(&from_dest_b64),
                 key = %res.key.to_hex_lower(),
                 results = results_len,
-                inserted,
-                "got SEARCH_RES (sources)"
+                inserted_sources,
+                keyword_entries,
+                inserted_keywords,
+                "got SEARCH_RES"
             );
         }
 

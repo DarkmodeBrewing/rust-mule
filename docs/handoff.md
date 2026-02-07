@@ -1,6 +1,6 @@
 # Handoff / Continuation Notes
 
-This file exists because chat sessions are not durable project memory. In the next session, start here, then check `git log` on `feature/sam-protocol`.
+This file exists because chat sessions are not durable project memory. In the next session, start here, then check `git log` on `main` and the active feature branch(es).
 
 ## Goal
 
@@ -27,10 +27,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-07: Introduce typed SAM errors (`SamError`) for the SAM protocol layer + control client + datagram transports; higher layers use `anyhow` but reconnect logic now searches the error chain for `SamError` instead of string-matching messages.
 - 2026-02-07: Add a minimal local HTTP API skeleton (REST + SSE) for a future GUI (`src/api/`), with a bearer token stored in `data/api.token`. See `docs/architecture.md`.
 - 2026-02-07: Start client-side search/publish groundwork: add Kad2 `SEARCH_SOURCE_REQ` + `PUBLISH_SOURCE_REQ` encoding/decoding, handle inbound `SEARCH_RES`/`PUBLISH_RES` in the service loop, and expose minimal API endpoints to enqueue those actions.
+- 2026-02-07: Add iMule-compatible keyword hashing + Kad2 keyword search:
+  - iMule-style keyword hashing (MD4) used for Kad2 keyword lookups (`src/kad/keyword.rs`, `src/kad/md4.rs`).
+  - `KADEMLIA2_SEARCH_KEY_REQ` encoding and unified `KADEMLIA2_SEARCH_RES` decoding (source + keyword/file results) (`src/kad/wire.rs`, `src/kad/service.rs`).
+  - New API endpoints: `POST /kad/search_keyword`, `GET /kad/keyword_results/:keyword_id_hex` (`src/api/mod.rs`).
+  - Curl cheat sheet updated (`docs/api_curl.md`).
 
-## Current State (As Of 2026-02-06)
+## Current State (As Of 2026-02-07)
 
-- Active branch: `feature/sam-protocol`
+- Active branch (latest work): `feature/kad-search-publish`
 - Implemented:
   - SAM v3 TCP control client with logging and redacted sensitive fields (`src/i2p/sam/`).
   - SAM `STYLE=DATAGRAM` session over TCP (iMule-style `DATAGRAM SEND` / `DATAGRAM RECEIVED`) (`src/i2p/sam/datagram_tcp.rs`).
