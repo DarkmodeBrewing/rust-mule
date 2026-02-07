@@ -1,6 +1,6 @@
+use crate::i2p::sam::SamError;
 use crate::i2p::sam::datagram::build_session_create_datagram_forward;
 use crate::i2p::sam::protocol::{SamCommand, SamReply};
-use anyhow::{Context, Result, anyhow, bail};
 use std::net::IpAddr;
 use std::{
     pin::Pin,
@@ -11,6 +11,8 @@ use tokio::{
     net::TcpStream,
     time::{Duration, timeout},
 };
+
+type Result<T> = std::result::Result<T, SamError>;
 
 /// A SAM v3 control-channel client (line-based request/reply protocol).
 pub struct SamClient {
@@ -52,9 +54,11 @@ impl SamClient {
 
         for opt in options {
             let opt = opt.as_ref();
-            let (k, v) = opt
-                .split_once('=')
-                .ok_or_else(|| anyhow!("SAM session option must be key=value (got '{opt}')"))?;
+            let (k, v) = opt.split_once('=').ok_or_else(|| {
+                SamError::protocol(format!(
+                    "SAM session option must be key=value (got '{opt}')"
+                ))
+            })?;
             cmd = cmd.arg(k, v);
         }
 
@@ -92,7 +96,7 @@ impl SamClient {
         Ok(reply)
     }
 
-    pub async fn naming_lookup(&mut self, name: &str) -> anyhow::Result<String> {
+    pub async fn naming_lookup(&mut self, name: &str) -> Result<String> {
         let cmd = SamCommand::new("NAMING LOOKUP").arg("NAME", name);
         let reply = self.send_cmd(cmd, "NAMING").await?;
         reply.require_ok()?;
@@ -101,7 +105,10 @@ impl SamClient {
             .kv
             .get("VALUE")
             .cloned()
-            .ok_or_else(|| anyhow::anyhow!("NAMING LOOKUP missing VALUE: {}", reply.raw))?;
+            .ok_or_else(|| SamError::BadFrame {
+                what: "NAMING LOOKUP missing VALUE",
+                raw: reply.raw_redacted(),
+            })?;
 
         Ok(value)
     }
@@ -109,7 +116,7 @@ impl SamClient {
     pub async fn connect(host: &str, port: u16) -> Result<Self> {
         let stream: TcpStream = TcpStream::connect((host, port))
             .await
-            .with_context(|| format!("SAM connect failed: {host}:{port}"))?;
+            .map_err(|e| SamError::io(format!("connect {host}:{port}"), e))?;
 
         let (read_half, write_half) = stream.into_split();
 
@@ -207,13 +214,19 @@ impl SamClient {
             .kv
             .get("PRIV")
             .cloned()
-            .ok_or_else(|| anyhow!("DEST GENERATE missing PRIV (raw={})", reply.raw))?;
+            .ok_or_else(|| SamError::BadFrame {
+                what: "DEST GENERATE missing PRIV",
+                raw: reply.raw_redacted(),
+            })?;
 
         let pub_key: String = reply
             .kv
             .get("PUB")
             .cloned()
-            .ok_or_else(|| anyhow!("DEST GENERATE missing PUB (raw={})", reply.raw))?;
+            .ok_or_else(|| SamError::BadFrame {
+                what: "DEST GENERATE missing PUB",
+                raw: reply.raw_redacted(),
+            })?;
 
         Ok((priv_key, pub_key))
     }
@@ -223,57 +236,83 @@ impl SamClient {
     async fn send_cmd(&mut self, cmd: SamCommand, expected_verb: &str) -> Result<SamReply> {
         // SAM requires HELLO as the first command on each TCP connection.
         if !self.hello_done && expected_verb != "HELLO" {
-            bail!("SAM protocol error: HELLO must be the first command on a new connection");
+            return Err(SamError::protocol(
+                "HELLO must be the first command on a new connection",
+            ));
         }
 
         let line = cmd.to_line();
         let line_dbg = cmd.to_line_redacted();
         tracing::debug!(expected_verb, cmd = %line_dbg, "SAM ->");
-        self.send_line_crlf(&line).await?;
+        self.send_line_crlf(&line, &line_dbg).await?;
         let reply_line: String = self.read_line_timeout_for(&line_dbg).await?;
-        let reply: SamReply = SamReply::parse(&reply_line)
-            .with_context(|| format!("Bad SAM reply to: {line_dbg} (raw={})", reply_line.trim()))?;
+        let reply: SamReply = SamReply::parse(&reply_line)?;
         tracing::debug!(raw = %reply.raw_redacted(), "SAM <-");
 
         if reply.verb != expected_verb {
-            bail!(
-                "Unexpected SAM reply verb. expected={} got={} raw={}",
-                expected_verb,
-                reply.verb,
-                reply.raw
-            );
+            return Err(SamError::BadFrame {
+                what: "unexpected reply verb",
+                raw: reply.raw_redacted(),
+            });
         }
 
         Ok(reply)
     }
 
-    async fn send_line_crlf(&mut self, line: &str) -> Result<()> {
+    async fn send_line_crlf(&mut self, line: &str, line_dbg: &str) -> Result<()> {
         let payload: String = format!("{line}\r\n");
 
-        timeout(self.io_timeout, async {
-            self.writer.write_all(payload.as_bytes()).await?;
-            self.writer.flush().await?;
-            Result::<()>::Ok(())
+        match timeout(self.io_timeout, async {
+            self.writer
+                .write_all(payload.as_bytes())
+                .await
+                .map_err(|e| SamError::io(format!("write line: {line_dbg}"), e))?;
+            self.writer
+                .flush()
+                .await
+                .map_err(|e| SamError::io(format!("flush line: {line_dbg}"), e))?;
+            Ok::<(), SamError>(())
         })
         .await
-        .context("SAM write timed out")?
-        .with_context(|| format!("Failed to write SAM line: {line}"))?;
+        {
+            Ok(r) => r?,
+            Err(_) => {
+                return Err(SamError::timeout(
+                    format!("write line: {line_dbg}"),
+                    self.io_timeout,
+                ));
+            }
+        }
 
         Ok(())
     }
 
     async fn read_line_timeout_for(&mut self, waiting_for: &str) -> Result<String> {
-        timeout(self.io_timeout, async {
+        match timeout(self.io_timeout, async {
             let mut buf = String::new();
-            let n = self.reader.read_line(&mut buf).await?;
+            let n = match self.reader.read_line(&mut buf).await {
+                Ok(n) => n,
+                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+                    return Err(SamError::FramingDesync {
+                        what: "control reply invalid UTF-8",
+                        details: format!("waiting_for={waiting_for} err={e}"),
+                    });
+                }
+                Err(e) => return Err(SamError::io("read SAM line", e)),
+            };
             if n == 0 {
-                bail!("SAM closed the connection");
+                return Err(SamError::Closed);
             }
-            Ok::<String, anyhow::Error>(buf.trim_end_matches(['\r', '\n']).to_string())
+            Ok::<String, SamError>(buf.trim_end_matches(['\r', '\n']).to_string())
         })
         .await
-        .with_context(|| format!("SAM read timed out waiting for reply to: {waiting_for}"))?
-        .context("SAM read failed")
+        {
+            Ok(r) => r,
+            Err(_) => Err(SamError::timeout(
+                format!("read reply waiting_for={waiting_for}"),
+                self.io_timeout,
+            )),
+        }
     }
 }
 
@@ -299,13 +338,12 @@ impl SamStream {
 
         send_line_crlf(&mut writer, &cmd).await?;
         let line = read_line(&mut reader).await?;
-        let reply =
-            SamReply::parse(&line).with_context(|| format!("Bad SAM reply: {}", line.trim()))?;
+        let reply = SamReply::parse(&line)?;
         if reply.verb != "STREAM" {
-            bail!(
-                "Unexpected SAM reply verb for STREAM CONNECT: {}",
-                reply.raw
-            );
+            return Err(SamError::BadFrame {
+                what: "unexpected reply verb for STREAM CONNECT",
+                raw: reply.raw_redacted(),
+            });
         }
         reply.require_ok()?;
 
@@ -329,10 +367,12 @@ impl SamStream {
 
         send_line_crlf(&mut writer, &cmd).await?;
         let line = read_line(&mut reader).await?;
-        let reply =
-            SamReply::parse(&line).with_context(|| format!("Bad SAM reply: {}", line.trim()))?;
+        let reply = SamReply::parse(&line)?;
         if reply.verb != "STREAM" {
-            bail!("Unexpected SAM reply verb for STREAM ACCEPT: {}", reply.raw);
+            return Err(SamError::BadFrame {
+                what: "unexpected reply verb for STREAM ACCEPT",
+                raw: reply.raw_redacted(),
+            });
         }
         reply.require_ok()?;
 
@@ -381,7 +421,7 @@ async fn connect_split(
 )> {
     let s: TcpStream = TcpStream::connect((host, port))
         .await
-        .with_context(|| format!("SAM connect failed: {host}:{port}"))?;
+        .map_err(|e| SamError::io(format!("connect {host}:{port}"), e))?;
     let (read_half, write_half) = s.into_split();
     Ok((BufReader::new(read_half), write_half))
 }
@@ -397,10 +437,12 @@ async fn hello_on_socket(
         .to_line();
     send_line_crlf(writer, &cmd).await?;
     let line = read_line(reader).await?;
-    let reply =
-        SamReply::parse(&line).with_context(|| format!("Bad SAM reply: {}", line.trim()))?;
+    let reply = SamReply::parse(&line)?;
     if reply.verb != "HELLO" {
-        bail!("Unexpected SAM reply verb for HELLO: {}", reply.raw);
+        return Err(SamError::BadFrame {
+            what: "unexpected reply verb for HELLO",
+            raw: reply.raw_redacted(),
+        });
     }
     reply.require_ok()
 }
@@ -410,19 +452,28 @@ async fn send_line_crlf(writer: &mut tokio::net::tcp::OwnedWriteHalf, line: &str
     writer
         .write_all(payload.as_bytes())
         .await
-        .with_context(|| format!("Failed to write SAM line: {line}"))?;
-    writer.flush().await.context("Failed to flush SAM line")?;
+        .map_err(|e| SamError::io("write SAM line", e))?;
+    writer
+        .flush()
+        .await
+        .map_err(|e| SamError::io("flush SAM line", e))?;
     Ok(())
 }
 
 async fn read_line(reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>) -> Result<String> {
     let mut buf = String::new();
-    let n = reader
-        .read_line(&mut buf)
-        .await
-        .context("Failed to read SAM line")?;
+    let n = match reader.read_line(&mut buf).await {
+        Ok(n) => n,
+        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
+            return Err(SamError::FramingDesync {
+                what: "invalid UTF-8 line",
+                details: e.to_string(),
+            });
+        }
+        Err(e) => return Err(SamError::io("read SAM line", e)),
+    };
     if n == 0 {
-        bail!("SAM closed the connection");
+        return Err(SamError::Closed);
     }
     Ok(buf.trim_end_matches(['\r', '\n']).to_string())
 }

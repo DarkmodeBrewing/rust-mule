@@ -21,18 +21,21 @@ impl SamKadSocket {
 
     pub async fn send_to(&mut self, destination: &str, payload: &[u8]) -> Result<()> {
         match self {
-            Self::UdpForward(sock) => {
-                sock.send_to(destination, payload, SamDatagramSendOpts::default())
-                    .await
-            }
-            Self::Tcp(sock) => sock.send_to(destination, payload).await,
+            Self::UdpForward(sock) => sock
+                .send_to(destination, payload, SamDatagramSendOpts::default())
+                .await
+                .map_err(anyhow::Error::new),
+            Self::Tcp(sock) => sock
+                .send_to(destination, payload)
+                .await
+                .map_err(anyhow::Error::new),
         }
     }
 
     pub async fn recv(&mut self) -> Result<SamDatagramRecv> {
         match self {
-            Self::UdpForward(sock) => sock.recv().await,
-            Self::Tcp(sock) => sock.recv().await,
+            Self::UdpForward(sock) => sock.recv().await.map_err(anyhow::Error::new),
+            Self::Tcp(sock) => sock.recv().await.map_err(anyhow::Error::new),
         }
     }
 }

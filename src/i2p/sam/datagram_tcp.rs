@@ -1,6 +1,5 @@
-use crate::i2p::sam::SamDatagramRecv;
 use crate::i2p::sam::protocol::{SamCommand, SamReply};
-use anyhow::{Context, Result, anyhow, bail};
+use crate::i2p::sam::{SamDatagramRecv, SamError};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::time::{Duration, timeout};
@@ -21,10 +20,10 @@ const MAX_DGRAM_TCP_SIZE: usize = 64 * 1024;
 const MAX_SAM_LINE_LEN: usize = 8 * 1024;
 
 impl SamDatagramTcp {
-    pub async fn connect(host: &str, port: u16) -> Result<Self> {
+    pub async fn connect(host: &str, port: u16) -> Result<Self, SamError> {
         let stream: TcpStream = TcpStream::connect((host, port))
             .await
-            .with_context(|| format!("SAM connect failed: {host}:{port}"))?;
+            .map_err(|e| SamError::io(format!("connect {host}:{port}"), e))?;
         let (read_half, write_half) = stream.into_split();
         Ok(Self {
             reader: BufReader::new(read_half),
@@ -44,7 +43,7 @@ impl SamDatagramTcp {
         &self.session_id
     }
 
-    pub async fn hello(&mut self, min: &str, max: &str) -> Result<SamReply> {
+    pub async fn hello(&mut self, min: &str, max: &str) -> Result<SamReply, SamError> {
         let cmd = SamCommand::new("HELLO VERSION")
             .arg("MIN", min)
             .arg("MAX", max);
@@ -54,7 +53,7 @@ impl SamDatagramTcp {
         Ok(reply)
     }
 
-    pub async fn session_destroy(&mut self, name: &str) -> Result<SamReply> {
+    pub async fn session_destroy(&mut self, name: &str) -> Result<SamReply, SamError> {
         let reply = self
             .send_cmd(
                 SamCommand::new("SESSION DESTROY").arg("ID", name),
@@ -70,7 +69,7 @@ impl SamDatagramTcp {
         session_id: &str,
         destination_privkey: &str,
         options: impl IntoIterator<Item = impl AsRef<str>>,
-    ) -> Result<SamReply> {
+    ) -> Result<SamReply, SamError> {
         let mut cmd = SamCommand::new("SESSION CREATE")
             .arg("STYLE", "DATAGRAM")
             .arg("ID", session_id)
@@ -78,9 +77,11 @@ impl SamDatagramTcp {
 
         for opt in options {
             let opt = opt.as_ref();
-            let (k, v) = opt
-                .split_once('=')
-                .ok_or_else(|| anyhow!("SAM session option must be key=value (got '{opt}')"))?;
+            let (k, v) = opt.split_once('=').ok_or_else(|| {
+                SamError::protocol(format!(
+                    "SAM session option must be key=value (got '{opt}')"
+                ))
+            })?;
             cmd = cmd.arg(k, v);
         }
 
@@ -91,12 +92,16 @@ impl SamDatagramTcp {
     }
 
     /// Send a datagram to a remote destination over the SAM TCP connection.
-    pub async fn send_to(&mut self, destination: &str, payload: &[u8]) -> Result<()> {
+    pub async fn send_to(&mut self, destination: &str, payload: &[u8]) -> Result<(), SamError> {
         if !self.hello_done {
-            bail!("SAM protocol error: HELLO must be the first command on a new connection");
+            return Err(SamError::protocol(
+                "HELLO must be the first command on a new connection",
+            ));
         }
         if self.session_id.is_empty() {
-            bail!("SAM protocol error: must create a DATAGRAM session before sending");
+            return Err(SamError::protocol(
+                "must create a DATAGRAM session before sending",
+            ));
         }
 
         let header = format!(
@@ -105,21 +110,32 @@ impl SamDatagramTcp {
             payload.len()
         );
 
-        timeout(self.io_timeout, async {
-            self.writer.write_all(header.as_bytes()).await?;
-            self.writer.write_all(payload).await?;
-            self.writer.flush().await?;
-            Result::<()>::Ok(())
+        match timeout(self.io_timeout, async {
+            self.writer
+                .write_all(header.as_bytes())
+                .await
+                .map_err(|e| SamError::io("write DATAGRAM SEND header", e))?;
+            self.writer
+                .write_all(payload)
+                .await
+                .map_err(|e| SamError::io("write DATAGRAM SEND payload", e))?;
+            self.writer
+                .flush()
+                .await
+                .map_err(|e| SamError::io("flush DATAGRAM SEND", e))?;
+            Ok::<(), SamError>(())
         })
         .await
-        .context("SAM write timed out")?
-        .context("Failed to write DATAGRAM SEND")?;
+        {
+            Ok(r) => r?,
+            Err(_) => return Err(SamError::timeout("write DATAGRAM SEND", self.io_timeout)),
+        }
 
         Ok(())
     }
 
     /// Receive an incoming datagram from the SAM TCP connection.
-    pub async fn recv(&mut self) -> Result<SamDatagramRecv> {
+    pub async fn recv(&mut self) -> Result<SamDatagramRecv, SamError> {
         loop {
             // Intentionally do not apply `io_timeout` here.
             //
@@ -132,11 +148,14 @@ impl SamDatagramTcp {
                     // On a correctly-framed SAM TCP-DATAGRAM connection, every header line is
                     // valid UTF-8. If we see binary junk, we're out of sync (e.g. we failed to
                     // consume a payload). The only safe recovery is to reconnect.
-                    bail!(
-                        "SAM framing out of sync (invalid UTF-8 line): len={} head_hex={}",
-                        line_bytes.len(),
-                        hex_head(&line_bytes, 24)
-                    );
+                    return Err(SamError::FramingDesync {
+                        what: "invalid UTF-8 line",
+                        details: format!(
+                            "len={} head_hex={}",
+                            line_bytes.len(),
+                            hex_head(&line_bytes, 24)
+                        ),
+                    });
                 }
             };
 
@@ -153,17 +172,17 @@ impl SamDatagramTcp {
 
             if reply.verb == "DATAGRAM" && reply.kind == "RECEIVED" {
                 let Some(from_destination) = reply.kv.get("DESTINATION").cloned() else {
-                    bail!(
-                        "SAM framing out of sync (DATAGRAM RECEIVED missing DESTINATION): raw={}",
-                        reply.raw_redacted()
-                    );
+                    return Err(SamError::FramingDesync {
+                        what: "DATAGRAM RECEIVED missing DESTINATION",
+                        details: reply.raw_redacted(),
+                    });
                 };
 
                 let Some(size_raw) = reply.kv.get("SIZE") else {
-                    bail!(
-                        "SAM framing out of sync (DATAGRAM RECEIVED missing SIZE): raw={}",
-                        reply.raw_redacted()
-                    );
+                    return Err(SamError::FramingDesync {
+                        what: "DATAGRAM RECEIVED missing SIZE",
+                        details: reply.raw_redacted(),
+                    });
                 };
 
                 let size: usize = match size_raw.parse() {
@@ -190,7 +209,7 @@ impl SamDatagramTcp {
                         self.reader
                             .read_exact(&mut buf[..n])
                             .await
-                            .context("Failed discarding oversized DATAGRAM payload")?;
+                            .map_err(|e| SamError::io("discard oversized DATAGRAM payload", e))?;
                         remaining -= n;
                     }
                     continue;
@@ -200,7 +219,7 @@ impl SamDatagramTcp {
                 self.reader
                     .read_exact(&mut payload)
                     .await
-                    .context("Failed reading DATAGRAM payload")?;
+                    .map_err(|e| SamError::io("read DATAGRAM payload", e))?;
 
                 return Ok(SamDatagramRecv {
                     from_destination,
@@ -219,10 +238,16 @@ impl SamDatagramTcp {
         }
     }
 
-    async fn send_cmd(&mut self, cmd: SamCommand, expected_verb: &str) -> Result<SamReply> {
+    async fn send_cmd(
+        &mut self,
+        cmd: SamCommand,
+        expected_verb: &str,
+    ) -> Result<SamReply, SamError> {
         // SAM requires HELLO as the first command on each TCP connection.
         if !self.hello_done && expected_verb != "HELLO" {
-            bail!("SAM protocol error: HELLO must be the first command on a new connection");
+            return Err(SamError::protocol(
+                "HELLO must be the first command on a new connection",
+            ));
         }
 
         let line = cmd.to_line();
@@ -237,17 +262,19 @@ impl SamDatagramTcp {
         loop {
             let reply_line_bytes = self.read_line_timeout_bytes().await?;
             let Some(reply_line) = bytes_to_utf8_line(&reply_line_bytes) else {
-                tracing::warn!(
-                    expected = expected_verb,
-                    len = reply_line_bytes.len(),
-                    head_hex = %hex_head(&reply_line_bytes, 24),
-                    "SAM control reply contained invalid UTF-8; skipping"
-                );
-                continue;
+                return Err(SamError::FramingDesync {
+                    what: "control reply invalid UTF-8",
+                    details: format!(
+                        "expected={expected_verb} len={} head_hex={}",
+                        reply_line_bytes.len(),
+                        hex_head(&reply_line_bytes, 24)
+                    ),
+                });
             };
 
-            let reply: SamReply = SamReply::parse(&reply_line).with_context(|| {
-                format!("Bad SAM reply to: {line_dbg} (raw={})", reply_line.trim())
+            let reply: SamReply = SamReply::parse(&reply_line).map_err(|e| SamError::BadFrame {
+                what: "control reply parse failed",
+                raw: format!("to={line_dbg} err={e}"),
             })?;
             tracing::debug!(raw = %reply.raw_redacted(), "SAM(TCP-DGRAM) <-");
 
@@ -264,48 +291,68 @@ impl SamDatagramTcp {
         }
     }
 
-    async fn send_line_lf(&mut self, line: &str) -> Result<()> {
+    async fn send_line_lf(&mut self, line: &str) -> Result<(), SamError> {
         let payload = format!("{line}\n");
-        timeout(self.io_timeout, async {
-            self.writer.write_all(payload.as_bytes()).await?;
-            self.writer.flush().await?;
-            Result::<()>::Ok(())
+        match timeout(self.io_timeout, async {
+            self.writer
+                .write_all(payload.as_bytes())
+                .await
+                .map_err(|e| SamError::io("write SAM line", e))?;
+            self.writer
+                .flush()
+                .await
+                .map_err(|e| SamError::io("flush SAM line", e))?;
+            Ok::<(), SamError>(())
         })
         .await
-        .context("SAM write timed out")?
-        .with_context(|| format!("Failed to write SAM line: {line}"))?;
+        {
+            Ok(r) => r?,
+            Err(_) => return Err(SamError::timeout("write SAM line", self.io_timeout)),
+        }
         Ok(())
     }
 
-    async fn read_line_timeout_bytes(&mut self) -> Result<Vec<u8>> {
-        timeout(self.io_timeout, async {
+    async fn read_line_timeout_bytes(&mut self) -> Result<Vec<u8>, SamError> {
+        match timeout(self.io_timeout, async {
             let mut buf = Vec::new();
-            let n = self.reader.read_until(b'\n', &mut buf).await?;
+            let n = self
+                .reader
+                .read_until(b'\n', &mut buf)
+                .await
+                .map_err(|e| SamError::io("read SAM line", e))?;
             if n == 0 {
-                bail!("SAM closed the connection");
+                return Err(SamError::Closed);
             }
             if buf.len() > MAX_SAM_LINE_LEN {
-                bail!("SAM line too long: {} bytes", buf.len());
+                return Err(SamError::FramingDesync {
+                    what: "SAM line too long",
+                    details: format!("{} bytes", buf.len()),
+                });
             }
-            Ok::<Vec<u8>, anyhow::Error>(trim_crlf_bytes(buf))
+            Ok::<Vec<u8>, SamError>(trim_crlf_bytes(buf))
         })
         .await
-        .context("SAM read timed out")?
-        .context("SAM read failed")
+        {
+            Ok(r) => r,
+            Err(_) => Err(SamError::timeout("read SAM line", self.io_timeout)),
+        }
     }
 
-    async fn read_line_blocking_bytes(&mut self) -> Result<Vec<u8>> {
+    async fn read_line_blocking_bytes(&mut self) -> Result<Vec<u8>, SamError> {
         let mut buf = Vec::new();
         let n = self
             .reader
             .read_until(b'\n', &mut buf)
             .await
-            .context("Failed to read SAM line")?;
+            .map_err(|e| SamError::io("read SAM line", e))?;
         if n == 0 {
-            bail!("SAM closed the connection");
+            return Err(SamError::Closed);
         }
         if buf.len() > MAX_SAM_LINE_LEN {
-            bail!("SAM line too long: {} bytes", buf.len());
+            return Err(SamError::FramingDesync {
+                what: "SAM line too long",
+                details: format!("{} bytes", buf.len()),
+            });
         }
         Ok(trim_crlf_bytes(buf))
     }

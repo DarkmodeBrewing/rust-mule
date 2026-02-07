@@ -1,7 +1,9 @@
+use crate::i2p::sam::SamError;
 use crate::i2p::sam::protocol::SamCommand;
-use anyhow::{Context, Result, bail};
 use std::net::{IpAddr, SocketAddr};
 use tokio::net::UdpSocket;
+
+type Result<T> = std::result::Result<T, SamError>;
 
 /// A SAM repliable datagram session (STYLE=DATAGRAM) with UDP forwarding enabled.
 ///
@@ -43,7 +45,7 @@ impl SamDatagramSocket {
     ) -> Result<Self> {
         let udp = UdpSocket::bind(SocketAddr::new(bind_ip, bind_port))
             .await
-            .context("Failed to bind UDP socket for SAM forwarding")?;
+            .map_err(|e| SamError::io("bind UDP socket for SAM forwarding", e))?;
 
         let sam_udp = SocketAddr::new(sam_host, sam_udp_port);
 
@@ -114,7 +116,7 @@ impl SamDatagramSocket {
         self.udp
             .send_to(&buf, self.sam_udp)
             .await
-            .context("Failed to send UDP datagram to SAM")?;
+            .map_err(|e| SamError::io("send UDP datagram to SAM", e))?;
         Ok(())
     }
 
@@ -128,7 +130,7 @@ impl SamDatagramSocket {
             .udp
             .recv_from(&mut buf)
             .await
-            .context("Failed to receive UDP datagram from SAM")?;
+            .map_err(|e| SamError::io("receive UDP datagram from SAM", e))?;
         buf.truncate(n);
         parse_forwarded_repliable(&buf)
     }
@@ -151,9 +153,11 @@ pub fn build_session_create_datagram_forward(
 
     for opt in opts {
         let opt = opt.as_ref();
-        let (k, v) = opt
-            .split_once('=')
-            .ok_or_else(|| anyhow::anyhow!("SAM session option must be key=value (got '{opt}')"))?;
+        let (k, v) = opt.split_once('=').ok_or_else(|| {
+            SamError::protocol(format!(
+                "SAM session option must be key=value (got '{opt}')"
+            ))
+        })?;
         cmd = cmd.arg(k, v);
     }
 
@@ -164,32 +168,49 @@ fn parse_forwarded_repliable(buf: &[u8]) -> Result<SamDatagramRecv> {
     let newline = buf
         .iter()
         .position(|b| *b == b'\n')
-        .ok_or_else(|| anyhow::anyhow!("Forwarded datagram missing '\\n' header delimiter"))?;
+        .ok_or_else(|| SamError::BadFrame {
+            what: "forwarded datagram missing '\\n' header delimiter",
+            raw: format!("len={}", buf.len()),
+        })?;
 
-    let header =
-        std::str::from_utf8(&buf[..newline]).context("Forwarded datagram header not UTF-8")?;
+    let header = std::str::from_utf8(&buf[..newline]).map_err(|e| SamError::BadFrame {
+        what: "forwarded datagram header not UTF-8",
+        raw: e.to_string(),
+    })?;
     let payload = buf[(newline + 1)..].to_vec();
 
     let mut parts = header.split_whitespace();
     let from_destination = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("Forwarded datagram missing destination header"))?
+        .ok_or_else(|| SamError::BadFrame {
+            what: "forwarded datagram missing destination header",
+            raw: header.to_string(),
+        })?
         .to_string();
 
     let mut from_port = None;
     let mut to_port = None;
     for p in parts {
         if let Some(v) = p.strip_prefix("FROM_PORT=") {
-            from_port = Some(v.parse::<u16>().context("Bad FROM_PORT value")?);
+            from_port = Some(v.parse::<u16>().map_err(|e| SamError::BadFrame {
+                what: "bad FROM_PORT value",
+                raw: e.to_string(),
+            })?);
         } else if let Some(v) = p.strip_prefix("TO_PORT=") {
-            to_port = Some(v.parse::<u16>().context("Bad TO_PORT value")?);
+            to_port = Some(v.parse::<u16>().map_err(|e| SamError::BadFrame {
+                what: "bad TO_PORT value",
+                raw: e.to_string(),
+            })?);
         } else {
             // Be permissive; we may add support for Datagram3 headers later.
         }
     }
 
     if from_destination.is_empty() {
-        bail!("Forwarded datagram destination header is empty");
+        return Err(SamError::BadFrame {
+            what: "forwarded datagram destination header is empty",
+            raw: header.to_string(),
+        });
     }
 
     Ok(SamDatagramRecv {

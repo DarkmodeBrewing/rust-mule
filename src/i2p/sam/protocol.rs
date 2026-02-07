@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow, bail};
+use crate::i2p::sam::SamError;
 use std::collections::HashMap;
 
 /// A parsed SAM reply line, e.g.:
@@ -13,25 +13,25 @@ pub struct SamReply {
 }
 
 impl SamReply {
-    pub fn parse(line: &str) -> Result<Self> {
+    pub fn parse(line: &str) -> Result<Self, SamError> {
         let raw = line.trim_end_matches(['\r', '\n']).to_string();
         let mut parts = raw.split_whitespace();
 
-        let verb = parts
-            .next()
-            .ok_or_else(|| anyhow!("Empty SAM reply"))?
-            .to_string();
-        let kind = parts
-            .next()
-            .ok_or_else(|| anyhow!("SAM reply missing kind"))?
-            .to_string();
+        let verb = parts.next().ok_or_else(|| SamError::BadFrame {
+            what: "empty reply",
+            raw: redact_sam_line(&raw),
+        })?;
+        let kind = parts.next().ok_or_else(|| SamError::BadFrame {
+            what: "reply missing kind",
+            raw: redact_sam_line(&raw),
+        })?;
 
         let rest = raw.splitn(3, ' ').nth(2).unwrap_or("").trim();
         let kv = parse_kv_pairs(rest)?;
 
         Ok(Self {
-            verb,
-            kind,
+            verb: verb.to_string(),
+            kind: kind.to_string(),
             kv,
             raw,
         })
@@ -56,18 +56,17 @@ impl SamReply {
         self.result() == Some("OK")
     }
 
-    pub fn require_ok(&self) -> Result<()> {
+    pub fn require_ok(&self) -> Result<(), SamError> {
         if self.is_ok() {
             return Ok(());
         }
-        bail!(
-            "SAM error: verb={} kind={} result={:?} message={:?} raw={}",
-            self.verb,
-            self.kind,
-            self.result(),
-            self.message(),
-            self.raw_redacted()
-        );
+        Err(SamError::ReplyError {
+            verb: self.verb.clone(),
+            kind: self.kind.clone(),
+            result: self.result().map(str::to_string),
+            message: self.message().map(str::to_string),
+            raw_redacted: self.raw_redacted(),
+        })
     }
 }
 
@@ -159,7 +158,7 @@ fn encode_value(v: &str) -> String {
     out
 }
 
-fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
+fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>, SamError> {
     let mut map = HashMap::new();
     let mut i = 0usize;
     let bytes = input.as_bytes();
@@ -177,7 +176,10 @@ fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
             i += 1;
         }
         if i >= bytes.len() {
-            return Err(anyhow!("Malformed KV (no '=') in: {}", input));
+            return Err(SamError::BadFrame {
+                what: "malformed kv (no '=')",
+                raw: redact_sam_line(input),
+            });
         }
         let key = &input[key_start..i];
         i += 1; // '='
@@ -197,7 +199,10 @@ fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
                     b'\\' => {
                         i += 1;
                         if i >= bytes.len() {
-                            return Err(anyhow!("Unterminated escape in: {}", input));
+                            return Err(SamError::BadFrame {
+                                what: "unterminated escape",
+                                raw: redact_sam_line(input),
+                            });
                         }
                         match bytes[i] {
                             b'"' => out.push('"'),
@@ -213,7 +218,10 @@ fn parse_kv_pairs(input: &str) -> Result<HashMap<String, String>> {
                 }
             }
             if !closed {
-                return Err(anyhow!("Unterminated quote in: {}", input));
+                return Err(SamError::BadFrame {
+                    what: "unterminated quote",
+                    raw: redact_sam_line(input),
+                });
             }
             value = out;
         } else {

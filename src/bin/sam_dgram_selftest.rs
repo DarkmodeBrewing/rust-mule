@@ -20,32 +20,36 @@ async fn main() -> Result<()> {
     let (b_priv, b_pub) = sam.dest_generate().await?;
 
     let mut a = SamDatagramTcp::connect(&cfg.sam.host, cfg.sam.port)
-        .await?
+        .await
+        .map_err(anyhow::Error::new)?
         .with_timeout(Duration::from_secs(cfg.sam.control_timeout_secs));
-    a.hello("3.0", "3.3").await?;
+    a.hello("3.0", "3.3").await.map_err(anyhow::Error::new)?;
     a.session_create_datagram(
         "rust-mule-selftest-a",
         &a_priv,
         ["i2cp.messageReliability=BestEffort"],
     )
-    .await?;
+    .await
+    .map_err(anyhow::Error::new)?;
 
     let mut b = SamDatagramTcp::connect(&cfg.sam.host, cfg.sam.port)
-        .await?
+        .await
+        .map_err(anyhow::Error::new)?
         .with_timeout(Duration::from_secs(cfg.sam.control_timeout_secs));
-    b.hello("3.0", "3.3").await?;
+    b.hello("3.0", "3.3").await.map_err(anyhow::Error::new)?;
     b.session_create_datagram(
         "rust-mule-selftest-b",
         &b_priv,
         ["i2cp.messageReliability=BestEffort"],
     )
-    .await?;
+    .await
+    .map_err(anyhow::Error::new)?;
 
     // Give the router a moment to publish leasesets.
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     let msg = b"hello-from-a";
-    a.send_to(&b_pub, msg).await?;
+    a.send_to(&b_pub, msg).await.map_err(anyhow::Error::new)?;
     tracing::info!("sent A->B {} bytes", msg.len());
 
     let recv = timeout(Duration::from_secs(30), b.recv())
@@ -58,7 +62,7 @@ async fn main() -> Result<()> {
     );
 
     let msg2 = b"hello-from-b";
-    b.send_to(&a_pub, msg2).await?;
+    b.send_to(&a_pub, msg2).await.map_err(anyhow::Error::new)?;
     tracing::info!("sent B->A {} bytes", msg2.len());
 
     let recv2 = timeout(Duration::from_secs(30), a.recv())

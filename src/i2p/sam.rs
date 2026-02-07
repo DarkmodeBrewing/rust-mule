@@ -1,12 +1,14 @@
 pub mod client;
 pub mod datagram;
 pub mod datagram_tcp;
+pub mod error;
 pub mod kad_socket;
 pub mod keys;
 pub mod protocol;
 pub use client::{SamClient, SamStream};
 pub use datagram::{SamDatagramRecv, SamDatagramSendOpts, SamDatagramSocket};
 pub use datagram_tcp::SamDatagramTcp;
+pub use error::SamError;
 pub use kad_socket::SamKadSocket;
 pub use keys::SamKeys;
 pub use protocol::{SamCommand, SamReply};

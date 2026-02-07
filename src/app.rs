@@ -1,6 +1,6 @@
 use crate::{
     config::{Config, SamDatagramTransport},
-    i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamKadSocket, SamKeys},
+    i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamError, SamKadSocket, SamKeys},
 };
 use anyhow::Context;
 use std::collections::BTreeMap;
@@ -365,7 +365,7 @@ async fn try_download_nodes2_dat(
             );
             sam.naming_lookup(alt).await?
         }
-        Err(err) => return Err(err),
+        Err(err) => return Err(err.into()),
     };
 
     // Ensure a STREAM session exists for outgoing HTTP.
@@ -590,12 +590,24 @@ async fn create_kad_socket(
 fn is_recoverable_sam_kad_error(err: &anyhow::Error) -> bool {
     // We treat SAM socket loss / framing desync as recoverable: re-create the session and keep
     // the Kad service running.
+    //
+    // Prefer typed SAM errors when available, but keep a defensive string fallback since
+    // not every path has been migrated yet.
+    for cause in err.chain() {
+        if let Some(sam) = cause.downcast_ref::<SamError>() {
+            return matches!(
+                sam,
+                SamError::Closed
+                    | SamError::Timeout { .. }
+                    | SamError::Io { .. }
+                    | SamError::BadFrame { .. }
+                    | SamError::FramingDesync { .. }
+            );
+        }
+    }
+
     let msg = err.to_string();
-    msg.contains("SAM closed the connection")
-        || msg.contains("SAM framing out of sync")
-        || msg.contains("Failed reading DATAGRAM payload")
-        || msg.contains("Failed to read SAM line")
-        || msg.contains("SAM read failed")
+    msg.contains("SAM closed the connection") || msg.contains("SAM framing out of sync")
 }
 
 async fn ensure_nodes_seed_files(initseed: &Path, fallback: &Path) {
