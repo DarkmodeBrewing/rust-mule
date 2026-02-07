@@ -46,6 +46,14 @@ There is an optional local HTTP API (REST + SSE) intended for a future GUI.
 - Auth: bearer token stored in `data/api.token`
 - Docs: `docs/architecture.md`
 
+Quick curl test (after setting `[api].enabled=true`):
+
+```bash
+TOKEN="$(cat data/api.token)"
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/status
+curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/events
+```
+
 ## Data Files
 
 Runtime state lives under `data/` (gitignored):

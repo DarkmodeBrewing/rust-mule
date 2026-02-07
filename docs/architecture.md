@@ -87,3 +87,11 @@ If we later want to support remote GUI connections, we should add TLS:
 - Generate a self-signed cert/key on first launch and store under `data/` (or allow users to
   provide their own).
 - Keep token-based auth even with TLS (defense in depth).
+
+TODOs:
+
+- Add a `rust-mule` startup mode that prints the API bind address and a one-liner for tunneling
+  (SSH `-L`) to make remote dev easier without opening firewalls.
+- Add TLS support (self-signed by default) for remote GUI scenarios.
+- Add finer-grained auth scopes (read-only vs control) if we later expose mutating endpoints
+  (downloads/search/publish).
