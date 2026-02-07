@@ -98,6 +98,8 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:17835/kad/search_sources
 ```
 
+For a maintained collection of `curl` commands, see `docs/api_curl.md`.
+
 ## TLS (Future)
 
 For local-only GUI usage, the token + loopback binding is usually sufficient.
