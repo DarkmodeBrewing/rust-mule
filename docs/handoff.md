@@ -6,6 +6,12 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
+## Roadmap Notes
+
+- Storage: file-based runtime state under `data/` is fine for now (and aligns with iMule formats like `nodes.dat`).
+  As we implement real client features (search history, file hashes/metadata, downloads, richer indexes),
+  consider SQLite for structured queries + crash-safe transactions. See `docs/architecture.md`.
+
 ## Change Log
 
 - 2026-02-06: Embed distributable nodes init seed at `assets/nodes.initseed.dat`; create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from embedded seed (best-effort) so runtime no longer depends on repo-local reference folders.

@@ -95,3 +95,18 @@ TODOs:
 - Add TLS support (self-signed by default) for remote GUI scenarios.
 - Add finer-grained auth scopes (read-only vs control) if we later expose mutating endpoints
   (downloads/search/publish).
+
+## Data Storage (Future)
+
+Right now runtime state is stored in simple files under `data/` (e.g. `nodes.dat`, `sam.keys`).
+This is intentionally easy to inspect, portable, and matches iMule/aMule conventions where it
+makes sense.
+
+As we add "client features" (search history, file hashes/metadata, downloads, sources, and
+possibly cached publish/search results), it may be worth introducing SQLite:
+
+- Pros: structured queries, indexing, transactions/atomicity, and easier schema evolution.
+- Cons: adds a dependency + migrations, and can complicate “just inspect the state” workflows.
+
+If/when we adopt SQLite, we should keep compatibility files like `data/nodes.dat` alongside it,
+and store higher-level application state (downloads/search/etc.) in the database.
