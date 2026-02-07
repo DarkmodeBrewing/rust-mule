@@ -70,12 +70,28 @@ Notes:
     - `event: status`
     - `data: <json KadServiceStatus>`
 
+- `POST /kad/search_sources`
+  - Auth required.
+  - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
+  - Enqueues a conservative Kad2 `KADEMLIA2_SEARCH_SOURCE_REQ` against a few closest known peers.
+
+- `POST /kad/publish_source`
+  - Auth required.
+  - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
+  - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_SOURCE_REQ` advertising *this node* as a source.
+
 Example:
 
 ```bash
 TOKEN="$(cat data/api.token)"
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/status | jq .
 curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/events
+
+# File/source actions (hex is 16 bytes / 32 hex chars).
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"file_id_hex":"00112233445566778899aabbccddeeff","file_size":0}' \
+  http://127.0.0.1:17835/kad/search_sources
 ```
 
 ## TLS (Future)

@@ -52,6 +52,12 @@ Quick curl test (after setting `[api].enabled=true`):
 TOKEN="$(cat data/api.token)"
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/status
 curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/events
+
+# Enqueue a Kad2 search for sources of a fileID (16 bytes / 32 hex chars).
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"file_id_hex":"00112233445566778899aabbccddeeff","file_size":0}' \
+  http://127.0.0.1:17835/kad/search_sources
 ```
 
 ## Data Files

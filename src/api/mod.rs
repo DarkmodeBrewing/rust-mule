@@ -4,15 +4,21 @@ use axum::{
     http::{HeaderMap, StatusCode},
     middleware,
     response::sse::{Event, Sse},
-    routing::get,
+    routing::{get, post},
 };
 use futures_util::Stream;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{convert::Infallible, net::SocketAddr};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::{config::ApiConfig, kad::service::KadServiceStatus};
+use crate::{
+    config::ApiConfig,
+    kad::{
+        KadId,
+        service::{KadServiceCommand, KadServiceStatus},
+    },
+};
 
 pub mod token;
 
@@ -21,6 +27,7 @@ pub struct ApiState {
     token: String,
     status_rx: watch::Receiver<Option<KadServiceStatus>>,
     status_events_tx: broadcast::Sender<KadServiceStatus>,
+    kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
 }
 
 pub fn new_channels() -> (
@@ -37,6 +44,7 @@ pub async fn serve(
     token: String,
     status_rx: watch::Receiver<Option<KadServiceStatus>>,
     status_events_tx: broadcast::Sender<KadServiceStatus>,
+    kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
 ) -> anyhow::Result<()> {
     let bind_ip: std::net::IpAddr = cfg
         .host
@@ -48,12 +56,15 @@ pub async fn serve(
         token,
         status_rx,
         status_events_tx,
+        kad_cmd_tx,
     };
 
     let app = Router::new()
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/events", get(events))
+        .route("/kad/search_sources", post(kad_search_sources))
+        .route("/kad/publish_source", post(kad_publish_source))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, auth_mw));
 
@@ -61,6 +72,46 @@ pub async fn serve(
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct KadSourcesReq {
+    file_id_hex: String,
+    #[serde(default)]
+    file_size: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+struct QueuedResponse {
+    queued: bool,
+}
+
+async fn kad_search_sources(
+    State(state): State<ApiState>,
+    Json(req): Json<KadSourcesReq>,
+) -> Result<Json<QueuedResponse>, StatusCode> {
+    let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let file_size = req.file_size.unwrap_or(0);
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::SearchSources { file, file_size })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(Json(QueuedResponse { queued: true }))
+}
+
+async fn kad_publish_source(
+    State(state): State<ApiState>,
+    Json(req): Json<KadSourcesReq>,
+) -> Result<Json<QueuedResponse>, StatusCode> {
+    let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let file_size = req.file_size.unwrap_or(0);
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::PublishSource { file, file_size })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    Ok(Json(QueuedResponse { queued: true }))
 }
 
 async fn health() -> Json<HealthResponse> {

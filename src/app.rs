@@ -8,7 +8,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
 };
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::Duration;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
@@ -115,6 +115,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     let data_dir = Path::new(&config.general.data_dir);
 
+    // Command channel used by the (future) GUI/API to instruct the Kad service (search/publish/etc).
+    let (kad_cmd_tx, kad_cmd_rx) = mpsc::channel(128);
+
     // Optional local HTTP API (REST + SSE) for the future GUI.
     //
     // We keep this off by default and require a bearer token stored under `data/`.
@@ -133,8 +136,11 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         let srx = stx.subscribe();
         let api_cfg = config.api.clone();
         let etx_for_server = etx.clone();
+        let cmd_tx_for_server = kad_cmd_tx.clone();
         tokio::spawn(async move {
-            if let Err(err) = crate::api::serve(&api_cfg, token, srx, etx_for_server).await {
+            if let Err(err) =
+                crate::api::serve(&api_cfg, token, srx, etx_for_server, cmd_tx_for_server).await
+            {
                 tracing::error!(error = %err, "api server stopped");
             }
         });
@@ -297,7 +303,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     }
 
     if config.kad.service_enabled {
-        let mut svc = crate::kad::service::KadService::new(kad_prefs.kad_id);
+        let mut svc = crate::kad::service::KadService::new(kad_prefs.kad_id, kad_cmd_rx);
         let crypto = crate::kad::service::KadServiceCrypto {
             my_kad_id: kad_prefs.kad_id,
             my_dest_hash,

@@ -10,11 +10,13 @@ use crate::{
             KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
             KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
             KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES,
-            KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket, TAG_KADMISCOPTIONS, decode_kad1_req,
-            decode_kad2_bootstrap_res, decode_kad2_hello, decode_kad2_publish_source_req_min,
-            decode_kad2_req, decode_kad2_res, decode_kad2_search_source_req, encode_kad1_res,
-            encode_kad2_hello, encode_kad2_publish_res_for_source, encode_kad2_req,
-            encode_kad2_res, encode_kad2_search_res_sources,
+            KADEMLIA2_SEARCH_SOURCE_REQ, Kad2PublishRes, Kad2SearchResSources, KadPacket,
+            TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
+            decode_kad2_publish_res, decode_kad2_publish_source_req_min, decode_kad2_req,
+            decode_kad2_res, decode_kad2_search_res_sources, decode_kad2_search_source_req,
+            encode_kad1_res, encode_kad2_hello, encode_kad2_publish_res_for_source,
+            encode_kad2_publish_source_req, encode_kad2_req, encode_kad2_res,
+            encode_kad2_search_res_sources, encode_kad2_search_source_req,
         },
     },
     nodes::imule::ImuleNode,
@@ -22,7 +24,7 @@ use crate::{
 use anyhow::Result;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 #[derive(Debug, Clone, Copy)]
@@ -107,6 +109,14 @@ struct KadServiceStats {
     timeouts: u64,
     new_nodes: u64,
     evicted: u64,
+
+    sent_search_source_reqs: u64,
+    recv_search_ress: u64,
+    search_results: u64,
+    new_sources: u64,
+
+    sent_publish_source_reqs: u64,
+    recv_publish_ress: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -128,6 +138,20 @@ pub struct KadServiceStatus {
     pub timeouts: u64,
     pub new_nodes: u64,
     pub evicted: u64,
+
+    pub sent_search_source_reqs: u64,
+    pub recv_search_ress: u64,
+    pub search_results: u64,
+    pub new_sources: u64,
+
+    pub sent_publish_source_reqs: u64,
+    pub recv_publish_ress: u64,
+}
+
+#[derive(Debug, Clone)]
+pub enum KadServiceCommand {
+    SearchSources { file: KadId, file_size: u64 },
+    PublishSource { file: KadId, file_size: u64 },
 }
 
 pub struct KadService {
@@ -138,16 +162,19 @@ pub struct KadService {
     pending_reqs: HashMap<String, Instant>,
     crawl_round: u64,
     stats_window: KadServiceStats,
+
+    cmd_rx: mpsc::Receiver<KadServiceCommand>,
 }
 
 impl KadService {
-    pub fn new(my_id: KadId) -> Self {
+    pub fn new(my_id: KadId, cmd_rx: mpsc::Receiver<KadServiceCommand>) -> Self {
         Self {
             routing: RoutingTable::new(my_id),
             sources_by_file: BTreeMap::new(),
             pending_reqs: HashMap::new(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
+            cmd_rx,
         }
     }
 
@@ -244,6 +271,12 @@ pub async fn run_service(
                 publish_status(svc, started, &status_tx, &status_events_tx);
             }
 
+            cmd = svc.cmd_rx.recv() => {
+                if let Some(cmd) = cmd {
+                    handle_command(svc, sock, crypto, cmd).await?;
+                }
+            }
+
             recv = sock.recv() => {
                 let recv = recv?;
                 handle_inbound(svc, sock, recv.from_destination, recv.payload, crypto).await?;
@@ -253,6 +286,136 @@ pub async fn run_service(
 
     persist_snapshot(svc, persist_path, cfg.max_persist_nodes).await;
     tracing::info!("kad service stopped");
+    Ok(())
+}
+
+async fn handle_command(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cmd: KadServiceCommand,
+) -> Result<()> {
+    match cmd {
+        KadServiceCommand::SearchSources { file, file_size } => {
+            send_search_sources(svc, sock, crypto, file, file_size).await?;
+        }
+        KadServiceCommand::PublishSource { file, file_size } => {
+            send_publish_source(svc, sock, crypto, file, file_size).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn send_search_sources(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    file: KadId,
+    file_size: u64,
+) -> Result<()> {
+    if svc.routing.is_empty() {
+        return Ok(());
+    }
+
+    // Conservative: ask only a small number of closest peers per request.
+    const PEERS: usize = 2;
+    let peers = svc.routing.closest_to(file, PEERS, 0);
+    for p in peers {
+        // iMule uses Kad2 search source only for version >= 3.
+        if p.kad_version < 3 {
+            continue;
+        }
+        let payload = encode_kad2_search_source_req(file, 0, file_size);
+        if let Err(err) =
+            send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_SOURCE_REQ, &payload).await
+        {
+            tracing::debug!(
+                error = %err,
+                to = %p.udp_dest_b64(),
+                "failed sending SEARCH_SOURCE_REQ"
+            );
+            continue;
+        }
+        svc.stats_window.sent_search_source_reqs += 1;
+    }
+
+    tracing::info!(file = %file.to_hex_lower(), "sent SEARCH_SOURCE_REQ");
+    Ok(())
+}
+
+async fn send_publish_source(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    file: KadId,
+    file_size: u64,
+) -> Result<()> {
+    if svc.routing.is_empty() {
+        return Ok(());
+    }
+
+    // Conservative: publish to only a small number of closest peers.
+    const PEERS: usize = 2;
+    let peers = svc.routing.closest_to(file, PEERS, 0);
+    for p in peers {
+        // iMule uses Kad2 publish source only for version >= 4.
+        if p.kad_version < 4 {
+            continue;
+        }
+        let payload = encode_kad2_publish_source_req(
+            file,
+            crypto.my_kad_id,
+            &crypto.my_dest,
+            Some(file_size),
+        );
+        if let Err(err) =
+            send_kad2_packet(sock, &p, crypto, KADEMLIA2_PUBLISH_SOURCE_REQ, &payload).await
+        {
+            tracing::debug!(
+                error = %err,
+                to = %p.udp_dest_b64(),
+                "failed sending PUBLISH_SOURCE_REQ"
+            );
+            continue;
+        }
+        svc.stats_window.sent_publish_source_reqs += 1;
+    }
+
+    tracing::info!(file = %file.to_hex_lower(), "sent PUBLISH_SOURCE_REQ");
+    Ok(())
+}
+
+async fn send_kad2_packet(
+    sock: &mut SamKadSocket,
+    node: &ImuleNode,
+    crypto: KadServiceCrypto,
+    opcode: u8,
+    payload: &[u8],
+) -> Result<()> {
+    let dest = node.udp_dest_b64();
+    let target_kad_id = KadId(node.client_id);
+    let plain = KadPacket::encode(opcode, payload);
+
+    let sender_verify_key =
+        udp_crypto::udp_verify_key(crypto.udp_key_secret, node.udp_dest_hash_code());
+    let receiver_verify_key = if node.udp_key_ip == crypto.my_dest_hash {
+        node.udp_key
+    } else {
+        0
+    };
+
+    let out = if node.kad_version >= 6 {
+        udp_crypto::encrypt_kad_packet(
+            &plain,
+            target_kad_id,
+            receiver_verify_key,
+            sender_verify_key,
+        )?
+    } else {
+        plain
+    };
+
+    sock.send_to(&dest, &out).await?;
     Ok(())
 }
 
@@ -605,6 +768,14 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         timeouts: w.timeouts,
         new_nodes: w.new_nodes,
         evicted: w.evicted,
+
+        sent_search_source_reqs: w.sent_search_source_reqs,
+        recv_search_ress: w.recv_search_ress,
+        search_results: w.search_results,
+        new_sources: w.new_sources,
+
+        sent_publish_source_reqs: w.sent_publish_source_reqs,
+        recv_publish_ress: w.recv_publish_ress,
     }
 }
 
@@ -632,6 +803,12 @@ fn publish_status(
         timeouts = st.timeouts,
         new_nodes = st.new_nodes,
         evicted = st.evicted,
+        sent_search_source_reqs = st.sent_search_source_reqs,
+        recv_search_ress = st.recv_search_ress,
+        search_results = st.search_results,
+        new_sources = st.new_sources,
+        sent_publish_source_reqs = st.sent_publish_source_reqs,
+        recv_publish_ress = st.recv_publish_ress,
         "kad service status"
     );
 
@@ -1127,6 +1304,84 @@ async fn handle_inbound(
             };
 
             let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        KADEMLIA2_SEARCH_RES => {
+            let res: Kad2SearchResSources = match decode_kad2_search_res_sources(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(
+                        error = %err,
+                        from = %from_dest_b64,
+                        "failed to decode KAD2 SEARCH_RES payload"
+                    );
+                    return Ok(());
+                }
+            };
+
+            svc.stats_window.recv_search_ress += 1;
+            let results_len = res.results.len();
+            svc.stats_window.search_results += results_len as u64;
+
+            let before = svc
+                .sources_by_file
+                .get(&res.key)
+                .map(|m| m.len())
+                .unwrap_or(0);
+
+            for r in res.results {
+                if let Some(dest) = r.udp_dest {
+                    svc.sources_by_file
+                        .entry(res.key)
+                        .or_default()
+                        .insert(r.source_id, dest);
+                }
+            }
+
+            let after = svc
+                .sources_by_file
+                .get(&res.key)
+                .map(|m| m.len())
+                .unwrap_or(0);
+            let inserted = after.saturating_sub(before);
+            if inserted > 0 {
+                svc.stats_window.new_sources += inserted as u64;
+            }
+
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                key = %res.key.to_hex_lower(),
+                results = results_len,
+                inserted,
+                "got SEARCH_RES (sources)"
+            );
+        }
+
+        KADEMLIA2_PUBLISH_RES => {
+            // Publish results can be different shapes (key/source/notes). We currently only parse
+            // the Kad2 "source" response shape (<u128><u32><u32><u8>) as used for PUBLISH_SOURCE_REQ.
+            let res: Kad2PublishRes = match decode_kad2_publish_res(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::trace!(
+                        error = %err,
+                        from = %from_dest_b64,
+                        len = pkt.payload.len(),
+                        "unparsed KAD2 PUBLISH_RES"
+                    );
+                    return Ok(());
+                }
+            };
+
+            svc.stats_window.recv_publish_ress += 1;
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                file = %res.file.to_hex_lower(),
+                sources = res.source_count,
+                complete = res.complete_count,
+                load = res.load,
+                "got PUBLISH_RES"
+            );
         }
 
         other => {
