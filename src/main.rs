@@ -55,5 +55,15 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> anyhow::Result<()> {
         );
     }
 
+    if cfg.api.enabled {
+        cfg.api
+            .host
+            .parse::<std::net::IpAddr>()
+            .map_err(|e| anyhow::anyhow!("Invalid api.host '{}': {}", cfg.api.host, e))?;
+        if !(1..=65535).contains(&cfg.api.port) {
+            anyhow::bail!("Invalid api.port '{}'", cfg.api.port);
+        }
+    }
+
     Ok(())
 }

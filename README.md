@@ -38,6 +38,14 @@ Logs:
 - Stdout is controlled by `[general].log_level` (or `RUST_LOG`)
 - File logs roll daily under `data/logs/` when `[general].log_to_file=true`
 
+## Local HTTP API (For Future GUI)
+
+There is an optional local HTTP API (REST + SSE) intended for a future GUI.
+
+- Config: `[api]` in `config.toml` (default `enabled=false`)
+- Auth: bearer token stored in `data/api.token`
+- Docs: `docs/architecture.md`
+
 ## Data Files
 
 Runtime state lives under `data/` (gitignored):

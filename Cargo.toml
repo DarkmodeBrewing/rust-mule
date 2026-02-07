@@ -5,9 +5,13 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.100"
+axum = { version = "0.7.9", features = ["macros"] }
+futures-util = "0.3.31"
 getrandom = "0.2.16"
 serde =  { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
 tokio = { version = "1.49.0", features = ["full"] }
+tokio-stream = { version = "0.1.17", features = ["sync"] }
 toml = "0.9.11"
 tracing = "0.1.44"
 tracing-appender = "0.2.3"

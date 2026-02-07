@@ -20,7 +20,9 @@ use crate::{
     nodes::imule::ImuleNode,
 };
 use anyhow::Result;
+use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
+use tokio::sync::{broadcast, watch};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
 #[derive(Debug, Clone, Copy)]
@@ -107,6 +109,27 @@ struct KadServiceStats {
     evicted: u64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct KadServiceStatus {
+    pub uptime_secs: u64,
+    pub routing: usize,
+    pub live: usize,
+    pub live_10m: usize,
+    pub pending: usize,
+
+    pub sent_reqs: u64,
+    pub recv_ress: u64,
+    pub res_contacts: u64,
+    pub sent_bootstrap_reqs: u64,
+    pub recv_bootstrap_ress: u64,
+    pub bootstrap_contacts: u64,
+    pub sent_hellos: u64,
+    pub recv_hello_ress: u64,
+    pub timeouts: u64,
+    pub new_nodes: u64,
+    pub evicted: u64,
+}
+
 pub struct KadService {
     routing: RoutingTable,
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
@@ -144,12 +167,16 @@ pub async fn run_service(
     crypto: KadServiceCrypto,
     cfg: KadServiceConfig,
     persist_path: &std::path::Path,
+    status_tx: Option<watch::Sender<Option<KadServiceStatus>>>,
+    status_events_tx: Option<broadcast::Sender<KadServiceStatus>>,
 ) -> Result<()> {
-    let now = Instant::now();
+    let started = Instant::now();
+    let now = started;
     for n in initial_nodes {
         let _ = svc.routing.upsert(n, now);
     }
     tracing::info!(nodes = svc.routing.len(), "kad service started");
+    publish_status(svc, started, &status_tx, &status_events_tx);
 
     let mut crawl_tick = interval(Duration::from_secs(cfg.crawl_every_secs.max(1)));
     let mut persist_tick = interval(Duration::from_secs(cfg.persist_every_secs.max(5)));
@@ -214,7 +241,7 @@ pub async fn run_service(
             }
 
             _ = status_tick.tick() => {
-                status_report(svc).await;
+                publish_status(svc, started, &status_tx, &status_events_tx);
             }
 
             recv = sock.recv() => {
@@ -550,7 +577,7 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
     }
 }
 
-async fn status_report(svc: &mut KadService) {
+fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
     let routing = svc.routing.len();
     let now = Instant::now();
     let live = svc.routing.live_count();
@@ -561,24 +588,59 @@ async fn status_report(svc: &mut KadService) {
     let w = svc.stats_window;
     svc.stats_window = KadServiceStats::default();
 
-    tracing::info!(
+    KadServiceStatus {
+        uptime_secs: started.elapsed().as_secs(),
         routing,
         live,
         live_10m,
         pending,
-        sent_reqs = w.sent_reqs,
-        recv_ress = w.recv_ress,
-        res_contacts = w.res_contacts,
-        sent_bootstrap_reqs = w.sent_bootstrap_reqs,
-        recv_bootstrap_ress = w.recv_bootstrap_ress,
-        bootstrap_contacts = w.bootstrap_contacts,
-        sent_hellos = w.sent_hellos,
-        recv_hello_ress = w.recv_hello_ress,
-        timeouts = w.timeouts,
-        new_nodes = w.new_nodes,
-        evicted = w.evicted,
+        sent_reqs: w.sent_reqs,
+        recv_ress: w.recv_ress,
+        res_contacts: w.res_contacts,
+        sent_bootstrap_reqs: w.sent_bootstrap_reqs,
+        recv_bootstrap_ress: w.recv_bootstrap_ress,
+        bootstrap_contacts: w.bootstrap_contacts,
+        sent_hellos: w.sent_hellos,
+        recv_hello_ress: w.recv_hello_ress,
+        timeouts: w.timeouts,
+        new_nodes: w.new_nodes,
+        evicted: w.evicted,
+    }
+}
+
+fn publish_status(
+    svc: &mut KadService,
+    started: Instant,
+    status_tx: &Option<watch::Sender<Option<KadServiceStatus>>>,
+    status_events_tx: &Option<broadcast::Sender<KadServiceStatus>>,
+) {
+    let st = build_status(svc, started);
+    tracing::info!(
+        uptime_secs = st.uptime_secs,
+        routing = st.routing,
+        live = st.live,
+        live_10m = st.live_10m,
+        pending = st.pending,
+        sent_reqs = st.sent_reqs,
+        recv_ress = st.recv_ress,
+        res_contacts = st.res_contacts,
+        sent_bootstrap_reqs = st.sent_bootstrap_reqs,
+        recv_bootstrap_ress = st.recv_bootstrap_ress,
+        bootstrap_contacts = st.bootstrap_contacts,
+        sent_hellos = st.sent_hellos,
+        recv_hello_ress = st.recv_hello_ress,
+        timeouts = st.timeouts,
+        new_nodes = st.new_nodes,
+        evicted = st.evicted,
         "kad service status"
     );
+
+    if let Some(tx) = status_tx {
+        let _ = tx.send(Some(st.clone()));
+    }
+    if let Some(tx) = status_events_tx {
+        let _ = tx.send(st);
+    }
 }
 
 async fn handle_inbound(

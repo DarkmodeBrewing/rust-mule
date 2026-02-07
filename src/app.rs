@@ -8,6 +8,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
 };
+use tokio::sync::{broadcast, watch};
 use tokio::time::Duration;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
@@ -113,6 +114,35 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         create_kad_socket(&config, &mut sam, &kad_session_id, &keys).await?;
 
     let data_dir = Path::new(&config.general.data_dir);
+
+    // Optional local HTTP API (REST + SSE) for the future GUI.
+    //
+    // We keep this off by default and require a bearer token stored under `data/`.
+    let mut status_tx: Option<watch::Sender<Option<crate::kad::service::KadServiceStatus>>> = None;
+    let mut status_events_tx: Option<broadcast::Sender<crate::kad::service::KadServiceStatus>> =
+        None;
+
+    if config.api.enabled {
+        let token_path = data_dir.join("api.token");
+        let token = crate::api::token::load_or_create_token(&token_path)
+            .await
+            .context("failed to load/create api.token")?;
+        tracing::info!(path = %token_path.display(), "api token ready");
+
+        let (stx, etx) = crate::api::new_channels();
+        let srx = stx.subscribe();
+        let api_cfg = config.api.clone();
+        let etx_for_server = etx.clone();
+        tokio::spawn(async move {
+            if let Err(err) = crate::api::serve(&api_cfg, token, srx, etx_for_server).await {
+                tracing::error!(error = %err, "api server stopped");
+            }
+        });
+
+        status_tx = Some(stx);
+        status_events_tx = Some(etx);
+    }
+
     let nodes_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
     let preferred_nodes_path = nodes_path.clone();
 
@@ -306,6 +336,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                 crypto,
                 svc_cfg.clone(),
                 &out_path,
+                status_tx.clone(),
+                status_events_tx.clone(),
             )
             .await;
 

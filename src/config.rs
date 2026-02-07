@@ -45,6 +45,15 @@ fn default_log_file_name() -> String {
 fn default_log_file_level() -> String {
     "debug".to_string()
 }
+fn default_api_enabled() -> bool {
+    false
+}
+fn default_api_host() -> String {
+    "127.0.0.1".to_string()
+}
+fn default_api_port() -> u16 {
+    17835
+}
 fn default_preferences_kad_path() -> String {
     // Keep aMule/iMule naming for backwards compatibility.
     "preferencesKad.dat".to_string()
@@ -118,6 +127,7 @@ pub struct Config {
     pub sam: SamConfig,
     pub kad: KadConfig,
     pub general: GeneralConfig,
+    pub api: ApiConfig,
 }
 
 impl Config {
@@ -210,6 +220,17 @@ pub struct GeneralConfig {
     pub log_file_level: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ApiConfig {
+    /// Enable the local HTTP API (used by the future GUI).
+    pub enabled: bool,
+    /// Bind IP address (default: 127.0.0.1).
+    pub host: String,
+    /// Bind TCP port.
+    pub port: u16,
+}
+
 impl Default for SamConfig {
     fn default() -> Self {
         Self {
@@ -268,6 +289,16 @@ impl Default for GeneralConfig {
             log_to_file: default_log_to_file(),
             log_file_name: default_log_file_name(),
             log_file_level: default_log_file_level(),
+        }
+    }
+}
+
+impl Default for ApiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_api_enabled(),
+            host: default_api_host(),
+            port: default_api_port(),
         }
     }
 }
