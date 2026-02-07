@@ -36,6 +36,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Hard caps (max keywords, max total hits, max hits/keyword) + TTL pruning.
   - All knobs are configurable in `config.toml` under `[kad]` (`service_keyword_*`).
   - Status now reports keyword cache totals + eviction counters.
+- 2026-02-07: TTL note (small/slow iMule I2P-KAD reality):
+  - Keyword hits are a “discovery cache” and can be noisy; expiring them is mostly for memory hygiene.
+  - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.
+  - If keyword lookups feel too slow to re-learn, bump:
+    - `kad.service_keyword_interest_ttl_secs` and `kad.service_keyword_results_ttl_secs` (e.g. 7 days = `604800`).
 
 ## Current State (As Of 2026-02-07)
 

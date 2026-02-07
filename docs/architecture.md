@@ -142,3 +142,9 @@ possibly cached publish/search results), it may be worth introducing SQLite:
 
 If/when we adopt SQLite, we should keep compatibility files like `data/nodes.dat` alongside it,
 and store higher-level application state (downloads/search/etc.) in the database.
+
+## Caching / Memory (Notes)
+
+- Keyword search hits (discovering `file_id_hex`) are treated as a bounded, TTL’d in-memory cache.
+- File sources are expected to be more “intermittent”; plan is to keep them longer and track `last_seen`,
+  plus bounds/persistence as we implement downloads.
