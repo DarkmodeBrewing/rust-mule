@@ -59,6 +59,13 @@ impl RoutingTable {
             .count()
     }
 
+    pub fn live_count_recent(&self, now: Instant, window: Duration) -> usize {
+        self.by_id
+            .values()
+            .filter(|st| is_recent_inbound(st, now, window))
+            .count()
+    }
+
     pub fn contains_id(&self, id: KadId) -> bool {
         self.by_id.contains_key(&id)
     }
@@ -348,6 +355,7 @@ impl RoutingTable {
         max: usize,
         now: Instant,
         base_interval: Duration,
+        recent_live_window: Duration,
     ) -> Vec<ImuleNode> {
         let mut out: Vec<&NodeState> = self
             .by_id
@@ -355,17 +363,19 @@ impl RoutingTable {
             .filter(|st| st.node.kad_version >= 6)
             .filter(|st| match st.last_bootstrap {
                 Some(t) => {
-                    now.saturating_duration_since(t) >= backoff_interval(base_interval, st.failures)
+                    now.saturating_duration_since(t)
+                        >= bootstrap_backoff_interval(base_interval, st.failures)
                 }
                 None => true,
             })
             .collect();
 
-        // Prefer nodes we have heard from (so we don't waste bootstrap refresh traffic on dead peers),
-        // then oldest-bootstrapped.
+        // Discovery strategy:
+        // - Prefer "cold" peers (no recent inbound) to diversify our view of the network.
+        // - Rotate by oldest-bootstrapped to spread probes across the table.
         out.sort_by_key(|st| {
             (
-                st.last_inbound.is_none(),
+                is_recent_inbound(st, now, recent_live_window),
                 st.last_bootstrap,
                 std::cmp::Reverse(st.last_seen),
             )
@@ -409,4 +419,18 @@ fn backoff_interval(base: Duration, failures: u32) -> Duration {
     let mul = 1u32 << pow;
     base.checked_mul(mul)
         .unwrap_or(Duration::from_secs(24 * 60 * 60))
+}
+
+fn bootstrap_backoff_interval(base: Duration, failures: u32) -> Duration {
+    // We don't want bootstrap refresh to become "effectively disabled" due to timeouts.
+    // Keep the per-peer backoff bounded.
+    let pow = failures.min(2);
+    let mul = 1u32 << pow;
+    base.checked_mul(mul)
+        .unwrap_or(Duration::from_secs(24 * 60 * 60))
+}
+
+fn is_recent_inbound(st: &NodeState, now: Instant, window: Duration) -> bool {
+    st.last_inbound
+        .is_some_and(|t| now.saturating_duration_since(t) <= window)
 }

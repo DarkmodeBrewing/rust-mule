@@ -453,13 +453,18 @@ async fn send_bootstrap_batch(
 
     let now = Instant::now();
     let min_interval = Duration::from_secs(cfg.bootstrap_min_interval_secs.max(60));
-    let mut peers =
-        svc.routing
-            .select_bootstrap_candidates(cfg.bootstrap_batch.max(1), now, min_interval);
+    let recent_live_window = Duration::from_secs(10 * 60);
+    let mut peers = svc.routing.select_bootstrap_candidates(
+        cfg.bootstrap_batch.max(1),
+        now,
+        min_interval,
+        recent_live_window,
+    );
     if peers.is_empty() {
         tracing::debug!(
             routing = svc.routing.len(),
             live = svc.routing.live_count(),
+            live_10m = svc.routing.live_count_recent(now, recent_live_window),
             "no eligible peers for periodic BOOTSTRAP_REQ"
         );
         return Ok(());
@@ -537,7 +542,11 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
 
 async fn status_report(svc: &mut KadService) {
     let routing = svc.routing.len();
+    let now = Instant::now();
     let live = svc.routing.live_count();
+    let live_10m = svc
+        .routing
+        .live_count_recent(now, Duration::from_secs(10 * 60));
     let pending = svc.pending_reqs.len();
     let w = svc.stats_window;
     svc.stats_window = KadServiceStats::default();
@@ -545,6 +554,7 @@ async fn status_report(svc: &mut KadService) {
     tracing::info!(
         routing,
         live,
+        live_10m,
         pending,
         sent_reqs = w.sent_reqs,
         recv_ress = w.recv_ress,
