@@ -494,9 +494,18 @@ async fn send_search_sources(
         return Ok(());
     }
 
-    // Conservative: ask only a small number of closest peers per request.
-    const PEERS: usize = 2;
-    let peers = svc.routing.closest_to(file, PEERS, 0);
+    // Ask a few peers, but prefer ones we've actually heard from recently.
+    // (Search requests are user-initiated, so it is OK to be a bit less conservative than
+    // the background crawl loop.)
+    let now = Instant::now();
+    let peers = svc.routing.closest_to_prefer_live(
+        file,
+        8,
+        0,
+        now,
+        Duration::from_secs(10 * 60),
+        3,
+    );
     for p in peers {
         // iMule uses Kad2 search source only for version >= 3.
         if p.kad_version < 3 {
@@ -530,9 +539,16 @@ async fn send_search_keyword(
         return Ok(());
     }
 
-    // Conservative: ask only a small number of closest peers per request.
-    const PEERS: usize = 2;
-    let peers = svc.routing.closest_to(keyword, PEERS, 0);
+    // Ask a few peers, but prefer ones we've actually heard from recently.
+    let now = Instant::now();
+    let peers = svc.routing.closest_to_prefer_live(
+        keyword,
+        8,
+        0,
+        now,
+        Duration::from_secs(10 * 60),
+        3,
+    );
     for p in peers {
         // iMule uses Kad2 search key only for version >= 3.
         if p.kad_version < 3 {
@@ -570,9 +586,16 @@ async fn send_publish_keyword(
         return Ok(());
     }
 
-    // Conservative: publish to only a small number of closest peers.
-    const PEERS: usize = 2;
-    let peers = svc.routing.closest_to(keyword, PEERS, 0);
+    // Publish to a few peers, prefer recently-live.
+    let now = Instant::now();
+    let peers = svc.routing.closest_to_prefer_live(
+        keyword,
+        6,
+        0,
+        now,
+        Duration::from_secs(10 * 60),
+        2,
+    );
     let entries = [(file, filename, file_size, file_type)];
     let payload = encode_kad2_publish_key_req(keyword, &entries);
 
@@ -613,9 +636,16 @@ async fn send_publish_source(
         return Ok(());
     }
 
-    // Conservative: publish to only a small number of closest peers.
-    const PEERS: usize = 2;
-    let peers = svc.routing.closest_to(file, PEERS, 0);
+    // Publish to a few peers, prefer recently-live.
+    let now = Instant::now();
+    let peers = svc.routing.closest_to_prefer_live(
+        file,
+        6,
+        0,
+        now,
+        Duration::from_secs(10 * 60),
+        4,
+    );
     for p in peers {
         // iMule uses Kad2 publish source only for version >= 4.
         if p.kad_version < 4 {

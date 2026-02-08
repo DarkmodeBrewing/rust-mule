@@ -216,6 +216,38 @@ impl RoutingTable {
         out
     }
 
+    /// Like `closest_to`, but prefers nodes we have heard from recently.
+    pub fn closest_to_prefer_live(
+        &self,
+        target: KadId,
+        max: usize,
+        exclude_dest_hash: u32,
+        now: Instant,
+        live_window: Duration,
+        min_kad_version: u8,
+    ) -> Vec<ImuleNode> {
+        let mut out: Vec<&NodeState> = self
+            .by_id
+            .values()
+            .filter(|st| st.node.kad_version >= min_kad_version)
+            .filter(|st| st.node.udp_dest_hash_code() != exclude_dest_hash)
+            .collect();
+
+        out.sort_by_key(|st| {
+            (
+                !is_recent_inbound(st, now, live_window),
+                xor_distance(KadId(st.node.client_id), target),
+                st.last_queried,
+                std::cmp::Reverse(st.last_seen),
+            )
+        });
+
+        out.into_iter()
+            .take(max)
+            .map(|st| st.node.clone())
+            .collect()
+    }
+
     pub fn snapshot_nodes(&self, max: usize) -> Vec<ImuleNode> {
         let mut out: Vec<&NodeState> = self.by_id.values().collect();
         out.sort_by_key(|st| {
