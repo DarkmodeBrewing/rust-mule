@@ -90,6 +90,11 @@ Notes:
   - Enqueues a conservative Kad2 `KADEMLIA2_SEARCH_KEY_REQ` for an iMule-style keyword hash.
   - Currently uses the **first extracted keyword word** (iMule behavior).
 
+- `POST /kad/publish_keyword`
+  - Auth required.
+  - Body: `{ "query": "some words", "file_id_hex": "<32 hex chars>", "filename": "...", "file_size": 123, "file_type": "Pro" }`
+  - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_KEY_REQ` publishing keyword->file metadata to the DHT.
+
 - `GET /kad/keyword_results/:keyword_id_hex`
   - Auth required.
   - Returns keyword hits learned so far for that keyword hash (in-memory, not yet persisted).

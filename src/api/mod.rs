@@ -69,6 +69,7 @@ pub async fn serve(
         .route("/kad/search_sources", post(kad_search_sources))
         .route("/kad/search_keyword", post(kad_search_keyword))
         .route("/kad/publish_source", post(kad_publish_source))
+        .route("/kad/publish_keyword", post(kad_publish_keyword))
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, auth_mw));
 
@@ -88,6 +89,16 @@ struct KadSourcesReq {
 #[derive(Debug, Deserialize)]
 struct KadSearchKeywordReq {
     query: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct KadPublishKeywordReq {
+    query: String,
+    file_id_hex: String,
+    filename: String,
+    file_size: u64,
+    #[serde(default)]
+    file_type: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -250,6 +261,33 @@ async fn kad_publish_source(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Json(QueuedResponse { queued: true }))
+}
+
+async fn kad_publish_keyword(
+    State(state): State<ApiState>,
+    Json(req): Json<KadPublishKeywordReq>,
+) -> Result<Json<KadSearchKeywordResponse>, StatusCode> {
+    let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (word, keyword_id) = keyword::query_to_keyword_id(&req.query)
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::PublishKeyword {
+            keyword: keyword_id,
+            file,
+            filename: req.filename,
+            file_size: req.file_size,
+            file_type: req.file_type,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(KadSearchKeywordResponse {
+        queued: true,
+        keyword: word,
+        keyword_id_hex: keyword_id.to_hex_lower(),
+    }))
 }
 
 async fn health() -> Json<HealthResponse> {

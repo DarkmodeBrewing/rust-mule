@@ -79,3 +79,20 @@ curl -sS "${AUTH[@]}" "${JSON[@]}" \
 KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "$BASE_URL/kad/keyword_results/$KEYWORD_ID_HEX" | jq .
 ```
+
+## KAD: Publish A Keyword->File Entry (DHT)
+
+This enqueues a Kad2 `PUBLISH_KEY_REQ` to a couple closest peers. It uses iMule-style keyword
+hashing (first extracted word from `query`).
+
+```bash
+QUERY="ubuntu iso"
+FILE_ID_HEX="00112233445566778899aabbccddeeff"
+FILENAME="ubuntu-24.04.iso"
+FILE_SIZE=123
+FILE_TYPE="Pro"
+
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{\"query\":\"$QUERY\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE,\"file_type\":\"$FILE_TYPE\"}" \
+  "$BASE_URL/kad/publish_keyword" | jq .
+```

@@ -336,6 +336,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             keyword_max_keywords: config.kad.service_keyword_max_keywords,
             keyword_max_total_hits: config.kad.service_keyword_max_total_hits,
             keyword_max_hits_per_keyword: config.kad.service_keyword_max_hits_per_keyword,
+
+            store_keyword_max_keywords: config.kad.service_store_keyword_max_keywords,
+            store_keyword_max_total_hits: config.kad.service_store_keyword_max_total_hits,
+            store_keyword_evict_age_secs: config.kad.service_store_keyword_evict_age_secs,
         };
 
         let mut seed_once = Some(out_nodes);

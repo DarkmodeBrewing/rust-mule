@@ -126,9 +126,30 @@ pub struct Kad2SearchSourceReq {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct Kad2SearchKeyReq {
+    pub target: KadId,
+    pub start_position: u16,
+    pub restrictive: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct Kad2PublishSourceReq {
     pub file: KadId,
     pub source: KadId,
+}
+
+#[derive(Debug, Clone)]
+pub struct Kad2PublishKeyReq {
+    pub keyword: KadId,
+    pub entries: Vec<Kad2PublishKeyEntry>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Kad2PublishKeyEntry {
+    pub file: KadId,
+    pub filename: Option<String>,
+    pub file_size: Option<u64>,
+    pub file_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +172,12 @@ pub struct Kad2PublishRes {
     pub file: KadId,
     pub source_count: u32,
     pub complete_count: u32,
+    pub load: u8,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Kad2PublishResKey {
+    pub key: KadId,
     pub load: u8,
 }
 
@@ -358,11 +385,45 @@ pub fn encode_kad2_search_key_req(target: KadId, start_position: u16) -> Vec<u8>
     out
 }
 
+pub fn decode_kad2_search_key_req(payload: &[u8]) -> Result<Kad2SearchKeyReq> {
+    let mut r = Reader::new(payload);
+    let target = r.read_uint128_emule()?;
+    let start_raw = r.read_u16_le()?;
+    let restrictive = (start_raw & 0x8000) != 0;
+    let start_position = start_raw & 0x7FFF;
+    Ok(Kad2SearchKeyReq {
+        target,
+        start_position,
+        restrictive,
+    })
+}
+
 pub fn decode_kad2_publish_source_req_min(payload: &[u8]) -> Result<Kad2PublishSourceReq> {
     let mut r = Reader::new(payload);
     let file = r.read_uint128_emule()?;
     let source = r.read_uint128_emule()?;
     Ok(Kad2PublishSourceReq { file, source })
+}
+
+pub fn decode_kad2_publish_key_req(payload: &[u8]) -> Result<Kad2PublishKeyReq> {
+    // iMule `Process2PublishKeyRequest`:
+    // <keyword u128><count u16><entry>*count
+    // entry = <file u128><taglist>
+    let mut r = Reader::new(payload);
+    let keyword = r.read_uint128_emule()?;
+    let count = r.read_u16_le()? as usize;
+    let mut entries = Vec::with_capacity(count);
+    for _ in 0..count {
+        let file = r.read_uint128_emule()?;
+        let tags = r.read_taglist_search_info()?;
+        entries.push(Kad2PublishKeyEntry {
+            file,
+            filename: tags.filename,
+            file_size: tags.file_size,
+            file_type: tags.file_type,
+        });
+    }
+    Ok(Kad2PublishKeyReq { keyword, entries })
 }
 
 pub fn encode_kad2_publish_source_req(
@@ -379,6 +440,24 @@ pub fn encode_kad2_publish_source_req(
     out
 }
 
+pub fn encode_kad2_publish_key_req(
+    keyword: KadId,
+    entries: &[(KadId, &str, u64, Option<&str>)],
+) -> Vec<u8> {
+    // iMule publish keyword:
+    // <keyword u128><count u16><file u128><taglist>...>
+    //
+    // We implement a minimal tagset required for search results: filename + filesize (+ optional filetype).
+    let mut out = Vec::new();
+    out.extend_from_slice(&keyword.to_crypt_bytes());
+    out.extend_from_slice(&(entries.len().min(u16::MAX as usize) as u16).to_le_bytes());
+    for (file, name, size, file_type) in entries.iter().take(u16::MAX as usize) {
+        out.extend_from_slice(&file.to_crypt_bytes());
+        write_keyword_taglist(&mut out, name, *size, *file_type);
+    }
+    out
+}
+
 pub fn encode_kad2_publish_res_for_source(
     file: KadId,
     source_count: u32,
@@ -389,6 +468,15 @@ pub fn encode_kad2_publish_res_for_source(
     out.extend_from_slice(&file.to_crypt_bytes());
     out.extend_from_slice(&source_count.to_le_bytes());
     out.extend_from_slice(&complete_count.to_le_bytes());
+    out.push(load);
+    out
+}
+
+pub fn encode_kad2_publish_res_for_key(key: KadId, load: u8) -> Vec<u8> {
+    // iMule `Process2PublishKeyRequest` reply:
+    // <key u128><load u8>
+    let mut out = Vec::with_capacity(16 + 1);
+    out.extend_from_slice(&key.to_crypt_bytes());
     out.push(load);
     out
 }
@@ -407,6 +495,13 @@ pub fn decode_kad2_publish_res(payload: &[u8]) -> Result<Kad2PublishRes> {
     })
 }
 
+pub fn decode_kad2_publish_res_key(payload: &[u8]) -> Result<Kad2PublishResKey> {
+    let mut r = Reader::new(payload);
+    let key = r.read_uint128_emule()?;
+    let load = r.read_u8()?;
+    Ok(Kad2PublishResKey { key, load })
+}
+
 pub fn encode_kad2_search_res_sources(
     my_id: KadId,
     key: KadId,
@@ -422,6 +517,24 @@ pub fn encode_kad2_search_res_sources(
     for (source_id, udp_dest) in results.iter().take(u16::MAX as usize) {
         out.extend_from_slice(&source_id.to_crypt_bytes());
         write_source_taglist(&mut out, udp_dest);
+    }
+    out
+}
+
+pub fn encode_kad2_search_res_keyword(
+    my_id: KadId,
+    keyword: KadId,
+    results: &[(KadId, String, u64, Option<String>)],
+) -> Vec<u8> {
+    // Same Kad2 results container as sources:
+    // <sender u128><key u128><count u16><answer u128><taglist>
+    let mut out = Vec::new();
+    out.extend_from_slice(&my_id.to_crypt_bytes());
+    out.extend_from_slice(&keyword.to_crypt_bytes());
+    out.extend_from_slice(&(results.len().min(u16::MAX as usize) as u16).to_le_bytes());
+    for (file_id, filename, file_size, file_type) in results.iter().take(u16::MAX as usize) {
+        out.extend_from_slice(&file_id.to_crypt_bytes());
+        write_keyword_taglist(&mut out, filename.as_str(), *file_size, file_type.as_deref());
     }
     out
 }
@@ -460,6 +573,20 @@ fn write_publish_source_taglist(
     }
 }
 
+fn write_keyword_taglist(out: &mut Vec<u8>, filename: &str, file_size: u64, file_type: Option<&str>) {
+    let mut count = 2u8;
+    if file_type.is_some() {
+        count += 1;
+    }
+    out.push(count);
+
+    write_tag_string(out, TAG_FILENAME, filename);
+    write_tag_uint64(out, TAG_FILESIZE, file_size);
+    if let Some(t) = file_type {
+        write_tag_string(out, TAG_FILETYPE, t);
+    }
+}
+
 fn write_tag_uint8(out: &mut Vec<u8>, id: u8, val: u8) {
     out.push(TAGTYPE_UINT8 | 0x80);
     out.push(id);
@@ -470,6 +597,16 @@ fn write_tag_uint64(out: &mut Vec<u8>, id: u8, val: u64) {
     out.push(TAGTYPE_UINT64 | 0x80);
     out.push(id);
     out.extend_from_slice(&val.to_le_bytes());
+}
+
+fn write_tag_string(out: &mut Vec<u8>, id: u8, s: &str) {
+    // NOTE: Tag strings in iMule are UTF-8 for Kad packets.
+    out.push(TAGTYPE_STRING | 0x80);
+    out.push(id);
+    let b = s.as_bytes();
+    let len = b.len().min(u16::MAX as usize) as u16;
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&b[..len as usize]);
 }
 
 fn write_tag_address(out: &mut Vec<u8>, id: u8, addr: &[u8; I2P_DEST_LEN]) {

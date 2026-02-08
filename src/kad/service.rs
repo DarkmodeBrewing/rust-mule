@@ -9,15 +9,18 @@ use crate::{
             KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
             KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
             KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
-            KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_KEY_REQ,
-            KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, Kad2PublishRes, Kad2SearchRes,
+            KADEMLIA2_PUBLISH_KEY_REQ, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES,
+            KADEMLIA2_SEARCH_KEY_REQ, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ,
+            Kad2PublishKeyReq, Kad2PublishRes, Kad2PublishResKey, Kad2SearchRes,
             KadPacket, TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res,
-            decode_kad2_hello, decode_kad2_publish_res, decode_kad2_publish_source_req_min,
-            decode_kad2_req, decode_kad2_res, decode_kad2_search_res,
+            decode_kad2_hello, decode_kad2_publish_key_req, decode_kad2_publish_res,
+            decode_kad2_publish_res_key, decode_kad2_publish_source_req_min, decode_kad2_req,
+            decode_kad2_res, decode_kad2_search_key_req, decode_kad2_search_res,
             decode_kad2_search_source_req, encode_kad1_res, encode_kad2_hello,
+            encode_kad2_publish_key_req, encode_kad2_publish_res_for_key,
             encode_kad2_publish_res_for_source, encode_kad2_publish_source_req, encode_kad2_req,
-            encode_kad2_res, encode_kad2_search_key_req, encode_kad2_search_res_sources,
-            encode_kad2_search_source_req,
+            encode_kad2_res, encode_kad2_search_key_req, encode_kad2_search_res_keyword,
+            encode_kad2_search_res_sources, encode_kad2_search_source_req,
         },
     },
     nodes::imule::ImuleNode,
@@ -77,6 +80,11 @@ pub struct KadServiceConfig {
     pub keyword_max_total_hits: usize,
     /// Maximum hits to keep per keyword.
     pub keyword_max_hits_per_keyword: usize,
+
+    // DHT keyword storage (what we accept from inbound PUBLISH_KEY requests).
+    pub store_keyword_max_keywords: usize,
+    pub store_keyword_max_total_hits: usize,
+    pub store_keyword_evict_age_secs: u64,
 }
 
 impl Default for KadServiceConfig {
@@ -115,6 +123,10 @@ impl Default for KadServiceConfig {
             keyword_max_keywords: 64,
             keyword_max_total_hits: 50_000,
             keyword_max_hits_per_keyword: 2_000,
+
+            store_keyword_max_keywords: 1024,
+            store_keyword_max_total_hits: 200_000,
+            store_keyword_evict_age_secs: 14 * 24 * 60 * 60,
         }
     }
 }
@@ -143,6 +155,14 @@ struct KadServiceStats {
     new_keyword_results: u64,
     evicted_keyword_hits: u64,
     evicted_keyword_keywords: u64,
+
+    recv_publish_key_reqs: u64,
+    sent_publish_key_ress: u64,
+    sent_publish_key_reqs: u64,
+    recv_publish_key_ress: u64,
+    new_store_keyword_hits: u64,
+    evicted_store_keyword_hits: u64,
+    evicted_store_keyword_keywords: u64,
 
     sent_publish_source_reqs: u64,
     recv_publish_ress: u64,
@@ -181,6 +201,17 @@ pub struct KadServiceStatus {
     pub keyword_keywords_tracked: usize,
     pub keyword_hits_total: usize,
 
+    pub store_keyword_keywords: usize,
+    pub store_keyword_hits_total: usize,
+
+    pub recv_publish_key_reqs: u64,
+    pub sent_publish_key_ress: u64,
+    pub sent_publish_key_reqs: u64,
+    pub recv_publish_key_ress: u64,
+    pub new_store_keyword_hits: u64,
+    pub evicted_store_keyword_hits: u64,
+    pub evicted_store_keyword_keywords: u64,
+
     pub sent_publish_source_reqs: u64,
     pub recv_publish_ress: u64,
 }
@@ -193,6 +224,13 @@ pub enum KadServiceCommand {
     },
     SearchKeyword {
         keyword: KadId,
+    },
+    PublishKeyword {
+        keyword: KadId,
+        file: KadId,
+        filename: String,
+        file_size: u64,
+        file_type: Option<String>,
     },
     PublishSource {
         file: KadId,
@@ -232,6 +270,9 @@ pub struct KadService {
     keyword_hits_total: usize,
     keyword_interest: HashMap<KadId, Instant>,
 
+    keyword_store_by_keyword: BTreeMap<KadId, BTreeMap<KadId, KeywordHitState>>,
+    keyword_store_total: usize,
+
     pending_reqs: HashMap<String, Instant>,
     crawl_round: u64,
     stats_window: KadServiceStats,
@@ -253,6 +294,8 @@ impl KadService {
             keyword_hits_by_keyword: BTreeMap::new(),
             keyword_hits_total: 0,
             keyword_interest: HashMap::new(),
+            keyword_store_by_keyword: BTreeMap::new(),
+            keyword_store_total: 0,
             pending_reqs: HashMap::new(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
@@ -387,6 +430,19 @@ async fn handle_command(
             touch_keyword_interest(svc, cfg, keyword, now);
             send_search_keyword(svc, sock, crypto, keyword).await?;
         }
+        KadServiceCommand::PublishKeyword {
+            keyword,
+            file,
+            filename,
+            file_size,
+            file_type,
+        } => {
+            touch_keyword_interest(svc, cfg, keyword, now);
+            send_publish_keyword(
+                svc, sock, crypto, keyword, file, &filename, file_size, file_type.as_deref(),
+            )
+            .await?;
+        }
         KadServiceCommand::PublishSource { file, file_size } => {
             send_publish_source(svc, sock, crypto, file, file_size).await?;
         }
@@ -497,6 +553,52 @@ async fn send_search_keyword(
     }
 
     tracing::info!(keyword = %keyword.to_hex_lower(), "sent SEARCH_KEY_REQ");
+    Ok(())
+}
+
+async fn send_publish_keyword(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    keyword: KadId,
+    file: KadId,
+    filename: &str,
+    file_size: u64,
+    file_type: Option<&str>,
+) -> Result<()> {
+    if svc.routing.is_empty() {
+        return Ok(());
+    }
+
+    // Conservative: publish to only a small number of closest peers.
+    const PEERS: usize = 2;
+    let peers = svc.routing.closest_to(keyword, PEERS, 0);
+    let entries = [(file, filename, file_size, file_type)];
+    let payload = encode_kad2_publish_key_req(keyword, &entries);
+
+    for p in peers {
+        // iMule uses Kad2 publish key for version >= 2.
+        if p.kad_version < 2 {
+            continue;
+        }
+        if let Err(err) = send_kad2_packet(sock, &p, crypto, KADEMLIA2_PUBLISH_KEY_REQ, &payload)
+            .await
+        {
+            tracing::debug!(
+                error = %err,
+                to = %p.udp_dest_b64(),
+                "failed sending PUBLISH_KEY_REQ"
+            );
+            continue;
+        }
+        svc.stats_window.sent_publish_key_reqs += 1;
+    }
+
+    tracing::info!(
+        keyword = %keyword.to_hex_lower(),
+        file = %file.to_hex_lower(),
+        "sent PUBLISH_KEY_REQ"
+    );
     Ok(())
 }
 
@@ -1036,6 +1138,7 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
     }
 
     maintain_keyword_cache(svc, cfg, now);
+    maintain_keyword_store(svc, cfg, now);
 }
 
 fn maintain_keyword_cache(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
@@ -1093,6 +1196,105 @@ fn maintain_keyword_cache(svc: &mut KadService, cfg: &KadServiceConfig, now: Ins
     enforce_keyword_size_limits(svc, cfg, now);
 }
 
+fn maintain_keyword_store(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
+    // TTL pruning: drop keyword->file entries we haven't seen for a while.
+    let ttl = Duration::from_secs(cfg.store_keyword_evict_age_secs.max(60));
+    let keys = svc
+        .keyword_store_by_keyword
+        .keys()
+        .copied()
+        .collect::<Vec<_>>();
+    for k in keys {
+        let Some(m) = svc.keyword_store_by_keyword.get_mut(&k) else {
+            continue;
+        };
+        let mut to_remove = Vec::<KadId>::new();
+        for (file_id, st) in m.iter() {
+            if now.saturating_duration_since(st.last_seen) >= ttl {
+                to_remove.push(*file_id);
+            }
+        }
+        if !to_remove.is_empty() {
+            for file_id in to_remove {
+                if m.remove(&file_id).is_some() {
+                    svc.keyword_store_total = svc.keyword_store_total.saturating_sub(1);
+                    svc.stats_window.evicted_store_keyword_hits += 1;
+                }
+            }
+        }
+        if m.is_empty() {
+            svc.keyword_store_by_keyword.remove(&k);
+            svc.stats_window.evicted_store_keyword_keywords += 1;
+        }
+    }
+
+    enforce_keyword_store_limits(svc, cfg, now);
+}
+
+fn enforce_keyword_store_limits(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
+    let max_keywords = cfg.store_keyword_max_keywords;
+    let max_total = cfg.store_keyword_max_total_hits;
+
+    if max_keywords == 0 || max_total == 0 {
+        // Treat any 0 as "disable store".
+        if !svc.keyword_store_by_keyword.is_empty() {
+            svc.stats_window.evicted_store_keyword_keywords += svc.keyword_store_by_keyword.len() as u64;
+            svc.stats_window.evicted_store_keyword_hits += svc.keyword_store_total as u64;
+        }
+        svc.keyword_store_by_keyword.clear();
+        svc.keyword_store_total = 0;
+        return;
+    }
+
+    // If we exceed max keywords, evict oldest keyword buckets by "last seen" of any entry.
+    if svc.keyword_store_by_keyword.len() > max_keywords {
+        let mut v = svc
+            .keyword_store_by_keyword
+            .iter()
+            .map(|(k, m)| {
+                let last = m.values().map(|st| st.last_seen).max().unwrap_or(now);
+                (*k, last)
+            })
+            .collect::<Vec<_>>();
+        v.sort_by_key(|(_, t)| *t);
+
+        for (k, _) in v {
+            if svc.keyword_store_by_keyword.len() <= max_keywords {
+                break;
+            }
+            if let Some(m) = svc.keyword_store_by_keyword.remove(&k) {
+                svc.keyword_store_total = svc.keyword_store_total.saturating_sub(m.len());
+                svc.stats_window.evicted_store_keyword_keywords += 1;
+                svc.stats_window.evicted_store_keyword_hits += m.len() as u64;
+            }
+        }
+    }
+
+    // If we exceed max total hits, evict oldest keyword buckets until under cap.
+    if svc.keyword_store_total > max_total {
+        let mut v = svc
+            .keyword_store_by_keyword
+            .iter()
+            .map(|(k, m)| {
+                let last = m.values().map(|st| st.last_seen).max().unwrap_or(now);
+                (*k, last)
+            })
+            .collect::<Vec<_>>();
+        v.sort_by_key(|(_, t)| *t);
+
+        for (k, _) in v {
+            if svc.keyword_store_total <= max_total {
+                break;
+            }
+            if let Some(m) = svc.keyword_store_by_keyword.remove(&k) {
+                svc.keyword_store_total = svc.keyword_store_total.saturating_sub(m.len());
+                svc.stats_window.evicted_store_keyword_keywords += 1;
+                svc.stats_window.evicted_store_keyword_hits += m.len() as u64;
+            }
+        }
+    }
+}
+
 fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
     let routing = svc.routing.len();
     let now = Instant::now();
@@ -1103,6 +1305,8 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
     let pending = svc.pending_reqs.len();
     let keyword_keywords_tracked = svc.keyword_hits_by_keyword.len();
     let keyword_hits_total = svc.keyword_hits_total;
+    let store_keyword_keywords = svc.keyword_store_by_keyword.len();
+    let store_keyword_hits_total = svc.keyword_store_total;
     let w = svc.stats_window;
     svc.stats_window = KadServiceStats::default();
 
@@ -1136,6 +1340,17 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         evicted_keyword_keywords: w.evicted_keyword_keywords,
         keyword_keywords_tracked,
         keyword_hits_total,
+
+        store_keyword_keywords,
+        store_keyword_hits_total,
+
+        recv_publish_key_reqs: w.recv_publish_key_reqs,
+        sent_publish_key_ress: w.sent_publish_key_ress,
+        sent_publish_key_reqs: w.sent_publish_key_reqs,
+        recv_publish_key_ress: w.recv_publish_key_ress,
+        new_store_keyword_hits: w.new_store_keyword_hits,
+        evicted_store_keyword_hits: w.evicted_store_keyword_hits,
+        evicted_store_keyword_keywords: w.evicted_store_keyword_keywords,
 
         sent_publish_source_reqs: w.sent_publish_source_reqs,
         recv_publish_ress: w.recv_publish_ress,
@@ -1177,6 +1392,15 @@ fn publish_status(
         evicted_keyword_keywords = st.evicted_keyword_keywords,
         keyword_keywords_tracked = st.keyword_keywords_tracked,
         keyword_hits_total = st.keyword_hits_total,
+        store_keyword_keywords = st.store_keyword_keywords,
+        store_keyword_hits_total = st.store_keyword_hits_total,
+        recv_publish_key_reqs = st.recv_publish_key_reqs,
+        sent_publish_key_ress = st.sent_publish_key_ress,
+        sent_publish_key_reqs = st.sent_publish_key_reqs,
+        recv_publish_key_ress = st.recv_publish_key_ress,
+        new_store_keyword_hits = st.new_store_keyword_hits,
+        evicted_store_keyword_hits = st.evicted_store_keyword_hits,
+        evicted_store_keyword_keywords = st.evicted_store_keyword_keywords,
         sent_publish_source_reqs = st.sent_publish_source_reqs,
         recv_publish_ress = st.recv_publish_ress,
         "kad service status"
@@ -1598,6 +1822,76 @@ async fn handle_inbound(
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
         }
 
+        KADEMLIA2_PUBLISH_KEY_REQ => {
+            let req: Kad2PublishKeyReq = match decode_kad2_publish_key_req(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 PUBLISH_KEY_REQ payload");
+                    return Ok(());
+                }
+            };
+
+            svc.stats_window.recv_publish_key_reqs += 1;
+
+            let m = svc.keyword_store_by_keyword.entry(req.keyword).or_default();
+            let mut inserted = 0u64;
+            for e in req.entries {
+                let (Some(filename), Some(file_size)) = (e.filename, e.file_size) else {
+                    continue;
+                };
+                if filename.is_empty() {
+                    continue;
+                }
+                match m.get_mut(&e.file) {
+                    Some(st) => {
+                        st.hit.filename = filename;
+                        st.hit.file_size = file_size;
+                        st.hit.file_type = e.file_type;
+                        st.hit.publish_info = None;
+                        st.last_seen = now;
+                    }
+                    None => {
+                        m.insert(
+                            e.file,
+                            KeywordHitState {
+                                hit: KadKeywordHit {
+                                    file_id: e.file,
+                                    filename,
+                                    file_size,
+                                    file_type: e.file_type,
+                                    publish_info: None,
+                                },
+                                last_seen: now,
+                            },
+                        );
+                        svc.keyword_store_total = svc.keyword_store_total.saturating_add(1);
+                        inserted += 1;
+                    }
+                }
+            }
+
+            if inserted > 0 {
+                svc.stats_window.new_store_keyword_hits += inserted;
+                enforce_keyword_store_limits(svc, cfg, now);
+            }
+
+            // Reply with Kad2 publish result (key shape) so peers stop retransmitting.
+            let res_payload = encode_kad2_publish_res_for_key(req.keyword, 0);
+            let res_plain = KadPacket::encode(KADEMLIA2_PUBLISH_RES, &res_payload);
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+            let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &res_plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?
+            } else {
+                res_plain
+            };
+            let _ = sock.send_to(&from_dest_b64, &out).await;
+            svc.stats_window.sent_publish_key_ress += 1;
+        }
+
         KADEMLIA2_PUBLISH_SOURCE_REQ => {
             let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
                 Ok(r) => r,
@@ -1635,6 +1929,50 @@ async fn handle_inbound(
                 )?
             } else {
                 res_plain
+            };
+
+            let _ = sock.send_to(&from_dest_b64, &out).await;
+        }
+
+        KADEMLIA2_SEARCH_KEY_REQ => {
+            let req = match decode_kad2_search_key_req(&pkt.payload) {
+                Ok(r) => r,
+                Err(err) => {
+                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 SEARCH_KEY_REQ payload");
+                    return Ok(());
+                }
+            };
+
+            let results = svc
+                .keyword_store_by_keyword
+                .get(&req.target)
+                .map(|m| {
+                    m.values()
+                        .skip(req.start_position as usize)
+                        .take(64)
+                        .map(|st| {
+                            (
+                                st.hit.file_id,
+                                st.hit.filename.clone(),
+                                st.hit.file_size,
+                                st.hit.file_type.clone(),
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            let payload = encode_kad2_search_res_keyword(crypto.my_kad_id, req.target, &results);
+            let plain = KadPacket::encode(KADEMLIA2_SEARCH_RES, &payload);
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+            let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?
+            } else {
+                plain
             };
 
             let _ = sock.send_to(&from_dest_b64, &out).await;
@@ -1770,30 +2108,62 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_PUBLISH_RES => {
-            // Publish results can be different shapes (key/source/notes). We currently only parse
-            // the Kad2 "source" response shape (<u128><u32><u32><u8>) as used for PUBLISH_SOURCE_REQ.
-            let res: Kad2PublishRes = match decode_kad2_publish_res(&pkt.payload) {
-                Ok(r) => r,
-                Err(err) => {
+            // Publish results can be different shapes (key/source/notes).
+            // - Key:   <u128 key><u8 load>
+            // - Source: <u128 file><u32 sources><u32 complete><u8 load>
+            match pkt.payload.len() {
+                17 => {
+                    let res: Kad2PublishResKey = match decode_kad2_publish_res_key(&pkt.payload) {
+                        Ok(r) => r,
+                        Err(err) => {
+                            tracing::trace!(
+                                error = %err,
+                                from = %from_dest_b64,
+                                len = pkt.payload.len(),
+                                "unparsed KAD2 PUBLISH_RES (key)"
+                            );
+                            return Ok(());
+                        }
+                    };
+                    svc.stats_window.recv_publish_key_ress += 1;
+                    tracing::debug!(
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        key = %res.key.to_hex_lower(),
+                        load = res.load,
+                        "got PUBLISH_RES (key)"
+                    );
+                }
+                25.. => {
+                    let res: Kad2PublishRes = match decode_kad2_publish_res(&pkt.payload) {
+                        Ok(r) => r,
+                        Err(err) => {
+                            tracing::trace!(
+                                error = %err,
+                                from = %from_dest_b64,
+                                len = pkt.payload.len(),
+                                "unparsed KAD2 PUBLISH_RES (source)"
+                            );
+                            return Ok(());
+                        }
+                    };
+                    svc.stats_window.recv_publish_ress += 1;
+                    tracing::debug!(
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        file = %res.file.to_hex_lower(),
+                        sources = res.source_count,
+                        complete = res.complete_count,
+                        load = res.load,
+                        "got PUBLISH_RES (source)"
+                    );
+                }
+                _ => {
                     tracing::trace!(
-                        error = %err,
                         from = %from_dest_b64,
                         len = pkt.payload.len(),
-                        "unparsed KAD2 PUBLISH_RES"
+                        "unhandled KAD2 PUBLISH_RES shape"
                     );
-                    return Ok(());
                 }
-            };
-
-            svc.stats_window.recv_publish_ress += 1;
-            tracing::debug!(
-                from = %crate::i2p::b64::short(&from_dest_b64),
-                file = %res.file.to_hex_lower(),
-                sources = res.source_count,
-                complete = res.complete_count,
-                load = res.load,
-                "got PUBLISH_RES"
-            );
+            }
         }
 
         other => {

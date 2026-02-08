@@ -143,6 +143,19 @@ fn default_kad_service_keyword_max_hits_per_keyword() -> usize {
     2_000
 }
 
+fn default_kad_service_store_keyword_max_keywords() -> usize {
+    // How many distinct keyword IDs we are willing to store entries for (DHT role).
+    1024
+}
+fn default_kad_service_store_keyword_max_total_hits() -> usize {
+    // Global hard cap for stored keyword->file entries.
+    200_000
+}
+fn default_kad_service_store_keyword_evict_age_secs() -> u64 {
+    // Stored keyword entries are intermittent on I2P; keep them around for a while.
+    14 * 24 * 60 * 60
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -238,6 +251,11 @@ pub struct KadConfig {
     pub service_keyword_max_keywords: usize,
     pub service_keyword_max_total_hits: usize,
     pub service_keyword_max_hits_per_keyword: usize,
+
+    // DHT keyword storage (when other peers publish keywords to us)
+    pub service_store_keyword_max_keywords: usize,
+    pub service_store_keyword_max_total_hits: usize,
+    pub service_store_keyword_evict_age_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -314,6 +332,10 @@ impl Default for KadConfig {
             service_keyword_max_keywords: default_kad_service_keyword_max_keywords(),
             service_keyword_max_total_hits: default_kad_service_keyword_max_total_hits(),
             service_keyword_max_hits_per_keyword: default_kad_service_keyword_max_hits_per_keyword(),
+
+            service_store_keyword_max_keywords: default_kad_service_store_keyword_max_keywords(),
+            service_store_keyword_max_total_hits: default_kad_service_store_keyword_max_total_hits(),
+            service_store_keyword_evict_age_secs: default_kad_service_store_keyword_evict_age_secs(),
         }
     }
 }
