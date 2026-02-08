@@ -515,32 +515,60 @@ async fn create_kad_socket(
                 .with_timeout(Duration::from_secs(config.sam.control_timeout_secs));
             dg.hello("3.0", "3.3").await?;
 
-            if let Err(err) = dg
-                .session_create_datagram(
-                    kad_session_id,
-                    &keys.priv_key,
-                    ["i2cp.messageReliability=BestEffort"],
-                )
-                .await
-            {
-                let msg = err.to_string();
-                if msg.contains("Session already exists")
-                    || msg.contains("DUPLICATED_ID")
-                    || msg.contains("Duplicate")
-                {
-                    tracing::warn!(
-                        session = %kad_session_id,
-                        "SAM session exists; destroying and retrying"
-                    );
-                    let _ = dg.session_destroy(kad_session_id).await;
-                    dg.session_create_datagram(
+            let mut attempt = 0u32;
+            let mut backoff = Duration::from_secs(1);
+            loop {
+                attempt += 1;
+                let res = dg
+                    .session_create_datagram(
                         kad_session_id,
                         &keys.priv_key,
                         ["i2cp.messageReliability=BestEffort"],
                     )
-                    .await?;
-                } else {
-                    return Err(err.into());
+                    .await;
+
+                match res {
+                    Ok(_) => break,
+                    Err(err) => {
+                        // Recoverable-ish: the session already exists (common after a reconnect).
+                        let is_dup_id = matches!(
+                            &err,
+                            crate::i2p::sam::SamError::ReplyError {
+                                result: Some(r),
+                                ..
+                            } if r == "DUPLICATED_ID"
+                        );
+                        let is_dup_msg = err.to_string().contains("Session already exists")
+                            || err.to_string().contains("Duplicate");
+
+                        if is_dup_id || is_dup_msg {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                "SAM session exists; destroying and retrying"
+                            );
+                            let _ = dg.session_destroy(kad_session_id).await;
+                        } else if err.to_string().contains("duplicate destination")
+                            || err.to_string().contains("Failed to build tunnels")
+                            || err.to_string().contains("Disconnected from router")
+                        {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                attempt,
+                                backoff_secs = backoff.as_secs(),
+                                error = %err,
+                                "SAM session creation failed; retrying after backoff"
+                            );
+                            tokio::time::sleep(backoff).await;
+                            backoff = std::cmp::min(backoff * 2, Duration::from_secs(60));
+                        } else {
+                            return Err(err.into());
+                        }
+
+                        if attempt >= 8 {
+                            return Err(err.into());
+                        }
+                        continue;
+                    }
                 }
             }
 
@@ -587,36 +615,61 @@ async fn create_kad_socket(
             .await?;
 
             // Create SAM datagram session (idempotent-ish).
-            if let Err(err) = sam
-                .session_create_datagram_forward(
-                    kad_session_id,
-                    &keys.priv_key,
-                    dg.forward_port(),
-                    sam_forward_ip,
-                    ["i2cp.messageReliability=BestEffort"],
-                )
-                .await
-            {
-                let msg = err.to_string();
-                if msg.contains("Session already exists")
-                    || msg.contains("DUPLICATED_ID")
-                    || msg.contains("Duplicate")
-                {
-                    tracing::warn!(
-                        session = %kad_session_id,
-                        "SAM session exists; destroying and retrying"
-                    );
-                    let _ = sam.session_destroy(kad_session_id).await;
-                    sam.session_create_datagram_forward(
+            let mut attempt = 0u32;
+            let mut backoff = Duration::from_secs(1);
+            loop {
+                attempt += 1;
+                let res = sam
+                    .session_create_datagram_forward(
                         kad_session_id,
                         &keys.priv_key,
                         dg.forward_port(),
                         sam_forward_ip,
                         ["i2cp.messageReliability=BestEffort"],
                     )
-                    .await?;
-                } else {
-                    return Err(err.into());
+                    .await;
+
+                match res {
+                    Ok(_) => break,
+                    Err(err) => {
+                        let is_dup_id = matches!(
+                            &err,
+                            crate::i2p::sam::SamError::ReplyError {
+                                result: Some(r),
+                                ..
+                            } if r == "DUPLICATED_ID"
+                        );
+                        let is_dup_msg = err.to_string().contains("Session already exists")
+                            || err.to_string().contains("Duplicate");
+
+                        if is_dup_id || is_dup_msg {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                "SAM session exists; destroying and retrying"
+                            );
+                            let _ = sam.session_destroy(kad_session_id).await;
+                        } else if err.to_string().contains("duplicate destination")
+                            || err.to_string().contains("Failed to build tunnels")
+                            || err.to_string().contains("Disconnected from router")
+                        {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                attempt,
+                                backoff_secs = backoff.as_secs(),
+                                error = %err,
+                                "SAM session creation failed; retrying after backoff"
+                            );
+                            tokio::time::sleep(backoff).await;
+                            backoff = std::cmp::min(backoff * 2, Duration::from_secs(60));
+                        } else {
+                            return Err(err.into());
+                        }
+
+                        if attempt >= 8 {
+                            return Err(err.into());
+                        }
+                        continue;
+                    }
                 }
             }
 

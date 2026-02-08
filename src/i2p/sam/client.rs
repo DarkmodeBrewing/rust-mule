@@ -30,14 +30,56 @@ impl SamClient {
     }
 
     pub async fn session_destroy(&mut self, name: &str) -> Result<SamReply> {
+        self.session_destroy_hint_style(name, None).await
+    }
+
+    async fn session_destroy_hint_style(
+        &mut self,
+        name: &str,
+        style_hint: Option<&'static str>,
+    ) -> Result<SamReply> {
+        // SAM versions differ here:
+        // - Some accept: `SESSION DESTROY ID=...`
+        // - Some require: `SESSION DESTROY STYLE=... ID=...` (router replies `I2P_ERROR` otherwise)
+        //
+        // So we try the simplest form first and fall back to style-specific destroy.
+
+        if let Some(style) = style_hint {
+            let reply = self
+                .send_cmd(
+                    SamCommand::new("SESSION DESTROY").arg("STYLE", style).arg("ID", name),
+                    "SESSION",
+                )
+                .await?;
+            if reply.is_ok() {
+                return Ok(reply);
+            }
+            // Fall through to the compatibility path below.
+        }
+
         let reply = self
-            .send_cmd(
-                SamCommand::new("SESSION DESTROY").arg("ID", name),
-                "SESSION",
-            )
+            .send_cmd(SamCommand::new("SESSION DESTROY").arg("ID", name), "SESSION")
             .await?;
+        if reply.is_ok() {
+            return Ok(reply);
+        }
+
+        if matches!(reply.message(), Some(msg) if msg.contains("No SESSION STYLE specified")) {
+            for style in ["DATAGRAM", "STREAM"] {
+                let r = self
+                    .send_cmd(
+                        SamCommand::new("SESSION DESTROY").arg("STYLE", style).arg("ID", name),
+                        "SESSION",
+                    )
+                    .await?;
+                if r.is_ok() {
+                    return Ok(r);
+                }
+            }
+        }
+
         reply.require_ok()?;
-        Ok(reply)
+        unreachable!("require_ok above always returns Err for non-OK replies")
     }
 
     pub async fn session_create(
@@ -148,30 +190,12 @@ impl SamClient {
                 tracing::warn!(session=%name, "SAM session already exists; destroying and retrying");
 
                 // Try destroy, but be tolerant if it's already gone / races.
-                let destroy_reply = self
-                    .send_cmd(
-                        SamCommand::new("SESSION DESTROY").arg("ID", name),
-                        "SESSION",
-                    )
-                    .await?;
-
-                match destroy_reply.result() {
-                    Some("OK") => {}
-                    // Sometimes SAM returns I2P_ERROR if it doesn't exist; don't treat as fatal here.
-                    Some("I2P_ERROR") => {
-                        tracing::warn!(
-                            session=%name,
-                            message=%destroy_reply.message().unwrap_or(""),
-                            "SESSION DESTROY returned I2P_ERROR; continuing"
-                        );
-                    }
-                    _ => {
-                        tracing::warn!(
-                            session=%name,
-                            raw=%destroy_reply.raw_redacted(),
-                            "Unexpected DESTROY reply"
-                        );
-                    }
+                if let Err(err) = self.session_destroy_hint_style(name, Some("STREAM")).await {
+                    tracing::warn!(
+                        session=%name,
+                        error=%err,
+                        "SESSION DESTROY failed; continuing"
+                    );
                 }
 
                 let reply2 = self.send_cmd(create_cmd, "SESSION").await?;

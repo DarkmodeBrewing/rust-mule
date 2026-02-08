@@ -41,6 +41,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.
   - If keyword lookups feel too slow to re-learn, bump:
     - `kad.service_keyword_interest_ttl_secs` and `kad.service_keyword_results_ttl_secs` (e.g. 7 days = `604800`).
+- 2026-02-08: Fix SAM session teardown + reconnect resilience:
+  - Some SAM routers require `SESSION DESTROY STYLE=... ID=...`; we now fall back to style-specific destroys for both STREAM and DATAGRAM sessions (`src/i2p/sam/client.rs`, `src/i2p/sam/datagram_tcp.rs`).
+  - KAD socket recreation now retries session creation with exponential backoff on tunnel-build errors like “duplicate destination” instead of crashing (`src/app.rs`).
 
 ## Current State (As Of 2026-02-07)
 
