@@ -75,6 +75,15 @@ curl -sS "${AUTH[@]}" "${JSON[@]}" \
   "$BASE_URL/kad/search_keyword" | jq .
 ```
 
+Or specify a keyword hash directly:
+
+```bash
+KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{\"keyword_id_hex\":\"$KEYWORD_ID_HEX\"}" \
+  "$BASE_URL/kad/search_keyword" | jq .
+```
+
 ## KAD: Read Keyword Hits Learned So Far (In-Memory)
 
 ```bash
@@ -96,5 +105,18 @@ FILE_TYPE="Pro"
 
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"query\":\"$QUERY\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE,\"file_type\":\"$FILE_TYPE\"}" \
+  "$BASE_URL/kad/publish_keyword" | jq .
+```
+
+Or specify a keyword hash directly:
+
+```bash
+KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
+FILE_ID_HEX="00112233445566778899aabbccddeeff"
+FILENAME="ubuntu-24.04.iso"
+FILE_SIZE=123
+
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{\"keyword_id_hex\":\"$KEYWORD_ID_HEX\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE}" \
   "$BASE_URL/kad/publish_keyword" | jq .
 ```

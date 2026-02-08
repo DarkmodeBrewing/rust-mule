@@ -27,7 +27,7 @@ use crate::{
 };
 use anyhow::Result;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
@@ -86,6 +86,11 @@ pub struct KadServiceConfig {
     pub store_keyword_max_total_hits: usize,
     pub store_keyword_evict_age_secs: u64,
 }
+
+const KEYWORD_JOB_TTL: Duration = Duration::from_secs(20 * 60);
+const KEYWORD_JOB_LOOKUP_EVERY: Duration = Duration::from_secs(60);
+const KEYWORD_JOB_ACTION_EVERY: Duration = Duration::from_secs(60);
+const KEYWORD_JOB_ACTION_BATCH: usize = 3;
 
 impl Default for KadServiceConfig {
     fn default() -> Self {
@@ -273,6 +278,8 @@ pub struct KadService {
     keyword_store_by_keyword: BTreeMap<KadId, BTreeMap<KadId, KeywordHitState>>,
     keyword_store_total: usize,
 
+    keyword_jobs: HashMap<KadId, KeywordJob>,
+
     pending_reqs: HashMap<String, Instant>,
     crawl_round: u64,
     stats_window: KadServiceStats,
@@ -286,6 +293,27 @@ struct KeywordHitState {
     last_seen: Instant,
 }
 
+#[derive(Debug, Clone)]
+enum KeywordJobKind {
+    Search,
+    Publish {
+        file: KadId,
+        filename: String,
+        file_size: u64,
+        file_type: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct KeywordJob {
+    kind: KeywordJobKind,
+    created_at: Instant,
+    next_lookup_at: Instant,
+    next_action_at: Instant,
+    sent_to: HashSet<String>,
+    got_publish_ack: bool,
+}
+
 impl KadService {
     pub fn new(my_id: KadId, cmd_rx: mpsc::Receiver<KadServiceCommand>) -> Self {
         Self {
@@ -296,6 +324,7 @@ impl KadService {
             keyword_interest: HashMap::new(),
             keyword_store_by_keyword: BTreeMap::new(),
             keyword_store_total: 0,
+            keyword_jobs: HashMap::new(),
             pending_reqs: HashMap::new(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
@@ -390,6 +419,7 @@ pub async fn run_service(
 
             _ = maintenance_tick.tick() => {
                 maintenance(svc, &cfg).await;
+                progress_keyword_jobs(svc, sock, crypto, &cfg).await?;
             }
 
             _ = status_tick.tick() => {
@@ -428,7 +458,7 @@ async fn handle_command(
         }
         KadServiceCommand::SearchKeyword { keyword } => {
             touch_keyword_interest(svc, cfg, keyword, now);
-            send_search_keyword(svc, sock, crypto, keyword).await?;
+            start_keyword_job_search(svc, sock, crypto, cfg, keyword, now).await?;
         }
         KadServiceCommand::PublishKeyword {
             keyword,
@@ -438,8 +468,33 @@ async fn handle_command(
             file_type,
         } => {
             touch_keyword_interest(svc, cfg, keyword, now);
-            send_publish_keyword(
-                svc, sock, crypto, keyword, file, &filename, file_size, file_type.as_deref(),
+            // For UX/debugging: reflect our own publish locally as well, so it is visible via
+            // `/kad/keyword_results/<keyword>` even if the network is empty/silent.
+            upsert_keyword_hit_cache(
+                svc,
+                cfg,
+                now,
+                keyword,
+                KadKeywordHit {
+                    file_id: file,
+                    filename: filename.clone(),
+                    file_size,
+                    file_type: file_type.clone(),
+                    publish_info: None,
+                },
+            );
+
+            start_keyword_job_publish(
+                svc,
+                sock,
+                crypto,
+                cfg,
+                keyword,
+                file,
+                filename,
+                file_size,
+                file_type,
+                now,
             )
             .await?;
         }
@@ -529,102 +584,6 @@ async fn send_search_sources(
     Ok(())
 }
 
-async fn send_search_keyword(
-    svc: &mut KadService,
-    sock: &mut SamKadSocket,
-    crypto: KadServiceCrypto,
-    keyword: KadId,
-) -> Result<()> {
-    if svc.routing.is_empty() {
-        return Ok(());
-    }
-
-    // Ask a few peers, but prefer ones we've actually heard from recently.
-    let now = Instant::now();
-    let peers = svc.routing.closest_to_prefer_live(
-        keyword,
-        8,
-        0,
-        now,
-        Duration::from_secs(10 * 60),
-        3,
-    );
-    for p in peers {
-        // iMule uses Kad2 search key only for version >= 3.
-        if p.kad_version < 3 {
-            continue;
-        }
-        let payload = encode_kad2_search_key_req(keyword, 0);
-        if let Err(err) =
-            send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload).await
-        {
-            tracing::debug!(
-                error = %err,
-                to = %p.udp_dest_b64(),
-                "failed sending SEARCH_KEY_REQ"
-            );
-            continue;
-        }
-        svc.stats_window.sent_search_key_reqs += 1;
-    }
-
-    tracing::info!(keyword = %keyword.to_hex_lower(), "sent SEARCH_KEY_REQ");
-    Ok(())
-}
-
-async fn send_publish_keyword(
-    svc: &mut KadService,
-    sock: &mut SamKadSocket,
-    crypto: KadServiceCrypto,
-    keyword: KadId,
-    file: KadId,
-    filename: &str,
-    file_size: u64,
-    file_type: Option<&str>,
-) -> Result<()> {
-    if svc.routing.is_empty() {
-        return Ok(());
-    }
-
-    // Publish to a few peers, prefer recently-live.
-    let now = Instant::now();
-    let peers = svc.routing.closest_to_prefer_live(
-        keyword,
-        6,
-        0,
-        now,
-        Duration::from_secs(10 * 60),
-        2,
-    );
-    let entries = [(file, filename, file_size, file_type)];
-    let payload = encode_kad2_publish_key_req(keyword, &entries);
-
-    for p in peers {
-        // iMule uses Kad2 publish key for version >= 2.
-        if p.kad_version < 2 {
-            continue;
-        }
-        if let Err(err) = send_kad2_packet(sock, &p, crypto, KADEMLIA2_PUBLISH_KEY_REQ, &payload)
-            .await
-        {
-            tracing::debug!(
-                error = %err,
-                to = %p.udp_dest_b64(),
-                "failed sending PUBLISH_KEY_REQ"
-            );
-            continue;
-        }
-        svc.stats_window.sent_publish_key_reqs += 1;
-    }
-
-    tracing::info!(
-        keyword = %keyword.to_hex_lower(),
-        file = %file.to_hex_lower(),
-        "sent PUBLISH_KEY_REQ"
-    );
-    Ok(())
-}
-
 async fn send_publish_source(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
@@ -671,6 +630,225 @@ async fn send_publish_source(
     }
 
     tracing::info!(file = %file.to_hex_lower(), "sent PUBLISH_SOURCE_REQ");
+    Ok(())
+}
+
+async fn start_keyword_job_search(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+    keyword: KadId,
+    now: Instant,
+) -> Result<()> {
+    let job = svc.keyword_jobs.entry(keyword).or_insert_with(|| KeywordJob {
+        kind: KeywordJobKind::Search,
+        created_at: now,
+        next_lookup_at: now,
+        next_action_at: now,
+        sent_to: HashSet::new(),
+        got_publish_ack: false,
+    });
+
+    job.kind = KeywordJobKind::Search;
+    job.created_at = now;
+    job.next_lookup_at = now;
+    job.next_action_at = now;
+
+    // Kick off immediately (lookup + first action batch).
+    progress_keyword_job(svc, sock, crypto, cfg, keyword, now).await?;
+    Ok(())
+}
+
+async fn start_keyword_job_publish(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+    keyword: KadId,
+    file: KadId,
+    filename: String,
+    file_size: u64,
+    file_type: Option<String>,
+    now: Instant,
+) -> Result<()> {
+    let job = svc.keyword_jobs.entry(keyword).or_insert_with(|| KeywordJob {
+        kind: KeywordJobKind::Publish {
+            file,
+            filename: filename.clone(),
+            file_size,
+            file_type: file_type.clone(),
+        },
+        created_at: now,
+        next_lookup_at: now,
+        next_action_at: now,
+        sent_to: HashSet::new(),
+        got_publish_ack: false,
+    });
+
+    job.kind = KeywordJobKind::Publish {
+        file,
+        filename,
+        file_size,
+        file_type,
+    };
+    job.created_at = now;
+    job.next_lookup_at = now;
+    job.next_action_at = now;
+    job.got_publish_ack = false;
+
+    progress_keyword_job(svc, sock, crypto, cfg, keyword, now).await?;
+    Ok(())
+}
+
+async fn progress_keyword_jobs(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+) -> Result<()> {
+    if svc.keyword_jobs.is_empty() {
+        return Ok(());
+    }
+
+    let now = Instant::now();
+    let keys: Vec<KadId> = svc.keyword_jobs.keys().copied().collect();
+    for k in keys {
+        let expired = svc
+            .keyword_jobs
+            .get(&k)
+            .is_some_and(|j| now.saturating_duration_since(j.created_at) > KEYWORD_JOB_TTL);
+        if expired {
+            svc.keyword_jobs.remove(&k);
+            continue;
+        }
+        // A publish job can stop early once any peer acks it.
+        let done = svc.keyword_jobs.get(&k).is_some_and(|j| {
+            matches!(j.kind, KeywordJobKind::Publish { .. }) && j.got_publish_ack
+        });
+        if done {
+            svc.keyword_jobs.remove(&k);
+            continue;
+        }
+
+        progress_keyword_job(svc, sock, crypto, cfg, k, now).await?;
+    }
+    Ok(())
+}
+
+async fn progress_keyword_job(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+    keyword: KadId,
+    now: Instant,
+) -> Result<()> {
+    let Some(mut job) = svc.keyword_jobs.remove(&keyword) else {
+        return Ok(());
+    };
+
+    if now >= job.next_lookup_at {
+        // Targeted lookup toward the keyword ID to discover closer nodes.
+        let req_min = Duration::from_secs(cfg.req_min_interval_secs.max(1));
+        let alpha = cfg.alpha.max(1);
+        let mut candidates = svc.routing.select_query_candidates_for_target(
+            keyword,
+            alpha * 10,
+            now,
+            req_min,
+            cfg.max_failures,
+        );
+        candidates.retain(|p| !svc.pending_reqs.contains_key(&p.udp_dest_b64()));
+        for p in candidates.into_iter().take(alpha) {
+            let requested_contacts = cfg.req_contacts.clamp(1, 31);
+            let _ = send_kad2_req(svc, sock, crypto, cfg, requested_contacts, keyword, &p).await;
+        }
+        job.next_lookup_at = now + KEYWORD_JOB_LOOKUP_EVERY;
+    }
+
+    if now < job.next_action_at {
+        svc.keyword_jobs.insert(keyword, job);
+        return Ok(());
+    }
+
+    let peers = svc.routing.closest_to_prefer_live(
+        keyword,
+        32,
+        0,
+        now,
+        Duration::from_secs(30 * 60),
+        3,
+    );
+
+    let mut sent = 0usize;
+    for p in peers {
+        if sent >= KEYWORD_JOB_ACTION_BATCH {
+            break;
+        }
+        let dest = p.udp_dest_b64();
+        if job.sent_to.contains(&dest) {
+            continue;
+        }
+
+        match &job.kind {
+            KeywordJobKind::Search => {
+                // iMule uses Kad2 search key only for version >= 3.
+                if p.kad_version < 3 {
+                    continue;
+                }
+                let payload = encode_kad2_search_key_req(keyword, 0);
+                if send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload)
+                    .await
+                    .is_ok()
+                {
+                    svc.stats_window.sent_search_key_reqs += 1;
+                    job.sent_to.insert(dest);
+                    sent += 1;
+                }
+            }
+            KeywordJobKind::Publish {
+                file,
+                filename,
+                file_size,
+                file_type,
+            } => {
+                // iMule uses Kad2 publish key for version >= 2.
+                if p.kad_version < 2 {
+                    continue;
+                }
+                let entries = [(*file, filename.as_str(), *file_size, file_type.as_deref())];
+                let payload = encode_kad2_publish_key_req(keyword, &entries);
+                if send_kad2_packet(sock, &p, crypto, KADEMLIA2_PUBLISH_KEY_REQ, &payload)
+                    .await
+                    .is_ok()
+                {
+                    svc.stats_window.sent_publish_key_reqs += 1;
+                    job.sent_to.insert(dest);
+                    sent += 1;
+                }
+            }
+        }
+    }
+
+    if sent > 0 {
+        match &job.kind {
+            KeywordJobKind::Search => {
+                tracing::info!(keyword = %keyword.to_hex_lower(), sent, "sent SEARCH_KEY_REQ (job)");
+            }
+            KeywordJobKind::Publish { file, .. } => {
+                tracing::info!(
+                    keyword = %keyword.to_hex_lower(),
+                    file = %file.to_hex_lower(),
+                    sent,
+                    "sent PUBLISH_KEY_REQ (job)"
+                );
+            }
+        }
+    }
+
+    job.next_action_at = now + KEYWORD_JOB_ACTION_EVERY;
+    svc.keyword_jobs.insert(keyword, job);
     Ok(())
 }
 
@@ -830,48 +1008,40 @@ async fn crawl_once(
     let requested_contacts = cfg.req_contacts.clamp(1, 31);
 
     for p in peers {
-        let dest = p.udp_dest_b64();
-        let target_kad_id = KadId(p.client_id);
-
-        // NOTE: iMule's `KADEMLIA2_REQ` includes a `check` field which must match the *receiver's*
-        // KadID (used to discard packets not intended for this node). If we put our own KadID here,
-        // peers will silently ignore the request and we'll never get `KADEMLIA2_RES`.
-        let req_payload =
-            encode_kad2_req(requested_contacts, target, target_kad_id, crypto.my_kad_id);
-        let req_plain = KadPacket::encode(KADEMLIA2_REQ, &req_payload);
-
-        let sender_verify_key =
-            udp_crypto::udp_verify_key(crypto.udp_key_secret, p.udp_dest_hash_code());
-        let receiver_verify_key = if p.udp_key_ip == crypto.my_dest_hash {
-            p.udp_key
-        } else {
-            0
-        };
-
-        let out = if p.kad_version >= 6 {
-            udp_crypto::encrypt_kad_packet(
-                &req_plain,
-                target_kad_id,
-                receiver_verify_key,
-                sender_verify_key,
-            )?
-        } else {
-            req_plain.clone()
-        };
-
-        if let Err(err) = sock.send_to(&dest, &out).await {
-            tracing::debug!(error = %err, to = %dest, "failed sending KAD2 REQ (crawl)");
-        } else {
-            tracing::trace!(to = %dest, "sent KAD2 REQ (crawl)");
-            svc.stats_window.sent_reqs += 1;
-            svc.pending_reqs.insert(
-                dest.clone(),
-                Instant::now() + Duration::from_secs(cfg.req_timeout_secs.max(5)),
-            );
-            svc.routing.mark_queried_by_dest(&dest, Instant::now());
+        if let Err(err) =
+            send_kad2_req(svc, sock, crypto, cfg, requested_contacts, target, &p).await
+        {
+            tracing::debug!(error = %err, to = %p.udp_dest_b64(), "failed sending KAD2 REQ (crawl)");
         }
     }
 
+    Ok(())
+}
+
+async fn send_kad2_req(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+    requested_contacts: u8,
+    target: KadId,
+    peer: &ImuleNode,
+) -> Result<()> {
+    let dest = peer.udp_dest_b64();
+    let target_kad_id = KadId(peer.client_id);
+
+    // NOTE: iMule's `KADEMLIA2_REQ` includes a `check` field which must match the *receiver's*
+    // KadID (used to discard packets not intended for this node). If we put our own KadID here,
+    // peers will silently ignore the request and we'll never get `KADEMLIA2_RES`.
+    let req_payload = encode_kad2_req(requested_contacts, target, target_kad_id, crypto.my_kad_id);
+    send_kad2_packet(sock, peer, crypto, KADEMLIA2_REQ, &req_payload).await?;
+
+    svc.stats_window.sent_reqs += 1;
+    svc.pending_reqs.insert(
+        dest.clone(),
+        Instant::now() + Duration::from_secs(cfg.req_timeout_secs.max(5)),
+    );
+    svc.routing.mark_queried_by_dest(&dest, Instant::now());
     Ok(())
 }
 
@@ -1037,6 +1207,38 @@ fn enforce_keyword_interest_limit(svc: &mut KadService, cfg: &KadServiceConfig) 
 fn enforce_keyword_size_limits(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
     enforce_keyword_per_keyword_caps_all(svc, cfg);
     enforce_keyword_total_cap(svc, cfg, now);
+}
+
+fn upsert_keyword_hit_cache(
+    svc: &mut KadService,
+    cfg: &KadServiceConfig,
+    now: Instant,
+    keyword: KadId,
+    hit: KadKeywordHit,
+) {
+    if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&keyword) {
+        return;
+    }
+
+    let m = svc.keyword_hits_by_keyword.entry(keyword).or_default();
+    match m.get_mut(&hit.file_id) {
+        Some(st) => {
+            st.hit = hit;
+            st.last_seen = now;
+        }
+        None => {
+            m.insert(
+                hit.file_id,
+                KeywordHitState {
+                    hit,
+                    last_seen: now,
+                },
+            );
+            svc.keyword_hits_total = svc.keyword_hits_total.saturating_add(1);
+        }
+    }
+
+    enforce_keyword_size_limits(svc, cfg, now);
 }
 
 fn enforce_keyword_per_keyword_caps_all(svc: &mut KadService, cfg: &KadServiceConfig) {
@@ -1802,12 +2004,14 @@ async fn handle_inbound(
                     return Ok(());
                 }
             };
-            tracing::trace!(from = %from_dest_b64, contacts = res.contacts.len(), "got KAD2 RES");
+            let target = res.target;
+            let contacts = res.contacts;
+            tracing::trace!(from = %from_dest_b64, contacts = contacts.len(), "got KAD2 RES");
             svc.pending_reqs.remove(&from_dest_b64);
             svc.stats_window.recv_ress += 1;
-            svc.stats_window.res_contacts += res.contacts.len() as u64;
+            svc.stats_window.res_contacts += contacts.len() as u64;
             let before = svc.routing.len();
-            for c in res.contacts {
+            for c in contacts {
                 let _ = svc.routing.upsert(
                     ImuleNode {
                         kad_version: c.kad_version,
@@ -1829,6 +2033,12 @@ async fn handle_inbound(
                     routing = svc.routing.len(),
                     "learned new nodes from KAD2 RES"
                 );
+            }
+
+            // If this response was part of a user-initiated keyword lookup/publish, nudge the
+            // job forward immediately instead of waiting for the next maintenance tick.
+            if svc.keyword_jobs.contains_key(&target) {
+                progress_keyword_job(svc, sock, crypto, cfg, target, now).await?;
             }
         }
 
@@ -2156,6 +2366,9 @@ async fn handle_inbound(
                         }
                     };
                     svc.stats_window.recv_publish_key_ress += 1;
+                    if let Some(job) = svc.keyword_jobs.get_mut(&res.key) {
+                        job.got_publish_ack = true;
+                    }
                     tracing::debug!(
                         from = %crate::i2p::b64::short(&from_dest_b64),
                         key = %res.key.to_hex_lower(),

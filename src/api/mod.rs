@@ -88,12 +88,18 @@ struct KadSourcesReq {
 
 #[derive(Debug, Deserialize)]
 struct KadSearchKeywordReq {
-    query: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    keyword_id_hex: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct KadPublishKeywordReq {
-    query: String,
+    #[serde(default)]
+    query: Option<String>,
+    #[serde(default)]
+    keyword_id_hex: Option<String>,
     file_id_hex: String,
     filename: String,
     file_size: u64,
@@ -233,8 +239,14 @@ async fn kad_search_keyword(
     State(state): State<ApiState>,
     Json(req): Json<KadSearchKeywordReq>,
 ) -> Result<Json<KadSearchKeywordResponse>, StatusCode> {
-    let (word, keyword_id) = keyword::query_to_keyword_id(&req.query)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (word, keyword_id) = if let Some(hex) = req.keyword_id_hex.as_deref() {
+        let id = KadId::from_hex(hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+        ("".to_string(), id)
+    } else if let Some(q) = req.query.as_deref() {
+        keyword::query_to_keyword_id(q).map_err(|_| StatusCode::BAD_REQUEST)?
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
 
     state
         .kad_cmd_tx
@@ -268,8 +280,14 @@ async fn kad_publish_keyword(
     Json(req): Json<KadPublishKeywordReq>,
 ) -> Result<Json<KadSearchKeywordResponse>, StatusCode> {
     let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let (word, keyword_id) = keyword::query_to_keyword_id(&req.query)
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (word, keyword_id) = if let Some(hex) = req.keyword_id_hex.as_deref() {
+        let id = KadId::from_hex(hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+        ("".to_string(), id)
+    } else if let Some(q) = req.query.as_deref() {
+        keyword::query_to_keyword_id(q).map_err(|_| StatusCode::BAD_REQUEST)?
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
 
     state
         .kad_cmd_tx

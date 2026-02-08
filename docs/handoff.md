@@ -370,3 +370,14 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
 
 - SAM TCP-DATAGRAM framing is now tolerant of occasional malformed frames (it logs and skips instead of crashing). Oversized datagrams are discarded with a hard cap to avoid memory blowups.
 - SAM TCP-DATAGRAM reader is byte-based (not `String`-based) to avoid crashes on invalid UTF-8 if the stream ever desyncs.
+
+## 2026-02-08 Notes (Keyword Publish/Search UX + Reach)
+
+- `/kad/search_keyword` and `/kad/publish_keyword` now accept either:
+  - `{"query":"..."}` (iMule-style: first extracted word is hashed), or
+  - `{"keyword_id_hex":"<32 hex>"}` to bypass tokenization/hashing for debugging.
+- Keyword publish now also inserts the published entry into the local keyword-hit cache immediately (so `/kad/keyword_results/<keyword>` reflects the publish even if the network is silent).
+- Keyword search/publish now run as a small, conservative “job”:
+  - periodically sends `KADEMLIA2_REQ` toward the keyword ID to discover closer nodes
+  - periodically sends small batches of `SEARCH_KEY_REQ` / `PUBLISH_KEY_REQ` to the closest, recently-live peers
+  - stops early for publish once any `PUBLISH_RES (key)` ack is observed
