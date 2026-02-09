@@ -36,6 +36,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Hard caps (max keywords, max total hits, max hits/keyword) + TTL pruning.
   - All knobs are configurable in `config.toml` under `[kad]` (`service_keyword_*`).
   - Status now reports keyword cache totals + eviction counters.
+- 2026-02-09: Two-instance keyword publish/search sanity check (mule-a + mule-b):
+  - Both sides successfully received `KADEMLIA2_SEARCH_RES` replies, but **all keyword results were empty** (`keyword_entries=0`).
+  - Root cause (interop): iMule rejects Kad2 keyword publishes which only contain `TAG_FILENAME` + `TAG_FILESIZE`.
+    In iMule `CIndexed::AddKeyword` checks `GetTagCount() != 0`, and Kad2 publish parsing stores filename+size out-of-band
+    (so they do not contribute to the internal tag list). iMule itself publishes additional tags like `TAG_SOURCES` and
+    `TAG_COMPLETE_SOURCES`. See `source_ref/.../Search.cpp::PreparePacketForTags` and `Indexed.cpp::AddKeyword`.
+  - Fix: rust-mule now always includes `TAG_SOURCES` and `TAG_COMPLETE_SOURCES` in Kad2 keyword publish/search-result taglists
+    (`src/kad/wire.rs`), matching iMule expectations.
 - 2026-02-07: TTL note (small/slow iMule I2P-KAD reality):
   - Keyword hits are a “discovery cache” and can be noisy; expiring them is mostly for memory hygiene.
   - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.

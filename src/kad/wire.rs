@@ -38,6 +38,8 @@ pub const TAG_FILENAME: u8 = 35; // 0x23 <string>
 pub const TAG_KADMISCOPTIONS: u8 = 88; // 0x58
 pub const TAG_FILESIZE: u8 = 36; // 0x24
 pub const TAG_FILETYPE: u8 = 37; // 0x25 <string>
+pub const TAG_SOURCES: u8 = 53; // 0x35 <uint32>
+pub const TAG_COMPLETE_SOURCES: u8 = 66; // 0x42 <uint32>
 pub const TAG_SERVERDEST: u8 = 81; // 0x51
 pub const TAG_SOURCEUDEST: u8 = 82; // 0x52
 pub const TAG_SOURCEDEST: u8 = 83; // 0x53
@@ -534,7 +536,12 @@ pub fn encode_kad2_search_res_keyword(
     out.extend_from_slice(&(results.len().min(u16::MAX as usize) as u16).to_le_bytes());
     for (file_id, filename, file_size, file_type) in results.iter().take(u16::MAX as usize) {
         out.extend_from_slice(&file_id.to_crypt_bytes());
-        write_keyword_taglist(&mut out, filename.as_str(), *file_size, file_type.as_deref());
+        write_keyword_taglist(
+            &mut out,
+            filename.as_str(),
+            *file_size,
+            file_type.as_deref(),
+        );
     }
     out
 }
@@ -573,8 +580,16 @@ fn write_publish_source_taglist(
     }
 }
 
-fn write_keyword_taglist(out: &mut Vec<u8>, filename: &str, file_size: u64, file_type: Option<&str>) {
-    let mut count = 2u8;
+fn write_keyword_taglist(
+    out: &mut Vec<u8>,
+    filename: &str,
+    file_size: u64,
+    file_type: Option<&str>,
+) {
+    // iMule Kad2 keyword publishing requires at least one additional tag besides filename+size;
+    // otherwise `CIndexed::AddKeyword` rejects the entry (`GetTagCount() == 0`) because those
+    // two fields are stored out-of-band and do not contribute to the internal tag list.
+    let mut count = 4u8;
     if file_type.is_some() {
         count += 1;
     }
@@ -582,6 +597,8 @@ fn write_keyword_taglist(out: &mut Vec<u8>, filename: &str, file_size: u64, file
 
     write_tag_string(out, TAG_FILENAME, filename);
     write_tag_uint64(out, TAG_FILESIZE, file_size);
+    write_tag_uint32(out, TAG_COMPLETE_SOURCES, 1);
+    write_tag_uint32(out, TAG_SOURCES, 1);
     if let Some(t) = file_type {
         write_tag_string(out, TAG_FILETYPE, t);
     }
@@ -591,6 +608,12 @@ fn write_tag_uint8(out: &mut Vec<u8>, id: u8, val: u8) {
     out.push(TAGTYPE_UINT8 | 0x80);
     out.push(id);
     out.push(val);
+}
+
+fn write_tag_uint32(out: &mut Vec<u8>, id: u8, val: u32) {
+    out.push(TAGTYPE_UINT32 | 0x80);
+    out.push(id);
+    out.extend_from_slice(&val.to_le_bytes());
 }
 
 fn write_tag_uint64(out: &mut Vec<u8>, id: u8, val: u64) {
