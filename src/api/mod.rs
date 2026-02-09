@@ -15,8 +15,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::{
     config::ApiConfig,
     kad::{
-        KadId,
-        keyword,
+        KadId, keyword,
         service::{KadKeywordHit, KadServiceCommand, KadServiceStatus, KadSourceEntry},
     },
 };
@@ -65,7 +64,10 @@ pub async fn serve(
         .route("/status", get(status))
         .route("/events", get(events))
         .route("/kad/sources/:file_id_hex", get(kad_sources))
-        .route("/kad/keyword_results/:keyword_id_hex", get(kad_keyword_results))
+        .route(
+            "/kad/keyword_results/:keyword_id_hex",
+            get(kad_keyword_results),
+        )
         .route("/kad/search_sources", post(kad_search_sources))
         .route("/kad/search_keyword", post(kad_search_keyword))
         .route("/kad/publish_source", post(kad_publish_source))
@@ -250,7 +252,9 @@ async fn kad_search_keyword(
 
     state
         .kad_cmd_tx
-        .send(KadServiceCommand::SearchKeyword { keyword: keyword_id })
+        .send(KadServiceCommand::SearchKeyword {
+            keyword: keyword_id,
+        })
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 

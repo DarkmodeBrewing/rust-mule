@@ -1,6 +1,6 @@
 use crate::kad::KadId;
-use anyhow::Result;
 use crate::kad::md4;
+use anyhow::Result;
 
 // iMule `SearchManager.h::GetInvalidKeywordChars()`
 const INVALID_KEYWORD_CHARS: &str = " ()[]{}<>,._-!?:;\\/\"";
@@ -68,7 +68,10 @@ mod tests {
 
     #[test]
     fn splits_words_like_imule() {
-        assert_eq!(words("Hello, world!"), vec!["hello".to_string(), "world".to_string()]);
+        assert_eq!(
+            words("Hello, world!"),
+            vec!["hello".to_string(), "world".to_string()]
+        );
         assert_eq!(words("ab cd"), Vec::<String>::new()); // too short (< 3 bytes)
         assert_eq!(words("猫"), vec!["猫".to_string()]); // 3 bytes in UTF-8
         assert_eq!(words("Test test TEST"), vec!["test".to_string()]);

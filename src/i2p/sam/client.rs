@@ -47,7 +47,9 @@ impl SamClient {
         if let Some(style) = style_hint {
             let reply = self
                 .send_cmd(
-                    SamCommand::new("SESSION DESTROY").arg("STYLE", style).arg("ID", name),
+                    SamCommand::new("SESSION DESTROY")
+                        .arg("STYLE", style)
+                        .arg("ID", name),
                     "SESSION",
                 )
                 .await?;
@@ -58,7 +60,10 @@ impl SamClient {
         }
 
         let reply = self
-            .send_cmd(SamCommand::new("SESSION DESTROY").arg("ID", name), "SESSION")
+            .send_cmd(
+                SamCommand::new("SESSION DESTROY").arg("ID", name),
+                "SESSION",
+            )
             .await?;
         if reply.is_ok() {
             return Ok(reply);
@@ -68,7 +73,9 @@ impl SamClient {
             for style in ["DATAGRAM", "STREAM"] {
                 let r = self
                     .send_cmd(
-                        SamCommand::new("SESSION DESTROY").arg("STYLE", style).arg("ID", name),
+                        SamCommand::new("SESSION DESTROY")
+                            .arg("STYLE", style)
+                            .arg("ID", name),
                         "SESSION",
                     )
                     .await?;

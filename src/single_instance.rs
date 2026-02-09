@@ -41,4 +41,3 @@ impl SingleInstanceLock {
         &self.path
     }
 }
-

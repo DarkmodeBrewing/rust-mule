@@ -8,18 +8,18 @@ use crate::{
             I2P_DEST_LEN, KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED,
             KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
             KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES,
-            KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES,
-            KADEMLIA2_PUBLISH_KEY_REQ, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES,
+            KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_KEY_REQ,
+            KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES,
             KADEMLIA2_SEARCH_KEY_REQ, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ,
-            Kad2PublishKeyReq, Kad2PublishRes, Kad2PublishResKey, Kad2SearchRes,
-            KadPacket, TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res,
-            decode_kad2_hello, decode_kad2_publish_key_req, decode_kad2_publish_res,
-            decode_kad2_publish_res_key, decode_kad2_publish_source_req_min, decode_kad2_req,
-            decode_kad2_res, decode_kad2_search_key_req, decode_kad2_search_res,
-            decode_kad2_search_source_req, encode_kad1_res, encode_kad2_hello,
-            encode_kad2_publish_key_req, encode_kad2_publish_res_for_key,
-            encode_kad2_publish_res_for_source, encode_kad2_publish_source_req, encode_kad2_req,
-            encode_kad2_res, encode_kad2_search_key_req, encode_kad2_search_res_keyword,
+            Kad2PublishKeyReq, Kad2PublishRes, Kad2PublishResKey, Kad2SearchRes, KadPacket,
+            TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
+            decode_kad2_publish_key_req, decode_kad2_publish_res, decode_kad2_publish_res_key,
+            decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_res,
+            decode_kad2_search_key_req, decode_kad2_search_res, decode_kad2_search_source_req,
+            encode_kad1_res, encode_kad2_hello, encode_kad2_publish_key_req,
+            encode_kad2_publish_res_for_key, encode_kad2_publish_res_for_source,
+            encode_kad2_publish_source_req, encode_kad2_req, encode_kad2_res,
+            encode_kad2_search_key_req, encode_kad2_search_res_keyword,
             encode_kad2_search_res_sources, encode_kad2_search_source_req,
         },
     },
@@ -490,16 +490,7 @@ async fn handle_command(
             );
 
             start_keyword_job_publish(
-                svc,
-                sock,
-                crypto,
-                cfg,
-                keyword,
-                file,
-                filename,
-                file_size,
-                file_type,
-                now,
+                svc, sock, crypto, cfg, keyword, file, filename, file_size, file_type, now,
             )
             .await?;
         }
@@ -558,14 +549,9 @@ async fn send_search_sources(
     // (Search requests are user-initiated, so it is OK to be a bit less conservative than
     // the background crawl loop.)
     let now = Instant::now();
-    let peers = svc.routing.closest_to_prefer_live(
-        file,
-        8,
-        0,
-        now,
-        Duration::from_secs(10 * 60),
-        3,
-    );
+    let peers =
+        svc.routing
+            .closest_to_prefer_live(file, 8, 0, now, Duration::from_secs(10 * 60), 3);
     for p in peers {
         // iMule uses Kad2 search source only for version >= 3.
         if p.kad_version < 3 {
@@ -602,14 +588,9 @@ async fn send_publish_source(
 
     // Publish to a few peers, prefer recently-live.
     let now = Instant::now();
-    let peers = svc.routing.closest_to_prefer_live(
-        file,
-        6,
-        0,
-        now,
-        Duration::from_secs(10 * 60),
-        4,
-    );
+    let peers =
+        svc.routing
+            .closest_to_prefer_live(file, 6, 0, now, Duration::from_secs(10 * 60), 4);
     for p in peers {
         // iMule uses Kad2 publish source only for version >= 4.
         if p.kad_version < 4 {
@@ -646,17 +627,20 @@ async fn start_keyword_job_search(
     keyword: KadId,
     now: Instant,
 ) -> Result<()> {
-    let job = svc.keyword_jobs.entry(keyword).or_insert_with(|| KeywordJob {
-        created_at: now,
-        next_lookup_at: now,
-        next_search_at: now,
-        next_publish_at: now,
-        sent_to_search: HashSet::new(),
-        sent_to_publish: HashSet::new(),
-        want_search: true,
-        publish: None,
-        got_publish_ack: false,
-    });
+    let job = svc
+        .keyword_jobs
+        .entry(keyword)
+        .or_insert_with(|| KeywordJob {
+            created_at: now,
+            next_lookup_at: now,
+            next_search_at: now,
+            next_publish_at: now,
+            sent_to_search: HashSet::new(),
+            sent_to_publish: HashSet::new(),
+            want_search: true,
+            publish: None,
+            got_publish_ack: false,
+        });
 
     job.want_search = true;
     job.created_at = now;
@@ -680,17 +664,20 @@ async fn start_keyword_job_publish(
     file_type: Option<String>,
     now: Instant,
 ) -> Result<()> {
-    let job = svc.keyword_jobs.entry(keyword).or_insert_with(|| KeywordJob {
-        created_at: now,
-        next_lookup_at: now,
-        next_search_at: now,
-        next_publish_at: now,
-        sent_to_search: HashSet::new(),
-        sent_to_publish: HashSet::new(),
-        want_search: false,
-        publish: None,
-        got_publish_ack: false,
-    });
+    let job = svc
+        .keyword_jobs
+        .entry(keyword)
+        .or_insert_with(|| KeywordJob {
+            created_at: now,
+            next_lookup_at: now,
+            next_search_at: now,
+            next_publish_at: now,
+            sent_to_search: HashSet::new(),
+            sent_to_publish: HashSet::new(),
+            want_search: false,
+            publish: None,
+            got_publish_ack: false,
+        });
 
     job.publish = Some(KeywordPublishSpec {
         file,
@@ -784,14 +771,9 @@ async fn progress_keyword_job(
         return Ok(());
     }
 
-    let peers = svc.routing.closest_to_prefer_live(
-        keyword,
-        32,
-        0,
-        now,
-        Duration::from_secs(30 * 60),
-        3,
-    );
+    let peers =
+        svc.routing
+            .closest_to_prefer_live(keyword, 32, 0, now, Duration::from_secs(30 * 60), 3);
 
     if job.want_search && now >= job.next_search_at {
         let mut sent = 0usize;
@@ -1196,7 +1178,12 @@ async fn send_bootstrap_batch(
     Ok(())
 }
 
-fn touch_keyword_interest(svc: &mut KadService, cfg: &KadServiceConfig, keyword: KadId, now: Instant) {
+fn touch_keyword_interest(
+    svc: &mut KadService,
+    cfg: &KadServiceConfig,
+    keyword: KadId,
+    now: Instant,
+) {
     svc.keyword_interest.insert(keyword, now);
     enforce_keyword_interest_limit(svc, cfg);
 }
@@ -1277,7 +1264,11 @@ fn enforce_keyword_per_keyword_caps_all(svc: &mut KadService, cfg: &KadServiceCo
     if per == 0 {
         return;
     }
-    let keys = svc.keyword_hits_by_keyword.keys().copied().collect::<Vec<_>>();
+    let keys = svc
+        .keyword_hits_by_keyword
+        .keys()
+        .copied()
+        .collect::<Vec<_>>();
     for k in keys {
         prune_keyword_hits_per_keyword(svc, k, per);
     }
@@ -1422,7 +1413,11 @@ fn maintain_keyword_cache(svc: &mut KadService, cfg: &KadServiceConfig, now: Ins
 
     // Expire stale hits (per-hit TTL).
     let results_ttl = Duration::from_secs(cfg.keyword_results_ttl_secs.max(60));
-    let keys = svc.keyword_hits_by_keyword.keys().copied().collect::<Vec<_>>();
+    let keys = svc
+        .keyword_hits_by_keyword
+        .keys()
+        .copied()
+        .collect::<Vec<_>>();
     for k in keys {
         // If we're requiring interest and we've dropped interest, drop any remaining hits.
         if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&k) {
@@ -1501,7 +1496,8 @@ fn enforce_keyword_store_limits(svc: &mut KadService, cfg: &KadServiceConfig, no
     if max_keywords == 0 || max_total == 0 {
         // Treat any 0 as "disable store".
         if !svc.keyword_store_by_keyword.is_empty() {
-            svc.stats_window.evicted_store_keyword_keywords += svc.keyword_store_by_keyword.len() as u64;
+            svc.stats_window.evicted_store_keyword_keywords +=
+                svc.keyword_store_by_keyword.len() as u64;
             svc.stats_window.evicted_store_keyword_hits += svc.keyword_store_total as u64;
         }
         svc.keyword_store_by_keyword.clear();
@@ -2323,10 +2319,12 @@ async fn handle_inbound(
                     continue;
                 }
 
-                if let (Some(filename), Some(file_size)) = (r.tags.filename.clone(), r.tags.file_size)
+                if let (Some(filename), Some(file_size)) =
+                    (r.tags.filename.clone(), r.tags.file_size)
                 {
                     // Keyword-style result: key = keyword hash, answer = file ID.
-                    if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&res.key) {
+                    if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&res.key)
+                    {
                         continue;
                     }
                     keyword_entries += 1;

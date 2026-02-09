@@ -331,11 +331,14 @@ impl Default for KadConfig {
             service_keyword_results_ttl_secs: default_kad_service_keyword_results_ttl_secs(),
             service_keyword_max_keywords: default_kad_service_keyword_max_keywords(),
             service_keyword_max_total_hits: default_kad_service_keyword_max_total_hits(),
-            service_keyword_max_hits_per_keyword: default_kad_service_keyword_max_hits_per_keyword(),
+            service_keyword_max_hits_per_keyword: default_kad_service_keyword_max_hits_per_keyword(
+            ),
 
             service_store_keyword_max_keywords: default_kad_service_store_keyword_max_keywords(),
-            service_store_keyword_max_total_hits: default_kad_service_store_keyword_max_total_hits(),
-            service_store_keyword_evict_age_secs: default_kad_service_store_keyword_evict_age_secs(),
+            service_store_keyword_max_total_hits: default_kad_service_store_keyword_max_total_hits(
+            ),
+            service_store_keyword_evict_age_secs: default_kad_service_store_keyword_evict_age_secs(
+            ),
         }
     }
 }

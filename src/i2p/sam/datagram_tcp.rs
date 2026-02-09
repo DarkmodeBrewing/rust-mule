@@ -57,7 +57,10 @@ impl SamDatagramTcp {
         // See `SamClient::session_destroy_hint_style` for the rationale: some SAM routers require
         // STYLE=... on DESTROY.
         let reply = self
-            .send_cmd(SamCommand::new("SESSION DESTROY").arg("ID", name), "SESSION")
+            .send_cmd(
+                SamCommand::new("SESSION DESTROY").arg("ID", name),
+                "SESSION",
+            )
             .await?;
         if reply.is_ok() {
             return Ok(reply);
