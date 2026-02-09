@@ -65,7 +65,8 @@ PAUSE_SECS="20"
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
 
 log() {
-  echo "[$(ts)] $*"
+  # Send progress logs to stderr so callers can safely capture stdout (JSON) without losing logs.
+  echo "[$(ts)] $*" >&2
 }
 
 extract_keyword_hex() {
@@ -268,4 +269,3 @@ for ((i=1; i<=ROUNDS; i++)); do
 done
 
 log "Done."
-
