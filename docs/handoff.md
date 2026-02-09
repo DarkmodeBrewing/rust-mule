@@ -71,6 +71,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - Kad2 HELLO taglists (ints)
     - search/publish taglists (search info)
     (`src/kad/wire.rs`).
+- 2026-02-09: Added rust-mule peer identification:
+  - Kad2 `HELLO_REQ/HELLO_RES` now includes a private vendor tag `TAG_RUST_MULE_AGENT (0xFE)` with a string like `rust-mule/<version>`.
+  - If a peer sends that tag, rust-mule records it in-memory and logs it once when first learned.
+  - This allows rust-mule-specific feature gating going forward while remaining compatible with iMule (unknown tags are ignored).
 - 2026-02-07: TTL note (small/slow iMule I2P-KAD reality):
   - Keyword hits are a “discovery cache” and can be noisy; expiring them is mostly for memory hygiene.
   - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.
@@ -428,6 +432,18 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
     triggers I2P router errors like “duplicate destination”.
   - Uses a real file lock (released automatically if the process exits/crashes), not a “sentinel
     file” check.
+
+## 2026-02-09 Notes (Peer “Agent” Identification)
+
+- SAM `DATAGRAM RECEIVED` frames include the sender I2P destination, but **do not** identify the
+  sender implementation (iMule vs rust-mule vs something else).
+- To support rust-mule-specific feature gating/debugging, we added a small rust-mule private
+  extension tag in the Kad2 `HELLO` taglist:
+  - `TAG_RUST_MULE_AGENT (0xFE)` as a string, value like `rust-mule/<version>`
+  - iMule ignores unknown tags in `HELLO` (it only checks `TAG_KADMISCOPTIONS`), so this is
+    backwards compatible.
+- When received, this agent string is stored in the in-memory routing table as `peer_agent` (not
+  persisted to `nodes.dat`, since that file is in iMule format).
 
 ## Debugging Notes (Kad Status Counters)
 

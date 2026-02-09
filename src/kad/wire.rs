@@ -46,6 +46,11 @@ pub const TAG_SOURCEDEST: u8 = 83; // 0x53
 pub const TAG_SOURCETYPE: u8 = 84; // 0x54
 pub const TAG_PUBLISHINFO: u8 = 85; // 0x55 <uint32> (search results only)
 
+// rust-mule private extension tag (Kad2 HELLO TagList).
+//
+// iMule ignores unknown tags in the HELLO taglist, so we can use this for vendor detection.
+pub const TAG_RUST_MULE_AGENT: u8 = 0xFE; // <string>
+
 const TAGTYPE_UINT8: u8 = 0x09;
 const TAGTYPE_UINT16: u8 = 0x08;
 const TAGTYPE_UINT32: u8 = 0x03;
@@ -190,6 +195,8 @@ pub struct Kad2Hello {
     pub udp_dest: [u8; I2P_DEST_LEN],
     /// Parsed taglist, limited to integer tags we care about.
     pub tags: BTreeMap<u8, u64>,
+    /// Optional peer agent string (rust-mule private extension).
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -254,11 +261,16 @@ pub fn encode_kad2_hello(
     my_id: KadId,
     my_udp_dest: &[u8; I2P_DEST_LEN],
 ) -> Vec<u8> {
-    let mut out = Vec::with_capacity(1 + 16 + I2P_DEST_LEN + 1);
+    // iMule Kad2 HELLO: <kadVersion u8><nodeId u128><udpDest 387><TagList>
+    //
+    // We always include a private vendor tag so other rust-mule peers can be identified.
+    let agent = format!("rust-mule/{}", env!("CARGO_PKG_VERSION"));
+    let mut out = Vec::with_capacity(1 + 16 + I2P_DEST_LEN + 1 + 2 + 2 + agent.len());
     out.push(my_kad_version);
     out.extend_from_slice(&my_id.to_crypt_bytes());
     out.extend_from_slice(my_udp_dest);
-    out.push(0); // TagList count = 0
+    out.push(1); // TagList count
+    write_tag_string(&mut out, TAG_RUST_MULE_AGENT, agent.as_str());
     out
 }
 
@@ -267,12 +279,13 @@ pub fn decode_kad2_hello(payload: &[u8]) -> Result<Kad2Hello> {
     let kad_version = r.read_u8()?;
     let node_id = r.read_uint128_emule()?;
     let udp_dest = r.read_i2p_dest()?;
-    let tags = r.read_taglist_ints()?;
+    let (tags, agent) = r.read_taglist_hello_info()?;
     Ok(Kad2Hello {
         kad_version,
         node_id,
         udp_dest,
         tags,
+        agent,
     })
 }
 
@@ -1073,17 +1086,15 @@ impl<'a> Reader<'a> {
         Ok(KadId(out))
     }
 
-    fn read_taglist_ints(&mut self) -> Result<BTreeMap<u8, u64>> {
-        // Some iMule debug builds include an extra u32 tag serial after each tag header
-        // (see `Tag.cpp` under `_DEBUG_TAGS`).
-        //
-        // We first try the normal parse; if it fails, retry with that 4-byte field enabled.
+    fn read_taglist_hello_info(&mut self) -> Result<(BTreeMap<u8, u64>, Option<String>)> {
+        // Like `TagList` in iMule (`Tag.cpp`). Some builds include an extra `u32` tag serial
+        // (`_DEBUG_TAGS`), so we attempt both layouts.
         let start = self.i;
-        match self.read_taglist_ints_impl(false) {
+        match self.read_taglist_hello_info_impl(false) {
             Ok(v) => Ok(v),
             Err(e1) => {
                 self.i = start;
-                match self.read_taglist_ints_impl(true) {
+                match self.read_taglist_hello_info_impl(true) {
                     Ok(v) => Ok(v),
                     Err(_) => Err(e1),
                 }
@@ -1091,91 +1102,120 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn read_taglist_ints_impl(&mut self, debug_serial: bool) -> Result<BTreeMap<u8, u64>> {
-        // iMule TagList: <u8 count><tag>...
+    fn read_taglist_hello_info_impl(
+        &mut self,
+        debug_serial: bool,
+    ) -> Result<(BTreeMap<u8, u64>, Option<String>)> {
         let n = self.read_u8()? as usize;
-        let mut out = BTreeMap::<u8, u64>::new();
+        let mut ints = BTreeMap::<u8, u64>::new();
+        let mut agent: Option<String> = None;
+
         for _ in 0..n {
-            let ty0 = self.read_u8()?;
-            let (ty, id) = if (ty0 & 0x80) != 0 {
-                (ty0 & 0x7F, self.read_u8()?)
+            let type_raw = self.read_u8()?;
+            let (tag_type, id) = if (type_raw & 0x80) != 0 {
+                let tag_type = type_raw & 0x7F;
+                let id = self.read_u8()?;
+                (tag_type, Some(id))
             } else {
-                bail!("unsupported string-named tag in taglist (type=0x{ty0:02x})");
+                let name_len = self.read_u16_le()? as usize;
+                if name_len == 1 {
+                    let id = self.read_u8()?;
+                    (type_raw, Some(id))
+                } else {
+                    self.skip(name_len)?;
+                    (type_raw, None)
+                }
             };
 
             if debug_serial {
-                // `_DEBUG_TAGS`: Tag.cpp writes an extra u32 after the tag header.
                 let _ = self.read_u32_le()?;
             }
 
-            match ty {
-                // TagTypes.h (iMule/aMule)
+            match tag_type {
                 TAGTYPE_UINT8 => {
-                    // TAGTYPE_UINT8
-                    out.insert(id, self.read_u8()? as u64);
+                    let v = self.read_u8()? as u64;
+                    if let Some(id) = id {
+                        ints.insert(id, v);
+                    }
                 }
                 TAGTYPE_UINT16 => {
-                    // TAGTYPE_UINT16
-                    out.insert(id, self.read_u16_le()? as u64);
+                    let v = self.read_u16_le()? as u64;
+                    if let Some(id) = id {
+                        ints.insert(id, v);
+                    }
                 }
                 TAGTYPE_UINT32 => {
-                    // TAGTYPE_UINT32
-                    out.insert(id, self.read_u32_le()? as u64);
+                    let v = self.read_u32_le()? as u64;
+                    if let Some(id) = id {
+                        ints.insert(id, v);
+                    }
                 }
                 TAGTYPE_UINT64 => {
-                    // TAGTYPE_UINT64
                     let lo = self.read_u32_le()? as u64;
                     let hi = self.read_u32_le()? as u64;
-                    out.insert(id, (hi << 32) | lo);
+                    let v = (hi << 32) | lo;
+                    if let Some(id) = id {
+                        ints.insert(id, v);
+                    }
                 }
                 TAGTYPE_STRING => {
-                    // TAGTYPE_STRING: <u16 len><bytes...>
                     let len = self.read_u16_le()? as usize;
-                    self.skip(len)?;
-                }
-                TAGTYPE_FLOAT32 => {
-                    // TAGTYPE_FLOAT32
-                    self.skip(4)?;
-                }
-                TAGTYPE_BOOL => {
-                    // TAGTYPE_BOOL
-                    self.skip(1)?;
-                }
-                TAGTYPE_BOOLARRAY => {
-                    // TAGTYPE_BOOLARRAY: <u16 len><bytes...> (best-effort skip)
-                    let len = self.read_u16_le()? as usize;
-                    self.skip(len)?;
-                }
-                TAGTYPE_BLOB => {
-                    // TAGTYPE_BLOB: <u32 len><bytes...>
-                    let len = self.read_u32_le()? as usize;
-                    self.skip(len)?;
-                }
-                TAGTYPE_BSOB => {
-                    // TAGTYPE_BSOB: <u8 len><bytes...>
-                    let len = self.read_u8()? as usize;
-                    self.skip(len)?;
-                }
-                TAGTYPE_ADDRESS => {
-                    // TAGTYPE_ADDRESS
-                    self.skip(I2P_DEST_LEN)?;
+                    if len > MAX_TAG_STRING_LEN {
+                        self.skip(len)?;
+                        continue;
+                    }
+                    let s = self
+                        .b
+                        .get(self.i..self.i + len)
+                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                    self.i += len;
+                    let s = String::from_utf8_lossy(s).into_owned();
+                    if id == Some(TAG_RUST_MULE_AGENT) {
+                        agent = Some(s);
+                    }
                 }
                 0x01 => {
                     // TAGTYPE_HASH16
                     self.skip(16)?;
                 }
-                TAGTYPE_STR1..=TAGTYPE_STR16 => {
-                    // TAGTYPE_STR1..TAGTYPE_STR16 (length encoded in type)
-                    let len = (ty - TAGTYPE_STR1 + 1) as usize;
+                TAGTYPE_ADDRESS => {
+                    self.skip(I2P_DEST_LEN)?;
+                }
+                TAGTYPE_FLOAT32 => {
+                    self.skip(4)?;
+                }
+                TAGTYPE_BOOL => {
+                    self.skip(1)?;
+                }
+                TAGTYPE_BOOLARRAY => {
+                    let bits = self.read_u16_le()? as usize;
+                    self.skip((bits + 7) / 8)?;
+                }
+                TAGTYPE_BLOB => {
+                    let len = self.read_u32_le()? as usize;
                     self.skip(len)?;
                 }
-                other => {
-                    // Unknown tag type; bail to avoid desyncing the stream.
-                    bail!("unsupported tag type 0x{other:02x} for id={id}")
+                TAGTYPE_BSOB => {
+                    let len = self.read_u8()? as usize;
+                    self.skip(len)?;
                 }
+                t if (TAGTYPE_STR1..=TAGTYPE_STR16).contains(&t) => {
+                    let len = (t - TAGTYPE_STR1 + 1) as usize;
+                    let s = self
+                        .b
+                        .get(self.i..self.i + len)
+                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                    self.i += len;
+                    let s = String::from_utf8_lossy(s).into_owned();
+                    if id == Some(TAG_RUST_MULE_AGENT) {
+                        agent = Some(s);
+                    }
+                }
+                other => bail!("unknown tag type 0x{other:02x}"),
             }
         }
-        Ok(out)
+
+        Ok((ints, agent))
     }
 
     fn skip(&mut self, len: usize) -> Result<()> {

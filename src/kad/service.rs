@@ -1877,13 +1877,27 @@ async fn handle_inbound(
                 );
             }
 
+            if let Some(agent) = &hello.agent {
+                if let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
+                    && st.peer_agent.is_none()
+                {
+                    st.peer_agent = Some(agent.clone());
+                    tracing::debug!(
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        agent = %agent,
+                        "learned peer agent from Kad2 HELLO_REQ"
+                    );
+                }
+            }
+
             let receiver_verify_key = decrypted.sender_verify_key;
             let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
 
             let mut res_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
             // Ask for HELLO_RES_ACK (TAG_KADMISCOPTIONS bit 0x04).
-            let tag_count_idx = res_payload.len() - 1;
-            res_payload[tag_count_idx] = 1; // tag count
+            // NOTE: `encode_kad2_hello` already includes one tag (our agent). Bump count and append misc options.
+            let tag_count_idx = 1 + 16 + I2P_DEST_LEN;
+            res_payload[tag_count_idx] = 2; // tag count
             res_payload.push(0x89); // TAGTYPE_UINT8 | 0x80 (numeric)
             res_payload.push(TAG_KADMISCOPTIONS);
             res_payload.push(0x04);
@@ -1936,6 +1950,19 @@ async fn handle_inbound(
                     },
                     now,
                 );
+            }
+
+            if let Some(agent) = &hello.agent {
+                if let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
+                    && st.peer_agent.is_none()
+                {
+                    st.peer_agent = Some(agent.clone());
+                    tracing::debug!(
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        agent = %agent,
+                        "learned peer agent from Kad2 HELLO_RES"
+                    );
+                }
             }
 
             let misc = hello.tags.get(&TAG_KADMISCOPTIONS).copied().unwrap_or(0) as u8;

@@ -375,10 +375,11 @@ pub async fn bootstrap(
                 let mut res_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
                 // If we couldn't validate the receiver key, mimic iMule and request an ACK (Kad v8 only).
                 if !valid_receiver_key && hello.kad_version >= 8 {
-                    // TagList: 1 tag: TAG_KADMISCOPTIONS (u8) with bit2 set.
-                    *res_payload
-                        .last_mut()
-                        .expect("encode_kad2_hello always appends a tag count") = 1;
+                    // TagList: add TAG_KADMISCOPTIONS (u8) with bit2 set.
+                    //
+                    // NOTE: `encode_kad2_hello` already includes one tag (our agent).
+                    let tag_count_idx = 1 + 16 + I2P_DEST_LEN;
+                    res_payload[tag_count_idx] = 2;
                     res_payload.push(0x89); // TAGTYPE_UINT8 | 0x80 (numeric)
                     res_payload.push(TAG_KADMISCOPTIONS);
                     res_payload.push(0x04);

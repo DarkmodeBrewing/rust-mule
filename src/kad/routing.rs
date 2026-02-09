@@ -7,6 +7,11 @@ pub struct NodeState {
     pub node: ImuleNode,
     pub dest_b64: String,
     pub last_seen: Instant,
+    /// Optional vendor/agent string learned from Kad2 HELLO tags.
+    ///
+    /// This is not persisted to disk (nodes.dat is iMule format); it is a runtime hint to
+    /// distinguish rust-mule peers from iMule/aMule peers for feature gating/debugging.
+    pub peer_agent: Option<String>,
     /// Last time we received *any* packet from this destination.
     pub last_inbound: Option<Instant>,
     pub last_queried: Option<Instant>,
@@ -131,6 +136,7 @@ impl RoutingTable {
                     node,
                     dest_b64,
                     last_seen: now,
+                    peer_agent: None,
                     last_inbound: None,
                     last_queried: None,
                     last_bootstrap: None,
