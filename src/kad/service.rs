@@ -1638,6 +1638,8 @@ fn publish_status(
         sent_reqs = st.sent_reqs,
         recv_ress = st.recv_ress,
         res_contacts = st.res_contacts,
+        dropped_undecipherable = st.dropped_undecipherable,
+        dropped_unparsable = st.dropped_unparsable,
         sent_bootstrap_reqs = st.sent_bootstrap_reqs,
         recv_bootstrap_ress = st.recv_bootstrap_ress,
         bootstrap_contacts = st.bootstrap_contacts,
