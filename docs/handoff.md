@@ -381,3 +381,11 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
   - periodically sends `KADEMLIA2_REQ` toward the keyword ID to discover closer nodes
   - periodically sends small batches of `SEARCH_KEY_REQ` / `PUBLISH_KEY_REQ` to the closest, recently-live peers
   - stops early for publish once any `PUBLISH_RES (key)` ack is observed
+
+## 2026-02-09 Notes (Single-Instance Lock)
+
+- Added an OS-backed single-instance lock at `data/rust-mule.lock` (under `general.data_dir`).
+  - Prevents accidentally running two rust-mule processes with the same `data/sam.keys`, which
+    triggers I2P router errors like “duplicate destination”.
+  - Uses a real file lock (released automatically if the process exits/crashes), not a “sentinel
+    file” check.

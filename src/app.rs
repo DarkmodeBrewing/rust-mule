@@ -1,6 +1,7 @@
 use crate::{
     config::{Config, SamDatagramTransport},
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamError, SamKadSocket, SamKeys},
+    single_instance::SingleInstanceLock,
 };
 use anyhow::Context;
 use std::collections::BTreeMap;
@@ -17,6 +18,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         data_dir = %config.general.data_dir,
         "starting app"
     );
+
+    // Prevent starting two instances with the same `data/` directory (and thus the same
+    // `data/sam.keys`), which causes the router to reject sessions with "duplicate destination".
+    let lock_path = Path::new(&config.general.data_dir).join("rust-mule.lock");
+    let _instance_lock = SingleInstanceLock::acquire(&lock_path)
+        .with_context(|| format!("failed to acquire instance lock {}", lock_path.display()))?;
+    tracing::info!(path = %lock_path.display(), "instance lock acquired");
 
     // Load or create aMule/iMule-compatible KadID.
     let prefs_path =

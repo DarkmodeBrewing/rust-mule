@@ -7,6 +7,7 @@ edition = "2024"
 anyhow = "1.0.100"
 axum = { version = "0.7.9", features = ["macros"] }
 futures-util = "0.3.31"
+fs2 = "0.4.3"
 getrandom = "0.2.16"
 serde =  { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
