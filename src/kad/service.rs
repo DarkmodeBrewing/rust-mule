@@ -2139,7 +2139,10 @@ async fn handle_inbound(
                         svc.stats_window.recv_publish_key_decode_failures += 1;
 
                         let short = crate::i2p::b64::short(&from_dest_b64).to_string();
-                        if svc.publish_key_decode_fail_logged.insert(short.clone()) {
+                        if svc
+                            .publish_key_decode_fail_logged
+                            .insert(from_dest_b64.clone())
+                        {
                             if svc.publish_key_decode_fail_logged.len() > 2048 {
                                 svc.publish_key_decode_fail_logged.clear();
                             }
@@ -2183,7 +2186,10 @@ async fn handle_inbound(
                 svc.stats_window.recv_publish_key_decode_failures += 1;
 
                 let short = crate::i2p::b64::short(&from_dest_b64).to_string();
-                if svc.publish_key_decode_fail_logged.insert(short.clone()) {
+                if svc
+                    .publish_key_decode_fail_logged
+                    .insert(from_dest_b64.clone())
+                {
                     if svc.publish_key_decode_fail_logged.len() > 2048 {
                         svc.publish_key_decode_fail_logged.clear();
                     }
@@ -2199,7 +2205,6 @@ async fn handle_inbound(
                 }
             }
 
-            let m = svc.keyword_store_by_keyword.entry(keyword).or_default();
             let mut inserted = 0u64;
             for e in entries {
                 let (Some(filename), Some(file_size)) = (e.filename, e.file_size) else {
@@ -2208,6 +2213,7 @@ async fn handle_inbound(
                 if filename.is_empty() {
                     continue;
                 }
+                let m = svc.keyword_store_by_keyword.entry(keyword).or_default();
                 match m.get_mut(&e.file) {
                     Some(st) => {
                         st.hit.filename = filename;

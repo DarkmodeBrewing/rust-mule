@@ -64,6 +64,13 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Add lenient `KADEMLIA2_PUBLISH_KEY_REQ` decoding which can return partial entries and still extract the keyword prefix for ACKing (`src/kad/wire.rs`).
   - On decode failure, rust-mule now attempts a prefix ACK (send `KADEMLIA2_PUBLISH_RES` for the keyword) so peers stop retransmitting.
   - Added `recv_publish_key_decode_failures` counter to `/status` output for visibility (`src/kad/service.rs`).
+- 2026-02-09: Discovered an iMule debug-build quirk in the wild:
+  - Some peers appear to include an extra `u32` tag-serial counter inside Kad TagLists (enabled by iMule `_DEBUG_TAGS`),
+    which shifts tag parsing (we saw this in a publish-key payload where the filename length was preceded by 4 bytes).
+  - rust-mule now retries TagList parsing with and without this extra `u32` field for:
+    - Kad2 HELLO taglists (ints)
+    - search/publish taglists (search info)
+    (`src/kad/wire.rs`).
 - 2026-02-07: TTL note (small/slow iMule I2P-KAD reality):
   - Keyword hits are a “discovery cache” and can be noisy; expiring them is mostly for memory hygiene.
   - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.

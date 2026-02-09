@@ -521,6 +521,20 @@ pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2Publish
         }
 
         fn read_taglist_search_info_lenient(&mut self) -> Option<TaglistSearchInfo> {
+            // Some iMule debug builds include an extra u32 tag serial after each tag header.
+            // Try normal first; if it fails, retry with the extra u32 enabled.
+            let start = self.i;
+            self.read_taglist_search_info_lenient_impl(false)
+                .or_else(|| {
+                    self.i = start;
+                    self.read_taglist_search_info_lenient_impl(true)
+                })
+        }
+
+        fn read_taglist_search_info_lenient_impl(
+            &mut self,
+            debug_serial: bool,
+        ) -> Option<TaglistSearchInfo> {
             let count = self.read_u8()? as usize;
             let mut out = TaglistSearchInfo::default();
 
@@ -541,6 +555,10 @@ pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2Publish
                         (type_raw, None)
                     }
                 };
+
+                if debug_serial {
+                    let _ = self.read_u32_le()?;
+                }
 
                 match tag_type {
                     TAGTYPE_UINT8 => {
@@ -1056,6 +1074,24 @@ impl<'a> Reader<'a> {
     }
 
     fn read_taglist_ints(&mut self) -> Result<BTreeMap<u8, u64>> {
+        // Some iMule debug builds include an extra u32 tag serial after each tag header
+        // (see `Tag.cpp` under `_DEBUG_TAGS`).
+        //
+        // We first try the normal parse; if it fails, retry with that 4-byte field enabled.
+        let start = self.i;
+        match self.read_taglist_ints_impl(false) {
+            Ok(v) => Ok(v),
+            Err(e1) => {
+                self.i = start;
+                match self.read_taglist_ints_impl(true) {
+                    Ok(v) => Ok(v),
+                    Err(_) => Err(e1),
+                }
+            }
+        }
+    }
+
+    fn read_taglist_ints_impl(&mut self, debug_serial: bool) -> Result<BTreeMap<u8, u64>> {
         // iMule TagList: <u8 count><tag>...
         let n = self.read_u8()? as usize;
         let mut out = BTreeMap::<u8, u64>::new();
@@ -1066,6 +1102,11 @@ impl<'a> Reader<'a> {
             } else {
                 bail!("unsupported string-named tag in taglist (type=0x{ty0:02x})");
             };
+
+            if debug_serial {
+                // `_DEBUG_TAGS`: Tag.cpp writes an extra u32 after the tag header.
+                let _ = self.read_u32_le()?;
+            }
 
             match ty {
                 // TagTypes.h (iMule/aMule)
@@ -1146,6 +1187,24 @@ impl<'a> Reader<'a> {
     }
 
     fn read_taglist_search_info(&mut self) -> Result<TaglistSearchInfo> {
+        // Some iMule debug builds include an extra u32 tag serial after each tag header
+        // (see `Tag.cpp` under `_DEBUG_TAGS`).
+        //
+        // We first try the normal parse; if it fails, retry with that 4-byte field enabled.
+        let start = self.i;
+        match self.read_taglist_search_info_impl(false) {
+            Ok(v) => Ok(v),
+            Err(e1) => {
+                self.i = start;
+                match self.read_taglist_search_info_impl(true) {
+                    Ok(v) => Ok(v),
+                    Err(_) => Err(e1),
+                }
+            }
+        }
+    }
+
+    fn read_taglist_search_info_impl(&mut self, debug_serial: bool) -> Result<TaglistSearchInfo> {
         let count = self.read_u8()? as usize;
         let mut out = TaglistSearchInfo::default();
 
@@ -1166,6 +1225,11 @@ impl<'a> Reader<'a> {
                     (type_raw, None)
                 }
             };
+
+            if debug_serial {
+                // `_DEBUG_TAGS`: Tag.cpp writes an extra u32 after the tag header.
+                let _ = self.read_u32_le()?;
+            }
 
             match tag_type {
                 TAGTYPE_UINT8 => {
