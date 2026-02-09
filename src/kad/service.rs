@@ -2497,15 +2497,27 @@ async fn handle_inbound(
                 svc.stats_window.new_keyword_results += inserted_keywords;
             }
 
-            tracing::debug!(
-                from = %crate::i2p::b64::short(&from_dest_b64),
-                key = %res.key.to_hex_lower(),
-                results = results_len,
-                inserted_sources,
-                keyword_entries,
-                inserted_keywords,
-                "got SEARCH_RES"
-            );
+            if keyword_entries > 0 || inserted_sources > 0 {
+                tracing::info!(
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    key = %res.key.to_hex_lower(),
+                    results = results_len,
+                    inserted_sources,
+                    keyword_entries,
+                    inserted_keywords,
+                    "got SEARCH_RES (non-empty)"
+                );
+            } else {
+                tracing::debug!(
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    key = %res.key.to_hex_lower(),
+                    results = results_len,
+                    inserted_sources,
+                    keyword_entries,
+                    inserted_keywords,
+                    "got SEARCH_RES"
+                );
+            }
         }
 
         KADEMLIA2_PUBLISH_RES => {
@@ -2527,15 +2539,24 @@ async fn handle_inbound(
                         }
                     };
                     svc.stats_window.recv_publish_key_ress += 1;
-                    if let Some(job) = svc.keyword_jobs.get_mut(&res.key) {
+                    if let Some(job) = svc.keyword_jobs.get_mut(&res.key)
+                        && !job.got_publish_ack
+                    {
                         job.got_publish_ack = true;
+                        tracing::info!(
+                            from = %crate::i2p::b64::short(&from_dest_b64),
+                            key = %res.key.to_hex_lower(),
+                            load = res.load,
+                            "got PUBLISH_RES (key) ack; publish job complete"
+                        );
+                    } else {
+                        tracing::debug!(
+                            from = %crate::i2p::b64::short(&from_dest_b64),
+                            key = %res.key.to_hex_lower(),
+                            load = res.load,
+                            "got PUBLISH_RES (key)"
+                        );
                     }
-                    tracing::debug!(
-                        from = %crate::i2p::b64::short(&from_dest_b64),
-                        key = %res.key.to_hex_lower(),
-                        load = res.load,
-                        "got PUBLISH_RES (key)"
-                    );
                 }
                 25.. => {
                     let res: Kad2PublishRes = match decode_kad2_publish_res(&pkt.payload) {
