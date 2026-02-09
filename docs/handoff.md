@@ -393,3 +393,10 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
     triggers I2P router errors like “duplicate destination”.
   - Uses a real file lock (released automatically if the process exits/crashes), not a “sentinel
     file” check.
+
+## Debugging Notes (Kad Status Counters)
+
+- `/status` now includes two extra counters to help distinguish “network is silent” vs “we are
+  receiving packets but can’t parse/decrypt them”:
+  - `dropped_undecipherable`: failed Kad UDP decrypt (unknown/invalid obfuscation)
+  - `dropped_unparsable`: decrypted OK but Kad packet framing/format was invalid

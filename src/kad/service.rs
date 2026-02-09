@@ -141,6 +141,8 @@ struct KadServiceStats {
     sent_reqs: u64,
     recv_ress: u64,
     res_contacts: u64,
+    dropped_undecipherable: u64,
+    dropped_unparsable: u64,
     sent_bootstrap_reqs: u64,
     recv_bootstrap_ress: u64,
     bootstrap_contacts: u64,
@@ -184,6 +186,8 @@ pub struct KadServiceStatus {
     pub sent_reqs: u64,
     pub recv_ress: u64,
     pub res_contacts: u64,
+    pub dropped_undecipherable: u64,
+    pub dropped_unparsable: u64,
     pub sent_bootstrap_reqs: u64,
     pub recv_bootstrap_ress: u64,
     pub bootstrap_contacts: u64,
@@ -1578,6 +1582,8 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         sent_reqs: w.sent_reqs,
         recv_ress: w.recv_ress,
         res_contacts: w.res_contacts,
+        dropped_undecipherable: w.dropped_undecipherable,
+        dropped_unparsable: w.dropped_unparsable,
         sent_bootstrap_reqs: w.sent_bootstrap_reqs,
         recv_bootstrap_ress: w.recv_bootstrap_ress,
         bootstrap_contacts: w.bootstrap_contacts,
@@ -1696,6 +1702,7 @@ async fn handle_inbound(
     ) {
         Ok(d) => d,
         Err(err) => {
+            svc.stats_window.dropped_undecipherable += 1;
             tracing::trace!(error = %err, from = %from_dest_b64, "dropping undecipherable/unknown KAD packet");
             return Ok(());
         }
@@ -1720,6 +1727,7 @@ async fn handle_inbound(
     let pkt = match KadPacket::decode(&decrypted.payload) {
         Ok(p) => p,
         Err(err) => {
+            svc.stats_window.dropped_unparsable += 1;
             tracing::trace!(error = %err, from = %from_dest_b64, "dropping unparsable decrypted KAD packet");
             return Ok(());
         }
