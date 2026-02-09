@@ -1029,4 +1029,38 @@ mod tests {
         assert_eq!(p.opcode, KADEMLIA2_PING);
         assert_eq!(p.payload, vec![1, 2, 3]);
     }
+
+    #[test]
+    fn kad2_publish_key_req_contains_sources_tags() {
+        // iMule rejects keyword publishes unless at least one non-filename/size tag exists
+        // (`CIndexed::AddKeyword` checks `GetTagCount() != 0`).
+        let keyword = KadId([0xAA; 16]);
+        let file = KadId([0x11; 16]);
+        let payload = encode_kad2_publish_key_req(keyword, &[(file, "x.bin", 123, None)]);
+
+        // Layout:
+        // <keyword u128><count u16><file u128><taglist...>
+        let taglist_off = 16 + 2 + 16;
+        assert!(payload.len() > taglist_off);
+
+        // Tag count should be 4: filename + filesize + complete sources + sources.
+        assert_eq!(payload[taglist_off], 4);
+
+        // TAG_COMPLETE_SOURCES (66 / 0x42) + TAG_SOURCES (53 / 0x35), both uint32 (type 0x03).
+        let want_complete = [0x83u8, TAG_COMPLETE_SOURCES, 1, 0, 0, 0];
+        let want_sources = [0x83u8, TAG_SOURCES, 1, 0, 0, 0];
+
+        assert!(
+            payload
+                .windows(want_complete.len())
+                .any(|w| w == want_complete),
+            "missing TAG_COMPLETE_SOURCES in publish taglist"
+        );
+        assert!(
+            payload
+                .windows(want_sources.len())
+                .any(|w| w == want_sources),
+            "missing TAG_SOURCES in publish taglist"
+        );
+    }
 }
