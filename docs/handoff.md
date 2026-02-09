@@ -44,6 +44,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     `TAG_COMPLETE_SOURCES`. See `source_ref/.../Search.cpp::PreparePacketForTags` and `Indexed.cpp::AddKeyword`.
   - Fix: rust-mule now always includes `TAG_SOURCES` and `TAG_COMPLETE_SOURCES` in Kad2 keyword publish/search-result taglists
     (`src/kad/wire.rs`), matching iMule expectations.
+- 2026-02-09: Follow-up two-instance test showed *some* keyword results coming back from the network (`keyword_entries=1`),
+  but A and B still tended to publish/search against disjoint "live" peers and would miss each other's stores.
+  Fix: change DHT-critical peer selection to be **distance-first** (XOR distance primary; liveness as tiebreaker) so that
+  publish/search targets the correct closest nodes (`src/kad/routing.rs`, `src/kad/service.rs`).
 - 2026-02-07: TTL note (small/slow iMule I2P-KAD reality):
   - Keyword hits are a “discovery cache” and can be noisy; expiring them is mostly for memory hygiene.
   - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.

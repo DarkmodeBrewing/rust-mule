@@ -248,6 +248,42 @@ impl RoutingTable {
             .collect()
     }
 
+    /// Like `closest_to`, but uses "recently live" as a *tiebreaker* (distance is always primary).
+    ///
+    /// This is important for DHT correctness: publish/search should target the nodes closest to the
+    /// key in XOR-space. Prioritizing liveness over distance can cause us to store/query far away
+    /// nodes which other clients won't naturally query.
+    pub fn closest_to_distance_first_prefer_live(
+        &self,
+        target: KadId,
+        max: usize,
+        exclude_dest_hash: u32,
+        now: Instant,
+        live_window: Duration,
+        min_kad_version: u8,
+    ) -> Vec<ImuleNode> {
+        let mut out: Vec<&NodeState> = self
+            .by_id
+            .values()
+            .filter(|st| st.node.kad_version >= min_kad_version)
+            .filter(|st| st.node.udp_dest_hash_code() != exclude_dest_hash)
+            .collect();
+
+        out.sort_by_key(|st| {
+            (
+                xor_distance(KadId(st.node.client_id), target),
+                !is_recent_inbound(st, now, live_window),
+                st.last_queried,
+                std::cmp::Reverse(st.last_seen),
+            )
+        });
+
+        out.into_iter()
+            .take(max)
+            .map(|st| st.node.clone())
+            .collect()
+    }
+
     pub fn snapshot_nodes(&self, max: usize) -> Vec<ImuleNode> {
         let mut out: Vec<&NodeState> = self.by_id.values().collect();
         out.sort_by_key(|st| {

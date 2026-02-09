@@ -549,9 +549,14 @@ async fn send_search_sources(
     // (Search requests are user-initiated, so it is OK to be a bit less conservative than
     // the background crawl loop.)
     let now = Instant::now();
-    let peers =
-        svc.routing
-            .closest_to_prefer_live(file, 8, 0, now, Duration::from_secs(10 * 60), 3);
+    let peers = svc.routing.closest_to_distance_first_prefer_live(
+        file,
+        8,
+        0,
+        now,
+        Duration::from_secs(10 * 60),
+        3,
+    );
     for p in peers {
         // iMule uses Kad2 search source only for version >= 3.
         if p.kad_version < 3 {
@@ -588,9 +593,14 @@ async fn send_publish_source(
 
     // Publish to a few peers, prefer recently-live.
     let now = Instant::now();
-    let peers =
-        svc.routing
-            .closest_to_prefer_live(file, 6, 0, now, Duration::from_secs(10 * 60), 4);
+    let peers = svc.routing.closest_to_distance_first_prefer_live(
+        file,
+        6,
+        0,
+        now,
+        Duration::from_secs(10 * 60),
+        4,
+    );
     for p in peers {
         // iMule uses Kad2 publish source only for version >= 4.
         if p.kad_version < 4 {
@@ -771,9 +781,14 @@ async fn progress_keyword_job(
         return Ok(());
     }
 
-    let peers =
-        svc.routing
-            .closest_to_prefer_live(keyword, 32, 0, now, Duration::from_secs(30 * 60), 3);
+    let peers = svc.routing.closest_to_distance_first_prefer_live(
+        keyword,
+        32,
+        0,
+        now,
+        Duration::from_secs(30 * 60),
+        3,
+    );
 
     if job.want_search && now >= job.next_search_at {
         let mut sent = 0usize;
