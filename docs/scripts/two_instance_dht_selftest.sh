@@ -22,6 +22,11 @@ Options:
   --b-base-url URL         Default: http://127.0.0.1:17836
   --a-token-file PATH      Default: data/api.token
   --b-token-file PATH      Default: data/api.token
+  --out-file PATH          Default: tmp/two_instance_dht_selftest_YYYYmmdd_HHMMSS.log
+  --warmup-live N          Wait for each instance to have >=N live_10m peers before testing. Default: 3
+  --warmup-timeout-secs N  Default: 900
+  --warmup-check-secs N    Default: 30
+  --warmup-stable-samples N  Require N consecutive successful samples. Default: 3
 
   --query TEXT             If set, used for BOTH A and B publish/search flows.
   --query-a TEXT           Default: mulea_test
@@ -63,16 +68,85 @@ WAIT_SEARCH_SECS="15"
 PAUSE_SECS="20"
 
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
+OUT_FILE="tmp/two_instance_dht_selftest_$(date +%Y%m%d_%H%M%S).log"
+
+WARMUP_LIVE="3"
+WARMUP_TIMEOUT_SECS="900"
+WARMUP_CHECK_SECS="30"
+WARMUP_STABLE_SAMPLES="3"
 
 log() {
   # Send progress logs to stderr so callers can safely capture stdout (JSON) without losing logs.
-  echo "[$(ts)] $*" >&2
+  # Also tee progress logs into OUT_FILE for later analysis.
+  echo "[$(ts)] $*" | tee -a "$OUT_FILE" >&2
 }
 
 extract_keyword_hex() {
   # Extract `"keyword_id_hex":"<32hex>"` from a JSON response.
   # Best-effort; returns empty string on failure.
   sed -n 's/.*"keyword_id_hex":"\([0-9a-fA-F]\{32\}\)".*/\1/p' | head -n 1 || true
+}
+
+extract_json_int_field() {
+  # Extract an integer field from a flat JSON object (best-effort).
+  # Usage: extract_json_int_field "$json" live_10m
+  local json="$1"
+  local field="$2"
+  local m=""
+  m="$(printf "%s" "$json" | grep -o "\"$field\":[0-9]*" | head -n 1 || true)"
+  if [[ -z "$m" ]]; then
+    echo ""
+    return 0
+  fi
+  echo "${m#*:}"
+}
+
+wait_for_warmup() {
+  local name="$1"
+  local base_url="$2"
+  local token_file="$3"
+  local need_live="$4"
+  local timeout_secs="$5"
+  local check_secs="$6"
+  local stable_samples="$7"
+
+  if [[ "$need_live" -le 0 ]]; then
+    return 0
+  fi
+
+  log "Warmup $name: waiting for live_10m >= $need_live (stable $stable_samples samples, timeout ${timeout_secs}s, check ${check_secs}s)"
+  local start now consec=0
+  start="$(date +%s)"
+  while true; do
+    now="$(date +%s)"
+    if (( now - start > timeout_secs )); then
+      log "WARN: Warmup $name timed out; continuing anyway"
+      return 0
+    fi
+
+    local s live live10 routing
+    s="$(docs/scripts/status.sh --base-url "$base_url" --token-file "$token_file" 2>/dev/null || true)"
+    live10="$(extract_json_int_field "$s" live_10m)"
+    live="$(extract_json_int_field "$s" live)"
+    routing="$(extract_json_int_field "$s" routing)"
+    live10="${live10:-0}"
+    live="${live:-0}"
+    routing="${routing:-0}"
+
+    if [[ "$live10" -ge "$need_live" ]]; then
+      consec=$((consec + 1))
+    else
+      consec=0
+    fi
+
+    log "Warmup $name: routing=$routing live=$live live_10m=$live10 consec=$consec/$stable_samples"
+    if (( consec >= stable_samples )); then
+      log "Warmup $name complete"
+      return 0
+    fi
+
+    sleep "$check_secs"
+  done
 }
 
 healthcheck() {
@@ -87,7 +161,7 @@ status_snapshot() {
   local base_url="$2"
   local token_file="$3"
   log "Status $name ($base_url)"
-  docs/scripts/status.sh --base-url "$base_url" --token-file "$token_file" || true
+  docs/scripts/status.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   echo
 }
 
@@ -110,7 +184,8 @@ publish_keyword() {
       --file-id-hex "$file_id_hex" \
       --filename "$filename" \
       --file-size "$file_size" \
-      --file-type "$file_type"
+      --file-type "$file_type" \
+      | tee -a "$OUT_FILE"
   else
     docs/scripts/kad_publish_keyword.sh \
       --base-url "$base_url" \
@@ -118,7 +193,8 @@ publish_keyword() {
       --query "$query" \
       --file-id-hex "$file_id_hex" \
       --filename "$filename" \
-      --file-size "$file_size"
+      --file-size "$file_size" \
+      | tee -a "$OUT_FILE"
   fi
   echo
 }
@@ -133,7 +209,8 @@ search_keyword() {
   docs/scripts/kad_search_keyword.sh \
     --base-url "$base_url" \
     --token-file "$token_file" \
-    --keyword-id-hex "$keyword_id_hex"
+    --keyword-id-hex "$keyword_id_hex" \
+    | tee -a "$OUT_FILE"
   echo
 }
 
@@ -147,7 +224,8 @@ get_keyword_results() {
   docs/scripts/kad_keyword_results_get.sh \
     --base-url "$base_url" \
     --token-file "$token_file" \
-    --keyword-id-hex "$keyword_id_hex"
+    --keyword-id-hex "$keyword_id_hex" \
+    | tee -a "$OUT_FILE"
   echo
 }
 
@@ -157,6 +235,12 @@ while [[ $# -gt 0 ]]; do
     --b-base-url) B_BASE_URL="$2"; shift 2 ;;
     --a-token-file) A_TOKEN_FILE="$2"; shift 2 ;;
     --b-token-file) B_TOKEN_FILE="$2"; shift 2 ;;
+    --out-file) OUT_FILE="$2"; shift 2 ;;
+
+    --warmup-live) WARMUP_LIVE="$2"; shift 2 ;;
+    --warmup-timeout-secs) WARMUP_TIMEOUT_SECS="$2"; shift 2 ;;
+    --warmup-check-secs) WARMUP_CHECK_SECS="$2"; shift 2 ;;
+    --warmup-stable-samples) WARMUP_STABLE_SAMPLES="$2"; shift 2 ;;
 
     --query) QUERY="$2"; shift 2 ;;
     --query-a) QUERY_A="$2"; shift 2 ;;
@@ -179,6 +263,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+mkdir -p "$(dirname "$OUT_FILE")"
+
 if [[ -n "$QUERY" ]]; then
   QUERY_A="$QUERY"
   QUERY_B="$QUERY"
@@ -189,6 +275,9 @@ healthcheck "B" "$B_BASE_URL"
 
 status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
 status_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+
+wait_for_warmup "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$WARMUP_LIVE" "$WARMUP_TIMEOUT_SECS" "$WARMUP_CHECK_SECS" "$WARMUP_STABLE_SAMPLES"
+wait_for_warmup "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$WARMUP_LIVE" "$WARMUP_TIMEOUT_SECS" "$WARMUP_CHECK_SECS" "$WARMUP_STABLE_SAMPLES"
 
 for ((i=1; i<=ROUNDS; i++)); do
   log "=== Round $i/$ROUNDS: A -> (A,B) ==="
