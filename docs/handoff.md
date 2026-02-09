@@ -382,6 +382,10 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
   - periodically sends small batches of `SEARCH_KEY_REQ` / `PUBLISH_KEY_REQ` to the closest, recently-live peers
   - stops early for publish once any `PUBLISH_RES (key)` ack is observed
 
+- Job behavior tweak:
+  - A keyword job can now do **both** publish and search for the same keyword concurrently.
+    Previously, starting a search could overwrite an in-flight publish job for that keyword.
+
 ## 2026-02-09 Notes (Single-Instance Lock)
 
 - Added an OS-backed single-instance lock at `data/rust-mule.lock` (under `general.data_dir`).

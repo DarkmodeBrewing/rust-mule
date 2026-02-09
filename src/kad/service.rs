@@ -87,7 +87,7 @@ pub struct KadServiceConfig {
     pub store_keyword_evict_age_secs: u64,
 }
 
-const KEYWORD_JOB_TTL: Duration = Duration::from_secs(20 * 60);
+const KEYWORD_JOB_TTL: Duration = Duration::from_secs(2 * 60 * 60);
 const KEYWORD_JOB_LOOKUP_EVERY: Duration = Duration::from_secs(60);
 const KEYWORD_JOB_ACTION_EVERY: Duration = Duration::from_secs(60);
 const KEYWORD_JOB_ACTION_BATCH: usize = 3;
@@ -294,23 +294,24 @@ struct KeywordHitState {
 }
 
 #[derive(Debug, Clone)]
-enum KeywordJobKind {
-    Search,
-    Publish {
-        file: KadId,
-        filename: String,
-        file_size: u64,
-        file_type: Option<String>,
-    },
+struct KeywordPublishSpec {
+    file: KadId,
+    filename: String,
+    file_size: u64,
+    file_type: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct KeywordJob {
-    kind: KeywordJobKind,
     created_at: Instant,
     next_lookup_at: Instant,
-    next_action_at: Instant,
-    sent_to: HashSet<String>,
+    next_search_at: Instant,
+    next_publish_at: Instant,
+    sent_to_search: HashSet<String>,
+    sent_to_publish: HashSet<String>,
+
+    want_search: bool,
+    publish: Option<KeywordPublishSpec>,
     got_publish_ack: bool,
 }
 
@@ -642,18 +643,21 @@ async fn start_keyword_job_search(
     now: Instant,
 ) -> Result<()> {
     let job = svc.keyword_jobs.entry(keyword).or_insert_with(|| KeywordJob {
-        kind: KeywordJobKind::Search,
         created_at: now,
         next_lookup_at: now,
-        next_action_at: now,
-        sent_to: HashSet::new(),
+        next_search_at: now,
+        next_publish_at: now,
+        sent_to_search: HashSet::new(),
+        sent_to_publish: HashSet::new(),
+        want_search: true,
+        publish: None,
         got_publish_ack: false,
     });
 
-    job.kind = KeywordJobKind::Search;
+    job.want_search = true;
     job.created_at = now;
     job.next_lookup_at = now;
-    job.next_action_at = now;
+    job.next_search_at = now;
 
     // Kick off immediately (lookup + first action batch).
     progress_keyword_job(svc, sock, crypto, cfg, keyword, now).await?;
@@ -673,28 +677,26 @@ async fn start_keyword_job_publish(
     now: Instant,
 ) -> Result<()> {
     let job = svc.keyword_jobs.entry(keyword).or_insert_with(|| KeywordJob {
-        kind: KeywordJobKind::Publish {
-            file,
-            filename: filename.clone(),
-            file_size,
-            file_type: file_type.clone(),
-        },
         created_at: now,
         next_lookup_at: now,
-        next_action_at: now,
-        sent_to: HashSet::new(),
+        next_search_at: now,
+        next_publish_at: now,
+        sent_to_search: HashSet::new(),
+        sent_to_publish: HashSet::new(),
+        want_search: false,
+        publish: None,
         got_publish_ack: false,
     });
 
-    job.kind = KeywordJobKind::Publish {
+    job.publish = Some(KeywordPublishSpec {
         file,
         filename,
         file_size,
         file_type,
-    };
+    });
     job.created_at = now;
     job.next_lookup_at = now;
-    job.next_action_at = now;
+    job.next_publish_at = now;
     job.got_publish_ack = false;
 
     progress_keyword_job(svc, sock, crypto, cfg, keyword, now).await?;
@@ -722,13 +724,12 @@ async fn progress_keyword_jobs(
             svc.keyword_jobs.remove(&k);
             continue;
         }
-        // A publish job can stop early once any peer acks it.
-        let done = svc.keyword_jobs.get(&k).is_some_and(|j| {
-            matches!(j.kind, KeywordJobKind::Publish { .. }) && j.got_publish_ack
-        });
-        if done {
-            svc.keyword_jobs.remove(&k);
-            continue;
+        // Publish can stop early once any peer acks it; search may continue.
+        if let Some(j) = svc.keyword_jobs.get_mut(&k)
+            && j.got_publish_ack
+        {
+            j.publish = None;
+            j.sent_to_publish.clear();
         }
 
         progress_keyword_job(svc, sock, crypto, cfg, k, now).await?;
@@ -748,7 +749,8 @@ async fn progress_keyword_job(
         return Ok(());
     };
 
-    if now >= job.next_lookup_at {
+    let needs_work = job.want_search || job.publish.is_some();
+    if needs_work && now >= job.next_lookup_at {
         // Targeted lookup toward the keyword ID to discover closer nodes.
         let req_min = Duration::from_secs(cfg.req_min_interval_secs.max(1));
         let alpha = cfg.alpha.max(1);
@@ -767,7 +769,13 @@ async fn progress_keyword_job(
         job.next_lookup_at = now + KEYWORD_JOB_LOOKUP_EVERY;
     }
 
-    if now < job.next_action_at {
+    if !needs_work {
+        // Nothing to do; keep the job around briefly in case the user immediately triggers more work.
+        svc.keyword_jobs.insert(keyword, job);
+        return Ok(());
+    }
+
+    if now < job.next_search_at && now < job.next_publish_at {
         svc.keyword_jobs.insert(keyword, job);
         return Ok(());
     }
@@ -781,73 +789,92 @@ async fn progress_keyword_job(
         3,
     );
 
-    let mut sent = 0usize;
-    for p in peers {
-        if sent >= KEYWORD_JOB_ACTION_BATCH {
-            break;
-        }
-        let dest = p.udp_dest_b64();
-        if job.sent_to.contains(&dest) {
-            continue;
+    if job.want_search && now >= job.next_search_at {
+        let mut sent = 0usize;
+        let mut dests = Vec::<String>::new();
+        for p in peers.iter() {
+            if sent >= KEYWORD_JOB_ACTION_BATCH {
+                break;
+            }
+            if p.kad_version < 3 {
+                continue;
+            }
+            let dest = p.udp_dest_b64();
+            if job.sent_to_search.contains(&dest) {
+                continue;
+            }
+
+            let payload = encode_kad2_search_key_req(keyword, 0);
+            if send_kad2_packet(sock, p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload)
+                .await
+                .is_ok()
+            {
+                svc.stats_window.sent_search_key_reqs += 1;
+                job.sent_to_search.insert(dest.clone());
+                dests.push(crate::i2p::b64::short(&dest).to_string());
+                sent += 1;
+            }
         }
 
-        match &job.kind {
-            KeywordJobKind::Search => {
-                // iMule uses Kad2 search key only for version >= 3.
-                if p.kad_version < 3 {
-                    continue;
-                }
-                let payload = encode_kad2_search_key_req(keyword, 0);
-                if send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload)
-                    .await
-                    .is_ok()
-                {
-                    svc.stats_window.sent_search_key_reqs += 1;
-                    job.sent_to.insert(dest);
-                    sent += 1;
-                }
-            }
-            KeywordJobKind::Publish {
-                file,
-                filename,
-                file_size,
-                file_type,
-            } => {
-                // iMule uses Kad2 publish key for version >= 2.
-                if p.kad_version < 2 {
-                    continue;
-                }
-                let entries = [(*file, filename.as_str(), *file_size, file_type.as_deref())];
-                let payload = encode_kad2_publish_key_req(keyword, &entries);
-                if send_kad2_packet(sock, &p, crypto, KADEMLIA2_PUBLISH_KEY_REQ, &payload)
-                    .await
-                    .is_ok()
-                {
-                    svc.stats_window.sent_publish_key_reqs += 1;
-                    job.sent_to.insert(dest);
-                    sent += 1;
-                }
-            }
+        if sent > 0 {
+            tracing::info!(
+                keyword = %keyword.to_hex_lower(),
+                sent,
+                to = %dests.join(","),
+                "sent SEARCH_KEY_REQ (job)"
+            );
         }
+        job.next_search_at = now + KEYWORD_JOB_ACTION_EVERY;
     }
 
-    if sent > 0 {
-        match &job.kind {
-            KeywordJobKind::Search => {
-                tracing::info!(keyword = %keyword.to_hex_lower(), sent, "sent SEARCH_KEY_REQ (job)");
+    if let Some(pubspec) = job.publish.as_ref()
+        && !job.got_publish_ack
+        && now >= job.next_publish_at
+    {
+        let mut sent = 0usize;
+        let mut dests = Vec::<String>::new();
+        for p in peers.iter() {
+            if sent >= KEYWORD_JOB_ACTION_BATCH {
+                break;
             }
-            KeywordJobKind::Publish { file, .. } => {
-                tracing::info!(
-                    keyword = %keyword.to_hex_lower(),
-                    file = %file.to_hex_lower(),
-                    sent,
-                    "sent PUBLISH_KEY_REQ (job)"
-                );
+            if p.kad_version < 2 {
+                continue;
+            }
+            let dest = p.udp_dest_b64();
+            if job.sent_to_publish.contains(&dest) {
+                continue;
+            }
+
+            let entries = [(
+                pubspec.file,
+                pubspec.filename.as_str(),
+                pubspec.file_size,
+                pubspec.file_type.as_deref(),
+            )];
+            let payload = encode_kad2_publish_key_req(keyword, &entries);
+            if send_kad2_packet(sock, p, crypto, KADEMLIA2_PUBLISH_KEY_REQ, &payload)
+                .await
+                .is_ok()
+            {
+                svc.stats_window.sent_publish_key_reqs += 1;
+                job.sent_to_publish.insert(dest.clone());
+                dests.push(crate::i2p::b64::short(&dest).to_string());
+                sent += 1;
             }
         }
+
+        if sent > 0 {
+            tracing::info!(
+                keyword = %keyword.to_hex_lower(),
+                file = %pubspec.file.to_hex_lower(),
+                sent,
+                to = %dests.join(","),
+                "sent PUBLISH_KEY_REQ (job)"
+            );
+        }
+        job.next_publish_at = now + KEYWORD_JOB_ACTION_EVERY;
     }
 
-    job.next_action_at = now + KEYWORD_JOB_ACTION_EVERY;
     svc.keyword_jobs.insert(keyword, job);
     Ok(())
 }
