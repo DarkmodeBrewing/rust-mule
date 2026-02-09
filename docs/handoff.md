@@ -400,3 +400,8 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
   receiving packets but can’t parse/decrypt them”:
   - `dropped_undecipherable`: failed Kad UDP decrypt (unknown/invalid obfuscation)
   - `dropped_unparsable`: decrypted OK but Kad packet framing/format was invalid
+
+## Two-Instance Testing
+
+- Added `docs/scripts/two_instance_dht_selftest.sh` to exercise publish/search flows between two
+  locally-running rust-mule instances (e.g. mule-a on `:17835` and mule-b on `:17836`).
