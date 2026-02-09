@@ -81,6 +81,11 @@ log() {
   echo "[$(ts)] $*" | tee -a "$OUT_FILE" >&2
 }
 
+append_blank_line() {
+  # Ensure OUT_FILE stays readable even if some curl helpers don't end with a newline.
+  echo | tee -a "$OUT_FILE" >/dev/null
+}
+
 extract_keyword_hex() {
   # Extract `"keyword_id_hex":"<32hex>"` from a JSON response.
   # Best-effort; returns empty string on failure.
@@ -162,7 +167,7 @@ status_snapshot() {
   local token_file="$3"
   log "Status $name ($base_url)"
   docs/scripts/status.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
-  echo
+  append_blank_line
 }
 
 publish_keyword() {
@@ -196,7 +201,7 @@ publish_keyword() {
       --file-size "$file_size" \
       | tee -a "$OUT_FILE"
   fi
-  echo
+  append_blank_line
 }
 
 search_keyword() {
@@ -211,7 +216,7 @@ search_keyword() {
     --token-file "$token_file" \
     --keyword-id-hex "$keyword_id_hex" \
     | tee -a "$OUT_FILE"
-  echo
+  append_blank_line
 }
 
 get_keyword_results() {
@@ -226,7 +231,7 @@ get_keyword_results() {
     --token-file "$token_file" \
     --keyword-id-hex "$keyword_id_hex" \
     | tee -a "$OUT_FILE"
-  echo
+  append_blank_line
 }
 
 while [[ $# -gt 0 ]]; do
@@ -264,6 +269,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 mkdir -p "$(dirname "$OUT_FILE")"
+
+log "Script: $0 $*"
+log "OUT_FILE=$OUT_FILE"
+log "A_BASE_URL=$A_BASE_URL A_TOKEN_FILE=$A_TOKEN_FILE"
+log "B_BASE_URL=$B_BASE_URL B_TOKEN_FILE=$B_TOKEN_FILE"
+log "ROUNDS=$ROUNDS WAIT_PUBLISH_SECS=$WAIT_PUBLISH_SECS WAIT_SEARCH_SECS=$WAIT_SEARCH_SECS PAUSE_SECS=$PAUSE_SECS"
+log "WARMUP_LIVE=$WARMUP_LIVE WARMUP_TIMEOUT_SECS=$WARMUP_TIMEOUT_SECS WARMUP_CHECK_SECS=$WARMUP_CHECK_SECS WARMUP_STABLE_SAMPLES=$WARMUP_STABLE_SAMPLES"
 
 if [[ -n "$QUERY" ]]; then
   QUERY_A="$QUERY"
