@@ -11,9 +11,10 @@ use crate::{
             KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_KEY_REQ,
             KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES,
             KADEMLIA2_SEARCH_KEY_REQ, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ,
-            Kad2PublishKeyReq, Kad2PublishRes, Kad2PublishResKey, Kad2SearchRes, KadPacket,
-            TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
-            decode_kad2_publish_key_req, decode_kad2_publish_res, decode_kad2_publish_res_key,
+            Kad2PublishRes, Kad2PublishResKey, Kad2SearchRes, KadPacket, TAG_KADMISCOPTIONS,
+            decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
+            decode_kad2_publish_key_keyword_prefix, decode_kad2_publish_key_req_lenient,
+            decode_kad2_publish_res, decode_kad2_publish_res_key,
             decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_res,
             decode_kad2_search_key_req, decode_kad2_search_res, decode_kad2_search_source_req,
             encode_kad1_res, encode_kad2_hello, encode_kad2_publish_key_req,
@@ -164,6 +165,7 @@ struct KadServiceStats {
     evicted_keyword_keywords: u64,
 
     recv_publish_key_reqs: u64,
+    recv_publish_key_decode_failures: u64,
     sent_publish_key_ress: u64,
     sent_publish_key_reqs: u64,
     recv_publish_key_ress: u64,
@@ -214,6 +216,7 @@ pub struct KadServiceStatus {
     pub store_keyword_hits_total: usize,
 
     pub recv_publish_key_reqs: u64,
+    pub recv_publish_key_decode_failures: u64,
     pub sent_publish_key_ress: u64,
     pub sent_publish_key_reqs: u64,
     pub recv_publish_key_ress: u64,
@@ -287,6 +290,7 @@ pub struct KadService {
     pending_reqs: HashMap<String, Instant>,
     crawl_round: u64,
     stats_window: KadServiceStats,
+    publish_key_decode_fail_logged: HashSet<String>,
 
     cmd_rx: mpsc::Receiver<KadServiceCommand>,
 }
@@ -333,6 +337,7 @@ impl KadService {
             pending_reqs: HashMap::new(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
+            publish_key_decode_fail_logged: HashSet::new(),
             cmd_rx,
         }
     }
@@ -1621,6 +1626,7 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         store_keyword_hits_total,
 
         recv_publish_key_reqs: w.recv_publish_key_reqs,
+        recv_publish_key_decode_failures: w.recv_publish_key_decode_failures,
         sent_publish_key_ress: w.sent_publish_key_ress,
         sent_publish_key_reqs: w.sent_publish_key_reqs,
         recv_publish_key_ress: w.recv_publish_key_ress,
@@ -1673,6 +1679,7 @@ fn publish_status(
         store_keyword_keywords = st.store_keyword_keywords,
         store_keyword_hits_total = st.store_keyword_hits_total,
         recv_publish_key_reqs = st.recv_publish_key_reqs,
+        recv_publish_key_decode_failures = st.recv_publish_key_decode_failures,
         sent_publish_key_ress = st.sent_publish_key_ress,
         sent_publish_key_reqs = st.sent_publish_key_reqs,
         recv_publish_key_ress = st.recv_publish_key_ress,
@@ -1690,6 +1697,18 @@ fn publish_status(
     if let Some(tx) = status_events_tx {
         let _ = tx.send(st);
     }
+}
+
+fn hex_head(b: &[u8], max: usize) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for (i, v) in b.iter().take(max).enumerate() {
+        if i > 0 {
+            out.push(' ');
+        }
+        let _ = write!(&mut out, "{v:02x}");
+    }
+    out
 }
 
 async fn handle_inbound(
@@ -2111,19 +2130,78 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_PUBLISH_KEY_REQ => {
-            let req: Kad2PublishKeyReq = match decode_kad2_publish_key_req(&pkt.payload) {
-                Ok(r) => r,
-                Err(err) => {
-                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 PUBLISH_KEY_REQ payload");
-                    return Ok(());
-                }
-            };
+            // Be lenient: if we can't parse the full payload, we still want to ACK (if we can
+            // read the keyword prefix) to stop retransmits, and store any entries we did parse.
+            let (keyword, entries, complete, declared_count) =
+                match decode_kad2_publish_key_req_lenient(&pkt.payload) {
+                    Ok(r) => (r.keyword, r.entries, r.complete, r.declared_count),
+                    Err(err) => {
+                        svc.stats_window.recv_publish_key_decode_failures += 1;
+
+                        let short = crate::i2p::b64::short(&from_dest_b64).to_string();
+                        if svc.publish_key_decode_fail_logged.insert(short.clone()) {
+                            if svc.publish_key_decode_fail_logged.len() > 2048 {
+                                svc.publish_key_decode_fail_logged.clear();
+                            }
+                            tracing::warn!(
+                                from = %short,
+                                error = %err,
+                                len = pkt.payload.len(),
+                                head_hex = %hex_head(&pkt.payload, 64),
+                                "failed to decode KAD2 PUBLISH_KEY_REQ payload (lenient); will try to ACK by prefix"
+                            );
+                        }
+
+                        // Try to extract the keyword prefix for an ACK.
+                        let keyword = match decode_kad2_publish_key_keyword_prefix(&pkt.payload) {
+                            Ok(k) => k,
+                            Err(_) => return Ok(()),
+                        };
+
+                        // Reply with Kad2 publish result (key shape) so peers stop retransmitting.
+                        let res_payload = encode_kad2_publish_res_for_key(keyword, 0);
+                        let res_plain = KadPacket::encode(KADEMLIA2_PUBLISH_RES, &res_payload);
+                        let sender_verify_key =
+                            udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+                        let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                            udp_crypto::encrypt_kad_packet_with_receiver_key(
+                                &res_plain,
+                                decrypted.sender_verify_key,
+                                sender_verify_key,
+                            )?
+                        } else {
+                            res_plain
+                        };
+                        let _ = sock.send_to(&from_dest_b64, &out).await;
+                        svc.stats_window.sent_publish_key_ress += 1;
+                        return Ok(());
+                    }
+                };
 
             svc.stats_window.recv_publish_key_reqs += 1;
+            if !complete {
+                svc.stats_window.recv_publish_key_decode_failures += 1;
 
-            let m = svc.keyword_store_by_keyword.entry(req.keyword).or_default();
+                let short = crate::i2p::b64::short(&from_dest_b64).to_string();
+                if svc.publish_key_decode_fail_logged.insert(short.clone()) {
+                    if svc.publish_key_decode_fail_logged.len() > 2048 {
+                        svc.publish_key_decode_fail_logged.clear();
+                    }
+                    tracing::warn!(
+                        from = %short,
+                        keyword = %keyword.to_hex_lower(),
+                        declared = declared_count,
+                        parsed = entries.len(),
+                        len = pkt.payload.len(),
+                        head_hex = %hex_head(&pkt.payload, 64),
+                        "truncated/unparseable KAD2 PUBLISH_KEY_REQ payload; storing partial entries and ACKing"
+                    );
+                }
+            }
+
+            let m = svc.keyword_store_by_keyword.entry(keyword).or_default();
             let mut inserted = 0u64;
-            for e in req.entries {
+            for e in entries {
                 let (Some(filename), Some(file_size)) = (e.filename, e.file_size) else {
                     continue;
                 };
@@ -2164,7 +2242,7 @@ async fn handle_inbound(
             }
 
             // Reply with Kad2 publish result (key shape) so peers stop retransmitting.
-            let res_payload = encode_kad2_publish_res_for_key(req.keyword, 0);
+            let res_payload = encode_kad2_publish_res_for_key(keyword, 0);
             let res_plain = KadPacket::encode(KADEMLIA2_PUBLISH_RES, &res_payload);
             let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
             let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {

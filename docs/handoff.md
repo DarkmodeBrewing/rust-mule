@@ -60,6 +60,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - capture raw decrypted payload (len + hex head) on first decode failure to determine truncation vs parsing mismatch,
     - make publish-key decoding best-effort and still reply with `PUBLISH_RES` (key) to reduce peer retries,
     - add `origin=local|network` to keyword hits (or a debug knob to disable local injection) to make tests unambiguous.
+- 2026-02-09: Implemented publish-key robustness improvements:
+  - Add lenient `KADEMLIA2_PUBLISH_KEY_REQ` decoding which can return partial entries and still extract the keyword prefix for ACKing (`src/kad/wire.rs`).
+  - On decode failure, rust-mule now attempts a prefix ACK (send `KADEMLIA2_PUBLISH_RES` for the keyword) so peers stop retransmitting.
+  - Added `recv_publish_key_decode_failures` counter to `/status` output for visibility (`src/kad/service.rs`).
 - 2026-02-07: TTL note (small/slow iMule I2P-KAD reality):
   - Keyword hits are a “discovery cache” and can be noisy; expiring them is mostly for memory hygiene.
   - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.

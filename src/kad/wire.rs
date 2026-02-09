@@ -428,6 +428,257 @@ pub fn decode_kad2_publish_key_req(payload: &[u8]) -> Result<Kad2PublishKeyReq> 
     Ok(Kad2PublishKeyReq { keyword, entries })
 }
 
+/// Lenient decoder for `KADEMLIA2_PUBLISH_KEY_REQ`.
+///
+/// In the wild we sometimes receive truncated payloads (or payloads we don't fully understand yet).
+/// We still want to:
+/// - extract the keyword hash (so we can send `PUBLISH_RES` and stop peer retries),
+/// - store whatever well-formed entries we can parse (best-effort).
+#[derive(Debug, Clone)]
+pub struct Kad2PublishKeyReqLenient {
+    pub keyword: KadId,
+    pub declared_count: u16,
+    pub complete: bool,
+    pub entries: Vec<Kad2PublishKeyEntry>,
+}
+
+/// Extract only the `<keyword u128>` prefix from a Kad2 publish-key request.
+pub fn decode_kad2_publish_key_keyword_prefix(payload: &[u8]) -> Result<KadId> {
+    // Same weird eMule/aMule encoding used everywhere: 4 x u32 le, chunk order preserved.
+    if payload.len() < 16 {
+        bail!(
+            "publish-key payload too short for keyword prefix: {} bytes",
+            payload.len()
+        );
+    }
+    let mut i = 0usize;
+    let mut out = [0u8; 16];
+    for w in 0..4 {
+        let s = payload
+            .get(i..i + 4)
+            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", i))?;
+        i += 4;
+        let le = u32::from_le_bytes(s.try_into().unwrap());
+        out[w * 4..w * 4 + 4].copy_from_slice(&le.to_be_bytes());
+    }
+    Ok(KadId(out))
+}
+
+pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2PublishKeyReqLenient> {
+    struct R<'a> {
+        b: &'a [u8],
+        i: usize,
+    }
+
+    impl<'a> R<'a> {
+        fn new(b: &'a [u8]) -> Self {
+            Self { b, i: 0 }
+        }
+
+        fn read_u8(&mut self) -> Option<u8> {
+            let v = *self.b.get(self.i)?;
+            self.i += 1;
+            Some(v)
+        }
+
+        fn read_u16_le(&mut self) -> Option<u16> {
+            let s = self.b.get(self.i..self.i + 2)?;
+            self.i += 2;
+            Some(u16::from_le_bytes(s.try_into().ok()?))
+        }
+
+        fn read_u32_le(&mut self) -> Option<u32> {
+            let s = self.b.get(self.i..self.i + 4)?;
+            self.i += 4;
+            Some(u32::from_le_bytes(s.try_into().ok()?))
+        }
+
+        fn read_u64_le(&mut self) -> Option<u64> {
+            let s = self.b.get(self.i..self.i + 8)?;
+            self.i += 8;
+            Some(u64::from_le_bytes(s.try_into().ok()?))
+        }
+
+        fn read_uint128_emule(&mut self) -> Option<KadId> {
+            let mut out = [0u8; 16];
+            for w in 0..4 {
+                let le = self.read_u32_le()?;
+                out[w * 4..w * 4 + 4].copy_from_slice(&le.to_be_bytes());
+            }
+            Some(KadId(out))
+        }
+
+        fn skip(&mut self, len: usize) -> Option<()> {
+            self.b.get(self.i..self.i + len)?;
+            self.i += len;
+            Some(())
+        }
+
+        fn read_i2p_dest(&mut self) -> Option<[u8; I2P_DEST_LEN]> {
+            let s = self.b.get(self.i..self.i + I2P_DEST_LEN)?;
+            self.i += I2P_DEST_LEN;
+            Some(s.try_into().ok()?)
+        }
+
+        fn read_taglist_search_info_lenient(&mut self) -> Option<TaglistSearchInfo> {
+            let count = self.read_u8()? as usize;
+            let mut out = TaglistSearchInfo::default();
+
+            for _ in 0..count {
+                let type_raw = self.read_u8()?;
+                let (tag_type, id) = if (type_raw & 0x80) != 0 {
+                    let tag_type = type_raw & 0x7F;
+                    let id = self.read_u8()?;
+                    (tag_type, Some(id))
+                } else {
+                    // Old format: <type u8><nameLen u16><name bytes...>
+                    let name_len = self.read_u16_le()? as usize;
+                    if name_len == 1 {
+                        let id = self.read_u8()?;
+                        (type_raw, Some(id))
+                    } else {
+                        self.skip(name_len)?;
+                        (type_raw, None)
+                    }
+                };
+
+                match tag_type {
+                    TAGTYPE_UINT8 => {
+                        let v = self.read_u8()? as u64;
+                        if id == Some(TAG_FILESIZE) {
+                            out.file_size = Some(v);
+                        }
+                        if id == Some(TAG_PUBLISHINFO) {
+                            out.publish_info = Some(v as u32);
+                        }
+                        if id == Some(TAG_SOURCETYPE) {
+                            out.source_type = Some(v as u8);
+                        }
+                    }
+                    TAGTYPE_UINT16 => {
+                        let v = self.read_u16_le()? as u64;
+                        if id == Some(TAG_FILESIZE) {
+                            out.file_size = Some(v);
+                        }
+                    }
+                    TAGTYPE_UINT32 => {
+                        let v = self.read_u32_le()? as u64;
+                        match id {
+                            Some(TAG_FILESIZE) => out.file_size = Some(v),
+                            Some(TAG_PUBLISHINFO) => out.publish_info = Some(v as u32),
+                            _ => {}
+                        }
+                    }
+                    TAGTYPE_UINT64 => {
+                        let v = self.read_u64_le()? as u64;
+                        match id {
+                            Some(TAG_FILESIZE) => out.file_size = Some(v),
+                            Some(TAG_PUBLISHINFO) => out.publish_info = Some(v as u32),
+                            _ => {}
+                        }
+                    }
+                    TAGTYPE_ADDRESS => {
+                        let v = self.read_i2p_dest()?;
+                        match id {
+                            Some(TAG_SOURCEDEST) => out.source_dest = Some(v),
+                            Some(TAG_SOURCEUDEST) => out.source_udest = Some(v),
+                            _ => out.fallback_udpdest = Some(v),
+                        }
+                    }
+                    TAGTYPE_STRING => {
+                        let len = self.read_u16_le()? as usize;
+                        if len > MAX_TAG_STRING_LEN {
+                            self.skip(len)?;
+                            continue;
+                        }
+                        let s = self.b.get(self.i..self.i + len)?;
+                        self.i += len;
+                        let s = String::from_utf8_lossy(s).into_owned();
+                        match id {
+                            Some(TAG_FILENAME) => out.filename = Some(s),
+                            Some(TAG_FILETYPE) => out.file_type = Some(s),
+                            _ => {}
+                        }
+                    }
+                    0x01 => {
+                        // TAGTYPE_HASH16
+                        self.skip(16)?;
+                    }
+                    TAGTYPE_FLOAT32 => {
+                        self.skip(4)?;
+                    }
+                    TAGTYPE_BOOL => {
+                        self.skip(1)?;
+                    }
+                    TAGTYPE_BOOLARRAY => {
+                        let bits = self.read_u16_le()? as usize;
+                        self.skip((bits + 7) / 8)?;
+                    }
+                    TAGTYPE_BLOB => {
+                        let len = self.read_u32_le()? as usize;
+                        self.skip(len)?;
+                    }
+                    TAGTYPE_BSOB => {
+                        let len = self.read_u8()? as usize;
+                        self.skip(len)?;
+                    }
+                    t if (TAGTYPE_STR1..=TAGTYPE_STR16).contains(&t) => {
+                        let len = (t - TAGTYPE_STR1 + 1) as usize;
+                        let s = self.b.get(self.i..self.i + len)?;
+                        self.i += len;
+                        let s = String::from_utf8_lossy(s).into_owned();
+                        match id {
+                            Some(TAG_FILENAME) => out.filename = Some(s),
+                            Some(TAG_FILETYPE) => out.file_type = Some(s),
+                            _ => {}
+                        }
+                    }
+                    _ => {
+                        // Unknown tag type. We can't safely resync, so abort parsing this taglist.
+                        return None;
+                    }
+                }
+            }
+
+            Some(out)
+        }
+    }
+
+    let mut r = R::new(payload);
+    let keyword = r
+        .read_uint128_emule()
+        .ok_or_else(|| anyhow::anyhow!("publish-key payload too short for keyword"))?;
+    let declared_count = r
+        .read_u16_le()
+        .ok_or_else(|| anyhow::anyhow!("publish-key payload too short for count"))?;
+
+    let mut entries = Vec::new();
+    let mut complete = true;
+    for _ in 0..declared_count {
+        let Some(file) = r.read_uint128_emule() else {
+            complete = false;
+            break;
+        };
+        let Some(tags) = r.read_taglist_search_info_lenient() else {
+            complete = false;
+            break;
+        };
+        entries.push(Kad2PublishKeyEntry {
+            file,
+            filename: tags.filename,
+            file_size: tags.file_size,
+            file_type: tags.file_type,
+        });
+    }
+
+    Ok(Kad2PublishKeyReqLenient {
+        keyword,
+        declared_count,
+        complete,
+        entries,
+    })
+}
+
 pub fn encode_kad2_publish_source_req(
     file: KadId,
     source: KadId,
@@ -1062,5 +1313,20 @@ mod tests {
                 .any(|w| w == want_sources),
             "missing TAG_SOURCES in publish taglist"
         );
+    }
+
+    #[test]
+    fn kad2_publish_key_req_lenient_extracts_keyword_on_truncation() {
+        let keyword = KadId([0xAB; 16]);
+        let file = KadId([0x11; 16]);
+        let full = encode_kad2_publish_key_req(keyword, &[(file, "x.bin", 123, None)]);
+
+        // Truncate inside the first taglist so strict parsing would fail.
+        let truncated = &full[..(16 + 2 + 16 + 3)];
+        let parsed = decode_kad2_publish_key_req_lenient(truncated).unwrap();
+        assert_eq!(parsed.keyword, keyword);
+        assert!(!parsed.complete);
+        // We might or might not have a parsed entry depending on where the truncation happened,
+        // but keyword must be present so we can ACK.
     }
 }
