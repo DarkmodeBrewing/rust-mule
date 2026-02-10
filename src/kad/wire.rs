@@ -274,6 +274,22 @@ pub fn encode_kad2_hello(
     out
 }
 
+pub fn encode_kad2_hello_req(
+    my_kad_version: u8,
+    my_id: KadId,
+    my_udp_dest: &[u8; I2P_DEST_LEN],
+) -> Vec<u8> {
+    // iMule HELLO_REQ: <kadVersion u8><nodeId u128><udpDest 387><TagList>
+    //
+    // For HELLO_REQ, iMule sends an empty TagList (count=0) and uses kadVersion=1.
+    let mut out = Vec::with_capacity(1 + 16 + I2P_DEST_LEN + 1);
+    out.push(my_kad_version);
+    out.extend_from_slice(&my_id.to_crypt_bytes());
+    out.extend_from_slice(my_udp_dest);
+    out.push(0); // TagList count
+    out
+}
+
 pub fn decode_kad2_hello(payload: &[u8]) -> Result<Kad2Hello> {
     let mut r = Reader::new(payload);
     let kad_version = r.read_u8()?;

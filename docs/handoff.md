@@ -16,6 +16,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Routing table updates now treat inbound responses as activity (last_seen/last_inbound) and align bucket index to MSB distance.
 - Ran `cargo fmt`, `cargo clippy`, `cargo test` after the debug/refresh changes (clippy warnings remain; see prior notes).
 - Added HELLO preflight on inbound responses, prioritized live peers for publish/search, and added post-warmup routing snapshots in the two-instance script.
+- Aligned Kad2 HELLO_REQ encoding with iMule: kadVersion=1, empty TagList, sent unobfuscated.
 - Ran `cargo fmt`, `cargo clippy`, `cargo test` after HELLO/live-peer changes (clippy warnings remain; see prior notes).
 - Added `origin` field to keyword hits (`local` vs `network`) in the API response.
 - Added `/kad/peers` API endpoint and extra inbound-request counters to `/status` for visibility.
@@ -37,6 +38,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Use MSB-first bucket indexing to match iMule bit order and ensure random bucket targets map correctly.
 - On inbound responses, opportunistically send HELLO to establish keys and improve publish/search acceptance.
 - Prefer recently-live peers first for publish/search while keeping distance correctness as fallback.
+- Match iMule HELLO_REQ behavior (unencrypted, kadVersion=1, empty TagList) to improve interop.
 
 ## Next Steps (2026-02-10)
 
@@ -48,6 +50,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Re-run two-instance test to see if HELLO preflight improves `PUBLISH_RES` / `SEARCH_RES` results.
 - Run `docs/scripts/debug_routing_summary.sh` + `debug_routing_buckets.sh` around test runs; use `debug_lookup_once` to trace a single lookup.
 - Re-run the two-instance script (now with post-warmup routing snapshots) and check for HELLO traffic + publish/search ACKs.
+- Re-run two-instance test and check for `recv_hello_ress` / `recv_hello_reqs` increases after HELLO_REQ change.
 
 ## Roadmap Notes
 
@@ -66,6 +69,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-10: Add debug routing endpoints + debug lookup trigger; add staleness-based bucket refresh with under-populated growth mode.
 - 2026-02-10: Align bucket indexing with MSB bit order; mark last_seen/last_inbound on inbound responses.
 - 2026-02-10: Send HELLO on inbound responses, prioritize live peers for publish/search, and add post-warmup routing snapshots in the selftest script.
+- 2026-02-10: Align Kad2 HELLO_REQ with iMule (kadVersion=1, empty taglist, unobfuscated); add `encode_kad2_hello_req` and update HELLO send paths.
 - 2026-02-06: Embed distributable nodes init seed at `assets/nodes.initseed.dat`; create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from embedded seed (best-effort) so runtime no longer depends on repo-local reference folders.
 - 2026-02-06: Reduce default stdout verbosity to `info` (code default and repo `config.toml`; file logging remains configurable and can stay `debug`).
 - 2026-02-06: Make Kad UDP key secret file-backed only (`data/kad_udp_key_secret.dat`); `kad.udp_key_secret` is deprecated/ignored to reduce misconfiguration risk.

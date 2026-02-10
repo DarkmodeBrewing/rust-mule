@@ -17,7 +17,7 @@ use crate::{
             decode_kad2_publish_res, decode_kad2_publish_res_key,
             decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_res,
             decode_kad2_search_key_req, decode_kad2_search_res, decode_kad2_search_source_req,
-            encode_kad1_res, encode_kad2_hello, encode_kad2_publish_key_req,
+            encode_kad1_res, encode_kad2_hello, encode_kad2_hello_req, encode_kad2_publish_key_req,
             encode_kad2_publish_res_for_key, encode_kad2_publish_res_for_source,
             encode_kad2_publish_source_req, encode_kad2_req, encode_kad2_res,
             encode_kad2_search_key_req, encode_kad2_search_res_keyword,
@@ -1286,29 +1286,16 @@ async fn maybe_send_hello_to_peer(
         return Ok(());
     }
 
-    let hello_plain_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
+    let hello_plain_payload = encode_kad2_hello_req(1, crypto.my_kad_id, &crypto.my_dest);
     let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_plain_payload);
 
-    let target_kad_id = KadId(peer.client_id);
-    let sender_verify_key =
-        udp_crypto::udp_verify_key(crypto.udp_key_secret, peer.udp_dest_hash_code());
     let receiver_verify_key = if peer.udp_key_ip == crypto.my_dest_hash {
         peer.udp_key
     } else {
         0
     };
 
-    let use_encrypt = peer.kad_version >= 6;
-    let out = if use_encrypt {
-        udp_crypto::encrypt_kad_packet(
-            &hello_plain,
-            target_kad_id,
-            receiver_verify_key,
-            sender_verify_key,
-        )?
-    } else {
-        hello_plain
-    };
+    let out = hello_plain;
 
     if let Err(err) = sock.send_to(&dest, &out).await {
         tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
@@ -1318,7 +1305,7 @@ async fn maybe_send_hello_to_peer(
         tracing::debug!(
             to = %crate::i2p::b64::short(&dest),
             kad_version = peer.kad_version,
-            encrypted = use_encrypt,
+            encrypted = false,
             receiver_key = receiver_verify_key != 0,
             "sent HELLO_REQ"
         );
@@ -1572,30 +1559,13 @@ async fn send_hello_batch(
         return Ok(());
     }
 
-    let hello_plain_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
+    let hello_plain_payload = encode_kad2_hello_req(1, crypto.my_kad_id, &crypto.my_dest);
     let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_plain_payload);
 
     for p in peers.drain(..) {
         let dest = p.udp_dest_b64();
-        let target_kad_id = KadId(p.client_id);
-        let sender_verify_key =
-            udp_crypto::udp_verify_key(crypto.udp_key_secret, p.udp_dest_hash_code());
-        let receiver_verify_key = if p.udp_key_ip == crypto.my_dest_hash {
-            p.udp_key
-        } else {
-            0
-        };
 
-        let out = if p.kad_version >= 6 {
-            udp_crypto::encrypt_kad_packet(
-                &hello_plain,
-                target_kad_id,
-                receiver_verify_key,
-                sender_verify_key,
-            )?
-        } else {
-            hello_plain.clone()
-        };
+        let out = hello_plain.clone();
 
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
