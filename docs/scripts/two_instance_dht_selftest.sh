@@ -399,6 +399,11 @@ fi
 wait_for_warmup "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$WARMUP_LIVE" "$WARMUP_TIMEOUT_SECS" "$WARMUP_CHECK_SECS" "$WARMUP_STABLE_SAMPLES"
 wait_for_warmup "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$WARMUP_LIVE" "$WARMUP_TIMEOUT_SECS" "$WARMUP_CHECK_SECS" "$WARMUP_STABLE_SAMPLES"
 
+routing_summary_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+routing_summary_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+routing_buckets_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+routing_buckets_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+
 for ((i=1; i<=ROUNDS; i++)); do
   log "=== Round $i/$ROUNDS: A -> (A,B) ==="
 
@@ -437,6 +442,8 @@ for ((i=1; i<=ROUNDS; i++)); do
   status_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
   peers_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
   peers_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+  routing_summary_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+  routing_summary_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
 
   log "Pausing ${PAUSE_SECS}s..."
   sleep "$PAUSE_SECS"

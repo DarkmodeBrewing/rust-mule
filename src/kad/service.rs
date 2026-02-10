@@ -907,7 +907,7 @@ async fn send_search_sources(
     }
 
     let now = Instant::now();
-    let peers = closest_peers_by_distance(svc, file, 8, 3, 0);
+    let peers = closest_peers_live_first(svc, file, 8, 3, 0, Duration::from_secs(10 * 60));
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 search source only for version >= 3.
@@ -946,7 +946,7 @@ async fn send_publish_source(
     }
 
     let now = Instant::now();
-    let peers = closest_peers_by_distance(svc, file, 6, 4, 0);
+    let peers = closest_peers_live_first(svc, file, 6, 4, 0, Duration::from_secs(10 * 60));
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 publish source only for version >= 4.
@@ -1129,7 +1129,7 @@ async fn progress_keyword_job(
         return Ok(());
     }
 
-    let peers = closest_peers_by_distance(svc, keyword, 32, 3, 0);
+    let peers = closest_peers_live_first(svc, keyword, 32, 3, 0, Duration::from_secs(10 * 60));
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
 
     if job.want_search && now >= job.next_search_at {
@@ -1237,6 +1237,39 @@ fn closest_peers_by_distance(
     peers
 }
 
+fn closest_peers_live_first(
+    svc: &KadService,
+    target: KadId,
+    max: usize,
+    min_kad_version: u8,
+    exclude_dest_hash: u32,
+    live_window: Duration,
+) -> Vec<ImuleNode> {
+    let now = Instant::now();
+    let mut peers = svc.routing.closest_to(target, max * 4, exclude_dest_hash);
+    let mut live = Vec::new();
+    let mut cold = Vec::new();
+    for p in peers.drain(..) {
+        if p.kad_version < min_kad_version {
+            continue;
+        }
+        let id = KadId(p.client_id);
+        let is_live = svc
+            .routing
+            .get_by_id(id)
+            .and_then(|st| st.last_inbound)
+            .is_some_and(|t| now.saturating_duration_since(t) <= live_window);
+        if is_live {
+            live.push(p);
+        } else {
+            cold.push(p);
+        }
+    }
+    live.extend(cold);
+    live.truncate(max);
+    live
+}
+
 async fn maybe_send_hello_to_peer(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
@@ -1265,7 +1298,8 @@ async fn maybe_send_hello_to_peer(
         0
     };
 
-    let out = if peer.kad_version >= 6 {
+    let use_encrypt = peer.kad_version >= 6;
+    let out = if use_encrypt {
         udp_crypto::encrypt_kad_packet(
             &hello_plain,
             target_kad_id,
@@ -1281,9 +1315,32 @@ async fn maybe_send_hello_to_peer(
     } else {
         svc.stats_window.sent_hellos += 1;
         svc.routing.mark_hello_sent_by_dest(&dest, now);
+        tracing::debug!(
+            to = %crate::i2p::b64::short(&dest),
+            kad_version = peer.kad_version,
+            encrypted = use_encrypt,
+            receiver_key = receiver_verify_key != 0,
+            "sent HELLO_REQ"
+        );
     }
 
     Ok(())
+}
+
+async fn maybe_hello_on_inbound(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+    from_dest_b64: &str,
+    now: Instant,
+) -> Result<()> {
+    let Some(st) = svc.routing.get_by_dest(from_dest_b64) else {
+        return Ok(());
+    };
+    let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
+    let peer = st.node.clone();
+    maybe_send_hello_to_peer(svc, sock, crypto, &peer, now, hello_min).await
 }
 
 fn should_send_hello(
@@ -2565,6 +2622,15 @@ async fn handle_inbound(
                     );
                 }
                 svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+                if let Err(err) =
+                    maybe_hello_on_inbound(svc, sock, crypto, cfg, &from_dest_b64, now).await
+                {
+                    tracing::debug!(
+                        error = %err,
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        "failed HELLO preflight on BOOTSTRAP_RES"
+                    );
+                }
 
                 // Harvest contacts list.
                 for c in res.contacts {
@@ -2860,6 +2926,15 @@ async fn handle_inbound(
             svc.stats_window.recv_ress += 1;
             svc.stats_window.res_contacts += contacts.len() as u64;
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+            if let Err(err) =
+                maybe_hello_on_inbound(svc, sock, crypto, cfg, &from_dest_b64, now).await
+            {
+                tracing::debug!(
+                    error = %err,
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    "failed HELLO preflight on KAD2 RES"
+                );
+            }
             let before = svc.routing.len();
             for c in contacts {
                 let _ = svc.routing.upsert(
@@ -3190,6 +3265,15 @@ async fn handle_inbound(
 
         KADEMLIA2_SEARCH_RES => {
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+            if let Err(err) =
+                maybe_hello_on_inbound(svc, sock, crypto, cfg, &from_dest_b64, now).await
+            {
+                tracing::debug!(
+                    error = %err,
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    "failed HELLO preflight on SEARCH_RES"
+                );
+            }
             let res: Kad2SearchRes = match decode_kad2_search_res(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
@@ -3298,6 +3382,15 @@ async fn handle_inbound(
 
         KADEMLIA2_PUBLISH_RES => {
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+            if let Err(err) =
+                maybe_hello_on_inbound(svc, sock, crypto, cfg, &from_dest_b64, now).await
+            {
+                tracing::debug!(
+                    error = %err,
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    "failed HELLO preflight on PUBLISH_RES"
+                );
+            }
             // Publish results can be different shapes (key/source/notes).
             // - Key:   <u128 key><u8 load>
             // - Source: <u128 file><u32 sources><u32 complete><u8 load>
