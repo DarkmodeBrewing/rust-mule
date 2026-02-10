@@ -89,9 +89,9 @@ pub struct KadServiceConfig {
 }
 
 const KEYWORD_JOB_TTL: Duration = Duration::from_secs(2 * 60 * 60);
-const KEYWORD_JOB_LOOKUP_EVERY: Duration = Duration::from_secs(60);
-const KEYWORD_JOB_ACTION_EVERY: Duration = Duration::from_secs(60);
-const KEYWORD_JOB_ACTION_BATCH: usize = 3;
+const KEYWORD_JOB_LOOKUP_EVERY: Duration = Duration::from_secs(45);
+const KEYWORD_JOB_ACTION_EVERY: Duration = Duration::from_secs(45);
+const KEYWORD_JOB_ACTION_BATCH: usize = 5;
 
 impl Default for KadServiceConfig {
     fn default() -> Self {
@@ -144,6 +144,7 @@ struct KadServiceStats {
     res_contacts: u64,
     dropped_undecipherable: u64,
     dropped_unparsable: u64,
+    recv_hello_reqs: u64,
     sent_bootstrap_reqs: u64,
     recv_bootstrap_ress: u64,
     bootstrap_contacts: u64,
@@ -154,11 +155,13 @@ struct KadServiceStats {
     evicted: u64,
 
     sent_search_source_reqs: u64,
+    recv_search_source_reqs: u64,
     recv_search_ress: u64,
     search_results: u64,
     new_sources: u64,
 
     sent_search_key_reqs: u64,
+    recv_search_key_reqs: u64,
     keyword_results: u64,
     new_keyword_results: u64,
     evicted_keyword_hits: u64,
@@ -174,6 +177,7 @@ struct KadServiceStats {
     evicted_store_keyword_keywords: u64,
 
     sent_publish_source_reqs: u64,
+    recv_publish_source_reqs: u64,
     recv_publish_ress: u64,
 }
 
@@ -190,6 +194,7 @@ pub struct KadServiceStatus {
     pub res_contacts: u64,
     pub dropped_undecipherable: u64,
     pub dropped_unparsable: u64,
+    pub recv_hello_reqs: u64,
     pub sent_bootstrap_reqs: u64,
     pub recv_bootstrap_ress: u64,
     pub bootstrap_contacts: u64,
@@ -200,11 +205,13 @@ pub struct KadServiceStatus {
     pub evicted: u64,
 
     pub sent_search_source_reqs: u64,
+    pub recv_search_source_reqs: u64,
     pub recv_search_ress: u64,
     pub search_results: u64,
     pub new_sources: u64,
 
     pub sent_search_key_reqs: u64,
+    pub recv_search_key_reqs: u64,
     pub keyword_results: u64,
     pub new_keyword_results: u64,
     pub evicted_keyword_hits: u64,
@@ -225,6 +232,7 @@ pub struct KadServiceStatus {
     pub evicted_store_keyword_keywords: u64,
 
     pub sent_publish_source_reqs: u64,
+    pub recv_publish_source_reqs: u64,
     pub recv_publish_ress: u64,
 }
 
@@ -256,6 +264,9 @@ pub enum KadServiceCommand {
         keyword: KadId,
         respond_to: oneshot::Sender<Vec<KadKeywordHit>>,
     },
+    GetPeers {
+        respond_to: oneshot::Sender<Vec<KadPeerInfo>>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -271,6 +282,40 @@ pub struct KadKeywordHit {
     pub file_size: u64,
     pub file_type: Option<String>,
     pub publish_info: Option<u32>,
+    pub origin: KadKeywordHitOrigin,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KadPeerInfo {
+    pub kad_id_hex: String,
+    pub udp_dest_b64: String,
+    pub udp_dest_short: String,
+    pub kad_version: u8,
+    pub verified: bool,
+    pub udp_key: u32,
+    pub udp_key_ip: u32,
+    pub failures: u32,
+    pub peer_agent: Option<String>,
+    pub last_seen_secs_ago: u64,
+    pub last_inbound_secs_ago: Option<u64>,
+    pub last_queried_secs_ago: Option<u64>,
+    pub last_bootstrap_secs_ago: Option<u64>,
+    pub last_hello_secs_ago: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KadKeywordHitOrigin {
+    Local,
+    Network,
+}
+
+impl KadKeywordHitOrigin {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            KadKeywordHitOrigin::Local => "local",
+            KadKeywordHitOrigin::Network => "network",
+        }
+    }
 }
 
 pub struct KadService {
@@ -491,6 +536,7 @@ async fn handle_command(
                     file_size,
                     file_type: file_type.clone(),
                     publish_info: None,
+                    origin: KadKeywordHitOrigin::Local,
                 },
             );
 
@@ -535,8 +581,41 @@ async fn handle_command(
                 .unwrap_or_default();
             let _ = respond_to.send(hits);
         }
+        KadServiceCommand::GetPeers { respond_to } => {
+            let mut states = svc.routing.snapshot_states();
+            states.sort_by_key(|st| {
+                (
+                    st.last_inbound.is_none(),
+                    std::cmp::Reverse(st.last_inbound.unwrap_or(st.last_seen)),
+                )
+            });
+            let peers = states
+                .into_iter()
+                .map(|st| KadPeerInfo {
+                    kad_id_hex: KadId(st.node.client_id).to_hex_lower(),
+                    udp_dest_b64: st.dest_b64.clone(),
+                    udp_dest_short: crate::i2p::b64::short(&st.dest_b64).to_string(),
+                    kad_version: st.node.kad_version,
+                    verified: st.node.verified,
+                    udp_key: st.node.udp_key,
+                    udp_key_ip: st.node.udp_key_ip,
+                    failures: st.failures,
+                    peer_agent: st.peer_agent,
+                    last_seen_secs_ago: now.saturating_duration_since(st.last_seen).as_secs(),
+                    last_inbound_secs_ago: age_secs(now, st.last_inbound),
+                    last_queried_secs_ago: age_secs(now, st.last_queried),
+                    last_bootstrap_secs_ago: age_secs(now, st.last_bootstrap),
+                    last_hello_secs_ago: age_secs(now, st.last_hello),
+                })
+                .collect::<Vec<_>>();
+            let _ = respond_to.send(peers);
+        }
     }
     Ok(())
+}
+
+fn age_secs(now: Instant, t: Option<Instant>) -> Option<u64> {
+    t.map(|ts| now.saturating_duration_since(ts).as_secs())
 }
 
 async fn send_search_sources(
@@ -1600,6 +1679,7 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         res_contacts: w.res_contacts,
         dropped_undecipherable: w.dropped_undecipherable,
         dropped_unparsable: w.dropped_unparsable,
+        recv_hello_reqs: w.recv_hello_reqs,
         sent_bootstrap_reqs: w.sent_bootstrap_reqs,
         recv_bootstrap_ress: w.recv_bootstrap_ress,
         bootstrap_contacts: w.bootstrap_contacts,
@@ -1610,11 +1690,13 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         evicted: w.evicted,
 
         sent_search_source_reqs: w.sent_search_source_reqs,
+        recv_search_source_reqs: w.recv_search_source_reqs,
         recv_search_ress: w.recv_search_ress,
         search_results: w.search_results,
         new_sources: w.new_sources,
 
         sent_search_key_reqs: w.sent_search_key_reqs,
+        recv_search_key_reqs: w.recv_search_key_reqs,
         keyword_results: w.keyword_results,
         new_keyword_results: w.new_keyword_results,
         evicted_keyword_hits: w.evicted_keyword_hits,
@@ -1635,6 +1717,7 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         evicted_store_keyword_keywords: w.evicted_store_keyword_keywords,
 
         sent_publish_source_reqs: w.sent_publish_source_reqs,
+        recv_publish_source_reqs: w.recv_publish_source_reqs,
         recv_publish_ress: w.recv_publish_ress,
     }
 }
@@ -1657,6 +1740,7 @@ fn publish_status(
         res_contacts = st.res_contacts,
         dropped_undecipherable = st.dropped_undecipherable,
         dropped_unparsable = st.dropped_unparsable,
+        recv_hello_reqs = st.recv_hello_reqs,
         sent_bootstrap_reqs = st.sent_bootstrap_reqs,
         recv_bootstrap_ress = st.recv_bootstrap_ress,
         bootstrap_contacts = st.bootstrap_contacts,
@@ -1666,10 +1750,12 @@ fn publish_status(
         new_nodes = st.new_nodes,
         evicted = st.evicted,
         sent_search_source_reqs = st.sent_search_source_reqs,
+        recv_search_source_reqs = st.recv_search_source_reqs,
         recv_search_ress = st.recv_search_ress,
         search_results = st.search_results,
         new_sources = st.new_sources,
         sent_search_key_reqs = st.sent_search_key_reqs,
+        recv_search_key_reqs = st.recv_search_key_reqs,
         keyword_results = st.keyword_results,
         new_keyword_results = st.new_keyword_results,
         evicted_keyword_hits = st.evicted_keyword_hits,
@@ -1687,6 +1773,7 @@ fn publish_status(
         evicted_store_keyword_hits = st.evicted_store_keyword_hits,
         evicted_store_keyword_keywords = st.evicted_store_keyword_keywords,
         sent_publish_source_reqs = st.sent_publish_source_reqs,
+        recv_publish_source_reqs = st.recv_publish_source_reqs,
         recv_publish_ress = st.recv_publish_ress,
         "kad service status"
     );
@@ -1843,6 +1930,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_HELLO_REQ => {
+            svc.stats_window.recv_hello_reqs += 1;
             let hello = match decode_kad2_hello(&pkt.payload) {
                 Ok(h) => h,
                 Err(err) => {
@@ -2259,6 +2347,7 @@ async fn handle_inbound(
                                     file_size,
                                     file_type: e.file_type,
                                     publish_info: None,
+                                    origin: KadKeywordHitOrigin::Network,
                                 },
                                 last_seen: now,
                             },
@@ -2292,6 +2381,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_PUBLISH_SOURCE_REQ => {
+            svc.stats_window.recv_publish_source_reqs += 1;
             let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
@@ -2334,6 +2424,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_SEARCH_KEY_REQ => {
+            svc.stats_window.recv_search_key_reqs += 1;
             let req = match decode_kad2_search_key_req(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
@@ -2378,6 +2469,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_SEARCH_SOURCE_REQ => {
+            svc.stats_window.recv_search_source_reqs += 1;
             let req = match decode_kad2_search_source_req(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
@@ -2460,6 +2552,7 @@ async fn handle_inbound(
                         file_size,
                         file_type: r.tags.file_type.clone(),
                         publish_info: r.tags.publish_info,
+                        origin: KadKeywordHitOrigin::Network,
                     };
                     let m = svc.keyword_hits_by_keyword.entry(res.key).or_default();
                     match m.get_mut(&hit.file_id) {

@@ -99,6 +99,10 @@ Notes:
   - Auth required.
   - Returns keyword hits learned so far for that keyword hash (in-memory, not yet persisted).
 
+- `GET /kad/peers`
+  - Auth required.
+  - Returns a routing table snapshot (peer IDs, liveness ages, failures, and optional agent string).
+
 Example:
 
 ```bash

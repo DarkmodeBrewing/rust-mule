@@ -16,7 +16,7 @@ use crate::{
     config::ApiConfig,
     kad::{
         KadId, keyword,
-        service::{KadKeywordHit, KadServiceCommand, KadServiceStatus, KadSourceEntry},
+        service::{KadKeywordHit, KadPeerInfo, KadServiceCommand, KadServiceStatus, KadSourceEntry},
     },
 };
 
@@ -63,6 +63,7 @@ pub async fn serve(
         .route("/health", get(health))
         .route("/status", get(status))
         .route("/events", get(events))
+        .route("/kad/peers", get(kad_peers))
         .route("/kad/sources/:file_id_hex", get(kad_sources))
         .route(
             "/kad/keyword_results/:keyword_id_hex",
@@ -133,6 +134,11 @@ struct KadKeywordResultsResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct KadPeersResponse {
+    peers: Vec<KadPeerInfo>,
+}
+
+#[derive(Debug, Serialize)]
 struct KadKeywordHitJson {
     file_id_hex: String,
     filename: String,
@@ -141,6 +147,7 @@ struct KadKeywordHitJson {
     file_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     publish_info: Option<u32>,
+    origin: String,
 }
 
 async fn kad_sources(
@@ -207,6 +214,7 @@ async fn kad_keyword_results(
             file_size: h.file_size,
             file_type: h.file_type,
             publish_info: h.publish_info,
+            origin: h.origin.as_str().to_string(),
         })
         .collect::<Vec<_>>();
 
@@ -214,6 +222,22 @@ async fn kad_keyword_results(
         keyword_id_hex: keyword_id.to_hex_lower(),
         hits,
     }))
+}
+
+async fn kad_peers(State(state): State<ApiState>) -> Result<Json<KadPeersResponse>, StatusCode> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<KadPeerInfo>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetPeers { respond_to: tx })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let peers = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(KadPeersResponse { peers }))
 }
 
 async fn kad_search_sources(

@@ -308,6 +308,10 @@ impl RoutingTable {
             .collect()
     }
 
+    pub fn snapshot_states(&self) -> Vec<NodeState> {
+        self.by_id.values().cloned().collect()
+    }
+
     pub fn select_query_candidates(
         &self,
         max: usize,

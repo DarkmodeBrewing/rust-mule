@@ -91,6 +91,12 @@ KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "$BASE_URL/kad/keyword_results/$KEYWORD_ID_HEX" | jq .
 ```
 
+## KAD: List Known Peers (Routing Snapshot)
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/kad/peers" | jq .
+```
+
 ## KAD: Publish A Keyword->File Entry (DHT)
 
 This enqueues a Kad2 `PUBLISH_KEY_REQ` to a couple closest peers. It uses iMule-style keyword

@@ -5,6 +5,7 @@
 - Read handoff.md before doing anything.
 - After each meaningful change (or after tests run), update handoff.md with: status, decisions, next steps, and a change log entry.
 - Keep it short and factual.
+- Please write/update tests where applicable, run `cargo fmt`, run `cargo clippy`, run `cargo test`, and after each iteration commit and push to the remote.
 
 ### Rust-Mule Development Rules
 
