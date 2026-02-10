@@ -11,6 +11,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Ran `docs/scripts/two_instance_dht_selftest.sh` (5 rounds). Each instance only saw its own locally-injected keyword hit; no cross-instance keyword hits observed.
 - No `PUBLISH_RES (key)` acks and no inbound `PUBLISH_KEY_REQ` during the run; `SEARCH_RES` replies were empty.
 - Routing stayed flat (~154), live peers ~2, network appears quiet.
+- Added debug routing endpoints (`/debug/routing/*`) plus debug lookup trigger (`/debug/lookup_once`) and per-bucket refresh lookups.
+- Added staleness-based bucket refresh with an under-populated growth mode; routing status logs now include bucket fill + verified %.
+- Routing table updates now treat inbound responses as activity (last_seen/last_inbound) and align bucket index to MSB distance.
 - Added `origin` field to keyword hits (`local` vs `network`) in the API response.
 - Added `/kad/peers` API endpoint and extra inbound-request counters to `/status` for visibility.
 - Increased keyword job cadence/batch size slightly to improve reach without flooding.
@@ -27,6 +30,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Accept existing clippy warnings for now; no functional changes required for this iteration.
 - Use the two-instance script to exercise source publish/search as part of routine sanity checks.
 - Prioritize DHT correctness over liveness when selecting publish/search targets.
+- Implement bucket refresh based on staleness (with an under-populated growth mode) to grow the table without aggressive churn.
+- Use MSB-first bucket indexing to match iMule bit order and ensure random bucket targets map correctly.
 
 ## Next Steps (2026-02-10)
 
@@ -36,6 +41,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Optionally address remaining clippy warnings in unrelated files.
 - Run the updated two-instance script and review `OUT_FILE` + logs for source publish/search behavior.
 - Re-run two-instance test to see if HELLO preflight improves `PUBLISH_RES` / `SEARCH_RES` results.
+- Run `docs/scripts/debug_routing_summary.sh` + `debug_routing_buckets.sh` around test runs; use `debug_lookup_once` to trace a single lookup.
 
 ## Roadmap Notes
 
@@ -51,6 +57,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-10: Add workflow guidance in `AGENTS.md` (tests, fmt/clippy/test, commit + push per iteration).
 - 2026-02-10: Extend two-instance selftest to include source publish/search and peer snapshots; add `kad_peers_get.sh`.
 - 2026-02-10: Add HELLO preflight for publish/search targets and use distance-only selection for DHT-critical actions.
+- 2026-02-10: Add debug routing endpoints + debug lookup trigger; add staleness-based bucket refresh with under-populated growth mode.
+- 2026-02-10: Align bucket indexing with MSB bit order; mark last_seen/last_inbound on inbound responses.
 - 2026-02-06: Embed distributable nodes init seed at `assets/nodes.initseed.dat`; create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from embedded seed (best-effort) so runtime no longer depends on repo-local reference folders.
 - 2026-02-06: Reduce default stdout verbosity to `info` (code default and repo `config.toml`; file logging remains configurable and can stay `debug`).
 - 2026-02-06: Make Kad UDP key secret file-backed only (`data/kad_udp_key_secret.dat`); `kad.udp_key_secret` is deprecated/ignored to reduce misconfiguration risk.

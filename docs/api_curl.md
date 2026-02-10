@@ -97,6 +97,42 @@ curl -sS "${AUTH[@]}" "$BASE_URL/kad/keyword_results/$KEYWORD_ID_HEX" | jq .
 curl -sS "${AUTH[@]}" "$BASE_URL/kad/peers" | jq .
 ```
 
+## Debug: Routing Summary
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/debug/routing/summary" | jq .
+```
+
+## Debug: Routing Buckets
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/debug/routing/buckets" | jq .
+```
+
+## Debug: Routing Nodes (Per Bucket)
+
+```bash
+BUCKET=0
+curl -sS "${AUTH[@]}" "$BASE_URL/debug/routing/nodes?bucket=$BUCKET" | jq .
+```
+
+## Debug: Trigger One Lookup
+
+```bash
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{}" \
+  "$BASE_URL/debug/lookup_once" | jq .
+```
+
+Or provide a target KadID:
+
+```bash
+TARGET_ID_HEX="00112233445566778899aabbccddeeff"
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{\"target_id_hex\":\"$TARGET_ID_HEX\"}" \
+  "$BASE_URL/debug/lookup_once" | jq .
+```
+
 ## KAD: Publish A Keyword->File Entry (DHT)
 
 This enqueues a Kad2 `PUBLISH_KEY_REQ` to a couple closest peers. It uses iMule-style keyword

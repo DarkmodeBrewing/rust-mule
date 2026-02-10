@@ -17,6 +17,12 @@ preferences_kad_path = "preferencesKad.dat"
 # service_req_min_interval_secs = 5
 # service_hello_batch = 5
 # service_hello_min_interval_secs = 300
+# service_refresh_interval_secs = 2700
+# service_refresh_buckets_per_tick = 1
+# service_refresh_underpopulated_min_contacts = 60
+# service_refresh_underpopulated_every_secs = 60
+# service_refresh_underpopulated_buckets_per_tick = 2
+# service_refresh_underpopulated_alpha = 5
 # Keyword search cache limits (in-memory), use with caution
 # service_keyword_require_interest = true
 # service_keyword_interest_ttl_secs = 86400

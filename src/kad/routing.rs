@@ -17,6 +17,7 @@ pub struct NodeState {
     pub last_queried: Option<Instant>,
     pub last_bootstrap: Option<Instant>,
     pub last_hello: Option<Instant>,
+    pub received_hello: bool,
     pub needs_hello: bool,
     pub failures: u32,
 }
@@ -30,6 +31,8 @@ pub struct RoutingTable {
     my_id: KadId,
     by_id: BTreeMap<KadId, NodeState>,
     by_dest: HashMap<String, KadId>,
+    bucket_activity: Vec<Option<Instant>>,
+    bucket_last_refresh: Vec<Option<Instant>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,11 +49,17 @@ impl RoutingTable {
             my_id,
             by_id: BTreeMap::new(),
             by_dest: HashMap::new(),
+            bucket_activity: vec![None; BUCKET_COUNT],
+            bucket_last_refresh: vec![None; BUCKET_COUNT],
         }
     }
 
     pub fn len(&self) -> usize {
         self.by_id.len()
+    }
+
+    pub fn my_id(&self) -> KadId {
+        self.my_id
     }
 
     pub fn is_empty(&self) -> bool {
@@ -99,10 +108,31 @@ impl RoutingTable {
         }
 
         let dest_b64 = node.udp_dest_b64();
-        if let Some(old) = self.by_id.get(&id)
-            && old.dest_b64 != dest_b64
-        {
-            self.by_dest.remove(&old.dest_b64);
+        let mut legacy_refresh_only = false;
+        if let Some(old) = self.by_id.get(&id) {
+            if old.node.verified && old.dest_b64 != dest_b64 {
+                // Don't allow verified nodes to change destinations.
+                return UpsertOutcome::Updated;
+            }
+            if old.dest_b64 != dest_b64 && node.kad_version < old.node.kad_version {
+                // Don't let lower Kad versions overwrite newer endpoints.
+                return UpsertOutcome::Updated;
+            }
+            if old.node.udp_key != 0 && node.udp_key != 0 && old.node.udp_key != node.udp_key {
+                // Prevent updates with mismatched sender keys (anti-hijack).
+                return UpsertOutcome::Updated;
+            }
+            if (1..6).contains(&old.node.kad_version) && old.received_hello {
+                // Legacy Kad2 contacts are only allowed to refresh their timers once we've
+                // seen a HELLO packet (avoid hijacks).
+                if old.dest_b64 != dest_b64 || old.node.kad_version != node.kad_version {
+                    return UpsertOutcome::Updated;
+                }
+                legacy_refresh_only = true;
+            }
+            if old.dest_b64 != dest_b64 {
+                self.by_dest.remove(&old.dest_b64);
+            }
         }
         self.by_dest.insert(dest_b64.clone(), id);
 
@@ -110,22 +140,24 @@ impl RoutingTable {
         self.by_id
             .entry(id)
             .and_modify(|st| {
-                // Prefer newer/verified entries and keep UDP keys once learned.
-                if node.kad_version > st.node.kad_version {
-                    st.node.kad_version = node.kad_version;
-                }
-                if node.udp_key != 0 && st.node.udp_key != node.udp_key {
-                    // UDP keys are bound to the sender/receiver tuple. If we learn a new one,
-                    // update it eagerly.
-                    st.node.udp_key = node.udp_key;
-                    st.node.udp_key_ip = node.udp_key_ip;
-                }
-                if st.node.udp_key == 0 && node.udp_key != 0 {
-                    st.node.udp_key = node.udp_key;
-                    st.node.udp_key_ip = node.udp_key_ip;
-                }
-                if node.verified {
-                    st.node.verified = true;
+                if !legacy_refresh_only {
+                    // Prefer newer/verified entries and keep UDP keys once learned.
+                    if node.kad_version > st.node.kad_version {
+                        st.node.kad_version = node.kad_version;
+                    }
+                    if node.udp_key != 0 && st.node.udp_key != node.udp_key {
+                        // UDP keys are bound to the sender/receiver tuple. If we learn a new one,
+                        // update it eagerly.
+                        st.node.udp_key = node.udp_key;
+                        st.node.udp_key_ip = node.udp_key_ip;
+                    }
+                    if st.node.udp_key == 0 && node.udp_key != 0 {
+                        st.node.udp_key = node.udp_key;
+                        st.node.udp_key_ip = node.udp_key_ip;
+                    }
+                    if node.verified {
+                        st.node.verified = true;
+                    }
                 }
                 st.last_seen = now;
                 st.failures = 0;
@@ -141,11 +173,13 @@ impl RoutingTable {
                     last_queried: None,
                     last_bootstrap: None,
                     last_hello: None,
+                    received_hello: false,
                     needs_hello: true,
                     failures: 0,
                 }
             });
 
+        self.touch_bucket_by_id(id, now);
         if inserted {
             UpsertOutcome::Inserted
         } else {
@@ -158,6 +192,8 @@ impl RoutingTable {
             st.last_seen = now;
             st.last_inbound = Some(now);
             st.failures = 0;
+            let id = KadId(st.node.client_id);
+            self.touch_bucket_by_id(id, now);
         }
     }
 
@@ -180,6 +216,18 @@ impl RoutingTable {
         }
     }
 
+    pub fn mark_received_hello_by_dest(&mut self, dest_b64: &str, now: Instant) {
+        if let Some(st) = self.get_mut_by_dest(dest_b64) {
+            st.received_hello = true;
+            st.needs_hello = false;
+            st.last_seen = now;
+            st.last_inbound = Some(now);
+            st.failures = 0;
+            let id = KadId(st.node.client_id);
+            self.touch_bucket_by_id(id, now);
+        }
+    }
+
     pub fn mark_failure_by_dest(&mut self, dest_b64: &str) {
         if let Some(st) = self.get_mut_by_dest(dest_b64) {
             st.failures = st.failures.saturating_add(1);
@@ -194,7 +242,11 @@ impl RoutingTable {
         my_dest_hash: u32,
         verified: bool,
     ) {
-        if let Some(st) = self.get_mut_by_dest(dest_b64) {
+        let id = match self.by_dest.get(dest_b64).copied() {
+            Some(id) => id,
+            None => return,
+        };
+        if let Some(st) = self.by_id.get_mut(&id) {
             st.last_seen = now;
             st.last_inbound = Some(now);
             st.failures = 0;
@@ -206,6 +258,7 @@ impl RoutingTable {
                 st.node.verified = true;
             }
         }
+        self.touch_bucket_by_id(id, now);
     }
 
     pub fn closest_to(&self, target: KadId, max: usize, exclude_dest_hash: u32) -> Vec<ImuleNode> {
@@ -312,6 +365,37 @@ impl RoutingTable {
         self.by_id.values().cloned().collect()
     }
 
+    pub fn bucket_count(&self) -> usize {
+        BUCKET_COUNT
+    }
+
+    pub fn bucket_index_for(&self, id: KadId) -> Option<usize> {
+        bucket_index(self.my_id, id)
+    }
+
+    pub fn bucket_last_activity(&self, bucket: usize) -> Option<Instant> {
+        self.bucket_activity.get(bucket).copied().flatten()
+    }
+
+    pub fn bucket_last_refresh(&self, bucket: usize) -> Option<Instant> {
+        self.bucket_last_refresh.get(bucket).copied().flatten()
+    }
+
+    pub fn mark_bucket_refreshed(&mut self, bucket: usize, now: Instant) {
+        if let Some(entry) = self.bucket_last_refresh.get_mut(bucket) {
+            *entry = Some(now);
+        }
+    }
+
+    fn touch_bucket_by_id(&mut self, id: KadId, now: Instant) {
+        let Some(idx) = bucket_index(self.my_id, id) else {
+            return;
+        };
+        if let Some(entry) = self.bucket_activity.get_mut(idx) {
+            *entry = Some(now);
+        }
+    }
+
     pub fn select_query_candidates(
         &self,
         max: usize,
@@ -322,7 +406,7 @@ impl RoutingTable {
         let mut out: Vec<&NodeState> = self
             .by_id
             .values()
-            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.node.kad_version >= 2)
             .filter(|st| st.failures < max_failures)
             .filter(|st| match st.last_queried {
                 Some(t) => {
@@ -362,7 +446,7 @@ impl RoutingTable {
         let mut out: Vec<&NodeState> = self
             .by_id
             .values()
-            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.node.kad_version >= 2)
             .filter(|st| st.failures < max_failures)
             .filter(|st| match st.last_queried {
                 Some(t) => {
@@ -397,7 +481,7 @@ impl RoutingTable {
         let mut out: Vec<&NodeState> = self
             .by_id
             .values()
-            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.node.kad_version >= 2)
             .filter(|st| st.failures < max_failures)
             .filter(|st| {
                 st.needs_hello
@@ -438,7 +522,7 @@ impl RoutingTable {
         let mut out: Vec<&NodeState> = self
             .by_id
             .values()
-            .filter(|st| st.node.kad_version >= 6)
+            .filter(|st| st.node.kad_version >= 2)
             .filter(|st| match st.last_bootstrap {
                 Some(t) => {
                     now.saturating_duration_since(t)
@@ -491,6 +575,34 @@ fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
     out
 }
 
+const BUCKET_COUNT: usize = 128;
+
+fn bucket_index(my_id: KadId, other: KadId) -> Option<usize> {
+    if other == my_id || other.is_zero() {
+        return None;
+    }
+    let dist = xor_distance(my_id, other);
+    let lz = leading_zeros_128(&dist);
+    if lz >= 128 {
+        return None;
+    }
+    let idx = lz as usize;
+    if idx >= BUCKET_COUNT { None } else { Some(idx) }
+}
+
+fn leading_zeros_128(bytes: &[u8; 16]) -> u32 {
+    let mut count = 0u32;
+    for b in bytes {
+        if *b == 0 {
+            count += 8;
+        } else {
+            count += b.leading_zeros();
+            break;
+        }
+    }
+    count
+}
+
 fn backoff_interval(base: Duration, failures: u32) -> Duration {
     // Exponential backoff (capped) to avoid repeatedly hammering dead/stale peers.
     let pow = failures.min(8);
@@ -511,4 +623,21 @@ fn bootstrap_backoff_interval(base: Duration, failures: u32) -> Duration {
 fn is_recent_inbound(st: &NodeState, now: Instant, window: Duration) -> bool {
     st.last_inbound
         .is_some_and(|t| now.saturating_duration_since(t) <= window)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bucket_index_uses_msb_distance() {
+        let my = KadId([0u8; 16]);
+        let mut far = [0u8; 16];
+        far[0] = 0x80; // MSB set
+        let mut near = [0u8; 16];
+        near[15] = 0x01; // LSB set
+
+        assert_eq!(bucket_index(my, KadId(far)), Some(0));
+        assert_eq!(bucket_index(my, KadId(near)), Some(127));
+    }
 }

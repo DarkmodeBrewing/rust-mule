@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     middleware,
     response::sse::{Event, Sse},
@@ -18,6 +18,7 @@ use crate::{
         KadId, keyword,
         service::{
             KadKeywordHit, KadPeerInfo, KadServiceCommand, KadServiceStatus, KadSourceEntry,
+            RoutingBucketSummary, RoutingNodeSummary, RoutingSummary,
         },
     },
 };
@@ -66,6 +67,10 @@ pub async fn serve(
         .route("/status", get(status))
         .route("/events", get(events))
         .route("/kad/peers", get(kad_peers))
+        .route("/debug/routing/summary", get(debug_routing_summary))
+        .route("/debug/routing/buckets", get(debug_routing_buckets))
+        .route("/debug/routing/nodes", get(debug_routing_nodes))
+        .route("/debug/lookup_once", post(debug_lookup_once))
         .route("/kad/sources/:file_id_hex", get(kad_sources))
         .route(
             "/kad/keyword_results/:keyword_id_hex",
@@ -138,6 +143,38 @@ struct KadKeywordResultsResponse {
 #[derive(Debug, Serialize)]
 struct KadPeersResponse {
     peers: Vec<KadPeerInfo>,
+}
+
+#[derive(Debug, Serialize)]
+struct RoutingSummaryResponse {
+    summary: RoutingSummary,
+}
+
+#[derive(Debug, Serialize)]
+struct RoutingBucketsResponse {
+    buckets: Vec<RoutingBucketSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct RoutingNodesResponse {
+    bucket: usize,
+    nodes: Vec<RoutingNodeSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RoutingNodesQuery {
+    bucket: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct DebugLookupReq {
+    #[serde(default)]
+    target_id_hex: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugLookupResponse {
+    target_id_hex: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -240,6 +277,99 @@ async fn kad_peers(State(state): State<ApiState>) -> Result<Json<KadPeersRespons
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
     Ok(Json(KadPeersResponse { peers }))
+}
+
+async fn debug_routing_summary(
+    State(state): State<ApiState>,
+) -> Result<Json<RoutingSummaryResponse>, StatusCode> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<RoutingSummary>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetRoutingSummary { respond_to: tx })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let summary = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(RoutingSummaryResponse { summary }))
+}
+
+async fn debug_routing_buckets(
+    State(state): State<ApiState>,
+) -> Result<Json<RoutingBucketsResponse>, StatusCode> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<RoutingBucketSummary>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetRoutingBuckets { respond_to: tx })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let buckets = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(RoutingBucketsResponse { buckets }))
+}
+
+async fn debug_routing_nodes(
+    State(state): State<ApiState>,
+    Query(query): Query<RoutingNodesQuery>,
+) -> Result<Json<RoutingNodesResponse>, StatusCode> {
+    if query.bucket >= 128 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<RoutingNodeSummary>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetRoutingNodes {
+            bucket: query.bucket,
+            respond_to: tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let nodes = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(RoutingNodesResponse {
+        bucket: query.bucket,
+        nodes,
+    }))
+}
+
+async fn debug_lookup_once(
+    State(state): State<ApiState>,
+    Json(req): Json<DebugLookupReq>,
+) -> Result<Json<DebugLookupResponse>, StatusCode> {
+    let target = match req.target_id_hex.as_deref() {
+        Some(hex) => Some(KadId::from_hex(hex).map_err(|_| StatusCode::BAD_REQUEST)?),
+        None => None,
+    };
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<KadId>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::StartDebugLookup {
+            target,
+            respond_to: tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let target_id = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(DebugLookupResponse {
+        target_id_hex: target_id.to_hex_lower(),
+    }))
 }
 
 async fn kad_search_sources(

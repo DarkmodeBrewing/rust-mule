@@ -120,6 +120,24 @@ fn default_kad_service_evict_age_secs() -> u64 {
     // I2P peers can be very intermittent; avoid aggressive eviction by default.
     24 * 60 * 60
 }
+fn default_kad_service_refresh_interval_secs() -> u64 {
+    45 * 60
+}
+fn default_kad_service_refresh_buckets_per_tick() -> usize {
+    1
+}
+fn default_kad_service_refresh_underpopulated_min_contacts() -> usize {
+    60
+}
+fn default_kad_service_refresh_underpopulated_every_secs() -> u64 {
+    60
+}
+fn default_kad_service_refresh_underpopulated_buckets_per_tick() -> usize {
+    2
+}
+fn default_kad_service_refresh_underpopulated_alpha() -> usize {
+    5
+}
 
 fn default_kad_service_keyword_require_interest() -> bool {
     // Only keep keyword results for searches we initiated (prevents unsolicited cache growth).
@@ -244,6 +262,13 @@ pub struct KadConfig {
     pub service_max_failures: u32,
     pub service_evict_age_secs: u64,
 
+    pub service_refresh_interval_secs: u64,
+    pub service_refresh_buckets_per_tick: usize,
+    pub service_refresh_underpopulated_min_contacts: usize,
+    pub service_refresh_underpopulated_every_secs: u64,
+    pub service_refresh_underpopulated_buckets_per_tick: usize,
+    pub service_refresh_underpopulated_alpha: usize,
+
     // Keyword search result caching (in-memory)
     pub service_keyword_require_interest: bool,
     pub service_keyword_interest_ttl_secs: u64,
@@ -325,6 +350,17 @@ impl Default for KadConfig {
             service_status_every_secs: default_kad_service_status_every_secs(),
             service_max_failures: default_kad_service_max_failures(),
             service_evict_age_secs: default_kad_service_evict_age_secs(),
+
+            service_refresh_interval_secs: default_kad_service_refresh_interval_secs(),
+            service_refresh_buckets_per_tick: default_kad_service_refresh_buckets_per_tick(),
+            service_refresh_underpopulated_min_contacts:
+                default_kad_service_refresh_underpopulated_min_contacts(),
+            service_refresh_underpopulated_every_secs:
+                default_kad_service_refresh_underpopulated_every_secs(),
+            service_refresh_underpopulated_buckets_per_tick:
+                default_kad_service_refresh_underpopulated_buckets_per_tick(),
+            service_refresh_underpopulated_alpha: default_kad_service_refresh_underpopulated_alpha(
+            ),
 
             service_keyword_require_interest: default_kad_service_keyword_require_interest(),
             service_keyword_interest_ttl_secs: default_kad_service_keyword_interest_ttl_secs(),

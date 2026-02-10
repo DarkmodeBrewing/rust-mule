@@ -338,6 +338,17 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             max_failures: config.kad.service_max_failures,
             evict_age_secs: config.kad.service_evict_age_secs,
 
+            refresh_interval_secs: config.kad.service_refresh_interval_secs,
+            refresh_buckets_per_tick: config.kad.service_refresh_buckets_per_tick,
+            refresh_underpopulated_min_contacts: config
+                .kad
+                .service_refresh_underpopulated_min_contacts,
+            refresh_underpopulated_every_secs: config.kad.service_refresh_underpopulated_every_secs,
+            refresh_underpopulated_buckets_per_tick: config
+                .kad
+                .service_refresh_underpopulated_buckets_per_tick,
+            refresh_underpopulated_alpha: config.kad.service_refresh_underpopulated_alpha,
+
             keyword_require_interest: config.kad.service_keyword_require_interest,
             keyword_interest_ttl_secs: config.kad.service_keyword_interest_ttl_secs,
             keyword_results_ttl_secs: config.kad.service_keyword_results_ttl_secs,

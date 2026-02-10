@@ -67,6 +67,14 @@ pub struct KadServiceConfig {
     pub max_failures: u32,
     pub evict_age_secs: u64,
 
+    // Bucket refresh / lookup tuning.
+    pub refresh_interval_secs: u64,
+    pub refresh_buckets_per_tick: usize,
+    pub refresh_underpopulated_min_contacts: usize,
+    pub refresh_underpopulated_every_secs: u64,
+    pub refresh_underpopulated_buckets_per_tick: usize,
+    pub refresh_underpopulated_alpha: usize,
+
     // Keyword search result caching (in-memory)
     /// If true, only accept/retain keyword results for keywords we are "interested in"
     /// (i.e. we initiated a search for them, or requested their results via API).
@@ -122,6 +130,13 @@ impl Default for KadServiceConfig {
             max_failures: 5,
             // I2P peers can be very intermittent; don't aggressively evict by default.
             evict_age_secs: 24 * 60 * 60,
+
+            refresh_interval_secs: 45 * 60,
+            refresh_buckets_per_tick: 1,
+            refresh_underpopulated_min_contacts: 60,
+            refresh_underpopulated_every_secs: 60,
+            refresh_underpopulated_buckets_per_tick: 2,
+            refresh_underpopulated_alpha: 5,
 
             keyword_require_interest: true,
             keyword_interest_ttl_secs: 24 * 60 * 60,
@@ -267,6 +282,20 @@ pub enum KadServiceCommand {
     GetPeers {
         respond_to: oneshot::Sender<Vec<KadPeerInfo>>,
     },
+    GetRoutingSummary {
+        respond_to: oneshot::Sender<RoutingSummary>,
+    },
+    GetRoutingBuckets {
+        respond_to: oneshot::Sender<Vec<RoutingBucketSummary>>,
+    },
+    GetRoutingNodes {
+        bucket: usize,
+        respond_to: oneshot::Sender<Vec<RoutingNodeSummary>>,
+    },
+    StartDebugLookup {
+        target: Option<KadId>,
+        respond_to: oneshot::Sender<KadId>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -318,6 +347,48 @@ impl KadKeywordHitOrigin {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RoutingSummary {
+    pub bucket_count: usize,
+    pub total_nodes: usize,
+    pub verified_nodes: usize,
+    pub unverified_nodes: usize,
+    pub buckets_empty: usize,
+    pub bucket_fill_min: usize,
+    pub bucket_fill_median: usize,
+    pub bucket_fill_max: usize,
+    pub last_seen_min_secs: Option<u64>,
+    pub last_seen_max_secs: Option<u64>,
+    pub last_inbound_min_secs: Option<u64>,
+    pub last_inbound_max_secs: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoutingBucketSummary {
+    pub index: usize,
+    pub count: usize,
+    pub verified: usize,
+    pub unverified: usize,
+    pub last_seen_min_secs: Option<u64>,
+    pub last_seen_max_secs: Option<u64>,
+    pub last_inbound_min_secs: Option<u64>,
+    pub last_inbound_max_secs: Option<u64>,
+    pub last_activity_secs_ago: Option<u64>,
+    pub last_refresh_secs_ago: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoutingNodeSummary {
+    pub kad_id_hex: String,
+    pub udp_dest_b64: String,
+    pub udp_dest_short: String,
+    pub kad_version: u8,
+    pub verified: bool,
+    pub failures: u32,
+    pub last_seen_secs_ago: u64,
+    pub last_inbound_secs_ago: Option<u64>,
+}
+
 pub struct KadService {
     routing: RoutingTable,
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
@@ -336,6 +407,11 @@ pub struct KadService {
     crawl_round: u64,
     stats_window: KadServiceStats,
     publish_key_decode_fail_logged: HashSet<String>,
+
+    lookup_queue: std::collections::VecDeque<LookupTask>,
+    active_lookup: Option<LookupTask>,
+    last_refresh_tick: Instant,
+    last_underpopulated_refresh: Instant,
 
     cmd_rx: mpsc::Receiver<KadServiceCommand>,
 }
@@ -368,8 +444,29 @@ struct KeywordJob {
     got_publish_ack: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum LookupKind {
+    Debug,
+    Refresh { bucket: usize },
+}
+
+#[derive(Debug, Clone)]
+struct LookupTask {
+    kind: LookupKind,
+    target: KadId,
+    started_at: Instant,
+    last_progress: Instant,
+    iteration: u32,
+    alpha_override: Option<usize>,
+    queried: HashSet<String>,
+    inflight: HashSet<String>,
+    known: BTreeMap<KadId, ImuleNode>,
+    new_nodes: u64,
+}
+
 impl KadService {
     pub fn new(my_id: KadId, cmd_rx: mpsc::Receiver<KadServiceCommand>) -> Self {
+        let now = Instant::now();
         Self {
             routing: RoutingTable::new(my_id),
             sources_by_file: BTreeMap::new(),
@@ -383,6 +480,10 @@ impl KadService {
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
             publish_key_decode_fail_logged: HashSet::new(),
+            lookup_queue: std::collections::VecDeque::new(),
+            active_lookup: None,
+            last_refresh_tick: now,
+            last_underpopulated_refresh: now,
             cmd_rx,
         }
     }
@@ -474,6 +575,7 @@ pub async fn run_service(
 
             _ = maintenance_tick.tick() => {
                 maintenance(svc, &cfg).await;
+                tick_lookups(svc, sock, crypto, &cfg).await?;
                 progress_keyword_jobs(svc, sock, crypto, &cfg).await?;
             }
 
@@ -610,12 +712,186 @@ async fn handle_command(
                 .collect::<Vec<_>>();
             let _ = respond_to.send(peers);
         }
+        KadServiceCommand::GetRoutingSummary { respond_to } => {
+            let summary = build_routing_summary(svc, now);
+            let _ = respond_to.send(summary);
+        }
+        KadServiceCommand::GetRoutingBuckets { respond_to } => {
+            let buckets = build_routing_buckets(svc, now);
+            let _ = respond_to.send(buckets);
+        }
+        KadServiceCommand::GetRoutingNodes { bucket, respond_to } => {
+            let nodes = build_routing_nodes(svc, now, bucket);
+            let _ = respond_to.send(nodes);
+        }
+        KadServiceCommand::StartDebugLookup { target, respond_to } => {
+            let target = target.unwrap_or_else(|| KadId::random().unwrap_or(crypto.my_kad_id));
+            start_lookup(svc, target, LookupKind::Debug, None, now);
+            let _ = respond_to.send(target);
+        }
     }
     Ok(())
 }
 
 fn age_secs(now: Instant, t: Option<Instant>) -> Option<u64> {
     t.map(|ts| now.saturating_duration_since(ts).as_secs())
+}
+
+fn build_routing_summary(svc: &KadService, now: Instant) -> RoutingSummary {
+    let states = svc.routing.snapshot_states();
+    let bucket_count = svc.routing.bucket_count();
+    let mut bucket_counts = vec![0usize; bucket_count];
+    let mut verified = 0usize;
+    let mut unverified = 0usize;
+    let mut last_seen_ages = Vec::with_capacity(states.len());
+    let mut last_inbound_ages = Vec::with_capacity(states.len());
+
+    for st in &states {
+        if st.node.verified {
+            verified += 1;
+        } else {
+            unverified += 1;
+        }
+        if let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id)) {
+            if idx < bucket_counts.len() {
+                bucket_counts[idx] += 1;
+            }
+        }
+        last_seen_ages.push(now.saturating_duration_since(st.last_seen).as_secs());
+        if let Some(t) = st.last_inbound {
+            last_inbound_ages.push(now.saturating_duration_since(t).as_secs());
+        }
+    }
+
+    let buckets_empty = bucket_counts.iter().filter(|v| **v == 0).count();
+    let mut counts_sorted = bucket_counts.clone();
+    counts_sorted.sort_unstable();
+    let bucket_fill_min = *counts_sorted.first().unwrap_or(&0);
+    let bucket_fill_max = *counts_sorted.last().unwrap_or(&0);
+    let bucket_fill_median = if counts_sorted.is_empty() {
+        0
+    } else {
+        counts_sorted[counts_sorted.len() / 2]
+    };
+
+    let last_seen_min_secs = last_seen_ages.iter().copied().min();
+    let last_seen_max_secs = last_seen_ages.iter().copied().max();
+    let last_inbound_min_secs = last_inbound_ages.iter().copied().min();
+    let last_inbound_max_secs = last_inbound_ages.iter().copied().max();
+
+    RoutingSummary {
+        bucket_count,
+        total_nodes: states.len(),
+        verified_nodes: verified,
+        unverified_nodes: unverified,
+        buckets_empty,
+        bucket_fill_min,
+        bucket_fill_median,
+        bucket_fill_max,
+        last_seen_min_secs,
+        last_seen_max_secs,
+        last_inbound_min_secs,
+        last_inbound_max_secs,
+    }
+}
+
+fn build_routing_buckets(svc: &KadService, now: Instant) -> Vec<RoutingBucketSummary> {
+    let bucket_count = svc.routing.bucket_count();
+    let mut buckets = vec![
+        RoutingBucketSummary {
+            index: 0,
+            count: 0,
+            verified: 0,
+            unverified: 0,
+            last_seen_min_secs: None,
+            last_seen_max_secs: None,
+            last_inbound_min_secs: None,
+            last_inbound_max_secs: None,
+            last_activity_secs_ago: None,
+            last_refresh_secs_ago: None,
+        };
+        bucket_count
+    ];
+
+    for (i, b) in buckets.iter_mut().enumerate() {
+        b.index = i;
+        b.last_activity_secs_ago = age_secs(now, svc.routing.bucket_last_activity(i));
+        b.last_refresh_secs_ago = age_secs(now, svc.routing.bucket_last_refresh(i));
+    }
+
+    for st in svc.routing.snapshot_states() {
+        let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id)) else {
+            continue;
+        };
+        let b = &mut buckets[idx];
+        b.count += 1;
+        if st.node.verified {
+            b.verified += 1;
+        } else {
+            b.unverified += 1;
+        }
+        let seen_age = now.saturating_duration_since(st.last_seen).as_secs();
+        b.last_seen_min_secs = Some(b.last_seen_min_secs.map_or(seen_age, |v| v.min(seen_age)));
+        b.last_seen_max_secs = Some(b.last_seen_max_secs.map_or(seen_age, |v| v.max(seen_age)));
+        if let Some(t) = st.last_inbound {
+            let inbound_age = now.saturating_duration_since(t).as_secs();
+            b.last_inbound_min_secs = Some(
+                b.last_inbound_min_secs
+                    .map_or(inbound_age, |v| v.min(inbound_age)),
+            );
+            b.last_inbound_max_secs = Some(
+                b.last_inbound_max_secs
+                    .map_or(inbound_age, |v| v.max(inbound_age)),
+            );
+        }
+    }
+
+    buckets
+}
+
+fn build_routing_nodes(svc: &KadService, now: Instant, bucket: usize) -> Vec<RoutingNodeSummary> {
+    let mut nodes = Vec::new();
+    for st in svc.routing.snapshot_states() {
+        let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id)) else {
+            continue;
+        };
+        if idx != bucket {
+            continue;
+        }
+        nodes.push(RoutingNodeSummary {
+            kad_id_hex: KadId(st.node.client_id).to_hex_lower(),
+            udp_dest_b64: st.dest_b64.clone(),
+            udp_dest_short: crate::i2p::b64::short(&st.dest_b64).to_string(),
+            kad_version: st.node.kad_version,
+            verified: st.node.verified,
+            failures: st.failures,
+            last_seen_secs_ago: now.saturating_duration_since(st.last_seen).as_secs(),
+            last_inbound_secs_ago: age_secs(now, st.last_inbound),
+        });
+    }
+    nodes
+}
+
+fn start_lookup(
+    svc: &mut KadService,
+    target: KadId,
+    kind: LookupKind,
+    alpha_override: Option<usize>,
+    now: Instant,
+) {
+    let task = LookupTask {
+        kind,
+        target,
+        started_at: now,
+        last_progress: now,
+        iteration: 0,
+        alpha_override,
+        queried: HashSet::new(),
+        inflight: HashSet::new(),
+        known: BTreeMap::new(),
+        new_nodes: 0,
+    };
+    svc.lookup_queue.push_back(task);
 }
 
 async fn send_search_sources(
@@ -989,12 +1265,16 @@ async fn maybe_send_hello_to_peer(
         0
     };
 
-    let out = udp_crypto::encrypt_kad_packet(
-        &hello_plain,
-        target_kad_id,
-        receiver_verify_key,
-        sender_verify_key,
-    )?;
+    let out = if peer.kad_version >= 6 {
+        udp_crypto::encrypt_kad_packet(
+            &hello_plain,
+            target_kad_id,
+            receiver_verify_key,
+            sender_verify_key,
+        )?
+    } else {
+        hello_plain
+    };
 
     if let Err(err) = sock.send_to(&dest, &out).await {
         tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
@@ -1249,12 +1529,16 @@ async fn send_hello_batch(
             0
         };
 
-        let out = udp_crypto::encrypt_kad_packet(
-            &hello_plain,
-            target_kad_id,
-            receiver_verify_key,
-            sender_verify_key,
-        )?;
+        let out = if p.kad_version >= 6 {
+            udp_crypto::encrypt_kad_packet(
+                &hello_plain,
+                target_kad_id,
+                receiver_verify_key,
+                sender_verify_key,
+            )?
+        } else {
+            hello_plain.clone()
+        };
 
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
@@ -1548,6 +1832,8 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
 
     maintain_keyword_cache(svc, cfg, now);
     maintain_keyword_store(svc, cfg, now);
+
+    tick_refresh(svc, cfg, now);
 }
 
 fn maintain_keyword_cache(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
@@ -1642,6 +1928,310 @@ fn maintain_keyword_store(svc: &mut KadService, cfg: &KadServiceConfig, now: Ins
     }
 
     enforce_keyword_store_limits(svc, cfg, now);
+}
+
+fn tick_refresh(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
+    let total = svc.routing.len();
+    let underpopulated = total < cfg.refresh_underpopulated_min_contacts;
+
+    let mut bucket_counts = vec![0usize; svc.routing.bucket_count()];
+    for st in svc.routing.snapshot_states() {
+        if let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id)) {
+            if idx < bucket_counts.len() {
+                bucket_counts[idx] += 1;
+            }
+        }
+    }
+
+    let mut stale_buckets = Vec::new();
+    for i in 0..svc.routing.bucket_count() {
+        let last_activity = svc.routing.bucket_last_activity(i);
+        let idle_secs = last_activity
+            .map(|t| now.saturating_duration_since(t).as_secs())
+            .unwrap_or(u64::MAX / 2);
+        let last_refresh = svc.routing.bucket_last_refresh(i);
+        let refresh_age = last_refresh
+            .map(|t| now.saturating_duration_since(t).as_secs())
+            .unwrap_or(u64::MAX / 2);
+        if idle_secs >= cfg.refresh_interval_secs && refresh_age >= cfg.refresh_interval_secs / 2 {
+            stale_buckets.push((i, idle_secs, bucket_counts[i]));
+        }
+    }
+
+    stale_buckets.sort_by_key(|v| std::cmp::Reverse(v.1));
+
+    if underpopulated
+        && now
+            .saturating_duration_since(svc.last_underpopulated_refresh)
+            .as_secs()
+            >= cfg.refresh_underpopulated_every_secs
+    {
+        let mut picked = 0usize;
+        for (bucket, idle, count) in stale_buckets
+            .iter()
+            .take(cfg.refresh_underpopulated_buckets_per_tick)
+        {
+            if count == &0 {
+                tracing::info!(
+                    bucket,
+                    idle_secs = *idle,
+                    bucket_counts = ?bucket_counts,
+                    "refreshing empty bucket (underpopulated)"
+                );
+            }
+            let target = random_id_in_bucket(svc.routing.my_id(), *bucket);
+            svc.routing.mark_bucket_refreshed(*bucket, now);
+            start_lookup(
+                svc,
+                target,
+                LookupKind::Refresh { bucket: *bucket },
+                Some(cfg.refresh_underpopulated_alpha.max(1)),
+                now,
+            );
+            picked += 1;
+            if picked >= cfg.refresh_underpopulated_buckets_per_tick {
+                break;
+            }
+        }
+        if picked > 0 {
+            svc.last_underpopulated_refresh = now;
+        }
+    }
+
+    if now
+        .saturating_duration_since(svc.last_refresh_tick)
+        .as_secs()
+        >= 1
+    {
+        let mut picked = 0usize;
+        for (bucket, idle, count) in stale_buckets.iter().take(cfg.refresh_buckets_per_tick) {
+            if count == &0 {
+                tracing::info!(
+                    bucket,
+                    idle_secs = *idle,
+                    bucket_counts = ?bucket_counts,
+                    "refreshing empty bucket"
+                );
+            }
+            let target = random_id_in_bucket(svc.routing.my_id(), *bucket);
+            svc.routing.mark_bucket_refreshed(*bucket, now);
+            start_lookup(
+                svc,
+                target,
+                LookupKind::Refresh { bucket: *bucket },
+                None,
+                now,
+            );
+            picked += 1;
+            if picked >= cfg.refresh_buckets_per_tick {
+                break;
+            }
+        }
+        if picked > 0 {
+            svc.last_refresh_tick = now;
+        }
+    }
+}
+
+async fn tick_lookups(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+) -> Result<()> {
+    let now = Instant::now();
+
+    if svc.active_lookup.is_none() {
+        if let Some(next) = svc.lookup_queue.pop_front() {
+            svc.active_lookup = Some(next);
+        }
+    }
+
+    let Some(mut task) = svc.active_lookup.take() else {
+        return Ok(());
+    };
+
+    // Seed known set from routing table (closest peers).
+    if task.known.is_empty() {
+        let peers = closest_peers_by_distance(svc, task.target, 64, 2, 0);
+        for p in peers {
+            task.known.entry(KadId(p.client_id)).or_insert(p);
+        }
+    }
+
+    let alpha = task.alpha_override.unwrap_or(cfg.alpha.max(1));
+    let mut sent = 0usize;
+    let mut dests = Vec::new();
+    let candidates = closest_peers_by_distance(svc, task.target, 64, 2, 0);
+    for p in candidates {
+        if sent >= alpha {
+            break;
+        }
+        let dest = p.udp_dest_b64();
+        if task.queried.contains(&dest) || task.inflight.contains(&dest) {
+            continue;
+        }
+        let requested_contacts = cfg.req_contacts.clamp(1, 31);
+        if send_kad2_req(svc, sock, crypto, cfg, requested_contacts, task.target, &p)
+            .await
+            .is_ok()
+        {
+            task.queried.insert(dest.clone());
+            task.inflight.insert(dest.clone());
+            task.known.entry(KadId(p.client_id)).or_insert(p);
+            dests.push(crate::i2p::b64::short(&dest).to_string());
+            sent += 1;
+        }
+    }
+
+    if sent > 0 {
+        task.iteration += 1;
+        let (closest, set_size) = lookup_closest(&task);
+        match task.kind {
+            LookupKind::Debug => {
+                tracing::info!(
+                    target = %task.target.to_hex_lower(),
+                    iter = task.iteration,
+                    set_size,
+                    closest = %closest,
+                    inflight = task.inflight.len(),
+                    "debug lookup step"
+                );
+            }
+            LookupKind::Refresh { bucket } => {
+                tracing::debug!(
+                    target = %task.target.to_hex_lower(),
+                    bucket,
+                    iter = task.iteration,
+                    set_size,
+                    closest = %closest,
+                    inflight = task.inflight.len(),
+                    "refresh lookup step"
+                );
+            }
+        }
+    }
+
+    // Decide if lookup should finish.
+    let stalled =
+        now.saturating_duration_since(task.last_progress).as_secs() > cfg.req_timeout_secs;
+    let elapsed_secs = now.saturating_duration_since(task.started_at).as_secs();
+    let done = task.iteration >= 8 || (sent == 0 && task.inflight.is_empty()) || stalled;
+    if done {
+        match task.kind {
+            LookupKind::Debug => {
+                tracing::info!(
+                    target = %task.target.to_hex_lower(),
+                    iter = task.iteration,
+                    new_nodes = task.new_nodes,
+                    stalled,
+                    elapsed_secs,
+                    "debug lookup finished"
+                );
+            }
+            LookupKind::Refresh { bucket } => {
+                if stalled {
+                    tracing::debug!(
+                        target = %task.target.to_hex_lower(),
+                        bucket,
+                        iter = task.iteration,
+                        new_nodes = task.new_nodes,
+                        elapsed_secs,
+                        "refresh lookup stalled"
+                    );
+                }
+            }
+        }
+    } else {
+        svc.active_lookup = Some(task);
+    }
+
+    Ok(())
+}
+
+fn lookup_closest(task: &LookupTask) -> (String, usize) {
+    let mut best: Option<[u8; 16]> = None;
+    for id in task.known.keys() {
+        let dist = xor_distance(task.target, *id);
+        if best.is_none() || dist < best.unwrap() {
+            best = Some(dist);
+        }
+    }
+    let closest = best.map(hex_distance).unwrap_or_else(|| "none".to_string());
+    (closest, task.known.len())
+}
+
+fn hex_distance(dist: [u8; 16]) -> String {
+    let mut s = String::with_capacity(32);
+    for b in dist {
+        use std::fmt::Write as _;
+        let _ = write!(&mut s, "{:02x}", b);
+    }
+    s
+}
+
+fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    for (i, v) in out.iter_mut().enumerate() {
+        *v = a.0[i] ^ b.0[i];
+    }
+    out
+}
+
+fn handle_lookup_response(
+    svc: &mut KadService,
+    now: Instant,
+    target: KadId,
+    from_dest: &str,
+    contacts: &[KadId],
+    inserted: u64,
+) {
+    let Some(task) = svc.active_lookup.as_mut() else {
+        return;
+    };
+    if task.target != target {
+        return;
+    }
+    task.inflight.remove(from_dest);
+    if inserted > 0 {
+        task.new_nodes = task.new_nodes.saturating_add(inserted);
+        task.last_progress = now;
+    }
+    for id in contacts {
+        if !task.known.contains_key(id) {
+            if let Some(st) = svc.routing.get_by_id(*id) {
+                task.known.insert(*id, st.node.clone());
+            }
+        }
+    }
+}
+
+fn random_id_in_bucket(my_id: KadId, bucket: usize) -> KadId {
+    let mut dist = [0u8; 16];
+    let mut rand = [0u8; 16];
+    let _ = getrandom::getrandom(&mut rand);
+
+    for bit in 0..128 {
+        let byte = bit / 8;
+        let bit_in_byte = 7 - (bit % 8);
+        let mask = 1u8 << bit_in_byte;
+        let set = if bit == bucket {
+            true
+        } else if bit > bucket {
+            (rand[byte] & mask) != 0
+        } else {
+            false
+        };
+        if set {
+            dist[byte] |= mask;
+        }
+    }
+
+    let mut out = [0u8; 16];
+    for i in 0..16 {
+        out[i] = my_id.0[i] ^ dist[i];
+    }
+    KadId(out)
 }
 
 fn enforce_keyword_store_limits(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
@@ -1785,6 +2375,12 @@ fn publish_status(
     status_events_tx: &Option<broadcast::Sender<KadServiceStatus>>,
 ) {
     let st = build_status(svc, started);
+    let summary = build_routing_summary(svc, Instant::now());
+    let verified_pct = if summary.total_nodes > 0 {
+        (summary.verified_nodes * 100) / summary.total_nodes
+    } else {
+        0
+    };
     tracing::info!(
         uptime_secs = st.uptime_secs,
         routing = st.routing,
@@ -1831,8 +2427,20 @@ fn publish_status(
         sent_publish_source_reqs = st.sent_publish_source_reqs,
         recv_publish_source_reqs = st.recv_publish_source_reqs,
         recv_publish_ress = st.recv_publish_ress,
+        verified_pct,
+        buckets_empty = summary.buckets_empty,
+        bucket_fill_min = summary.bucket_fill_min,
+        bucket_fill_median = summary.bucket_fill_median,
+        bucket_fill_max = summary.bucket_fill_max,
         "kad service status"
     );
+    if st.routing > 0 && st.evicted as usize >= st.routing / 5 && st.evicted > 0 {
+        tracing::warn!(
+            evicted = st.evicted,
+            routing = st.routing,
+            "contacts decayed fast"
+        );
+    }
 
     if let Some(tx) = status_tx {
         let _ = tx.send(Some(st.clone()));
@@ -1956,6 +2564,7 @@ async fn handle_inbound(
                         now,
                     );
                 }
+                svc.routing.mark_seen_by_dest(&from_dest_b64, now);
 
                 // Harvest contacts list.
                 for c in res.contacts {
@@ -2020,6 +2629,7 @@ async fn handle_inbound(
                     now,
                 );
             }
+            svc.routing.mark_received_hello_by_dest(&from_dest_b64, now);
 
             if let Some(agent) = &hello.agent
                 && let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
@@ -2094,6 +2704,7 @@ async fn handle_inbound(
                     now,
                 );
             }
+            svc.routing.mark_received_hello_by_dest(&from_dest_b64, now);
 
             if let Some(agent) = &hello.agent
                 && let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
@@ -2182,6 +2793,7 @@ async fn handle_inbound(
                     );
                 }
             }
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
 
             let max = (req.requested_contacts as usize).min(32);
             let contacts = svc.routing.closest_to(req.target, max, from_hash);
@@ -2242,10 +2854,12 @@ async fn handle_inbound(
             };
             let target = res.target;
             let contacts = res.contacts;
+            let contact_ids = contacts.iter().map(|c| c.node_id).collect::<Vec<_>>();
             tracing::trace!(from = %from_dest_b64, contacts = contacts.len(), "got KAD2 RES");
             svc.pending_reqs.remove(&from_dest_b64);
             svc.stats_window.recv_ress += 1;
             svc.stats_window.res_contacts += contacts.len() as u64;
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             let before = svc.routing.len();
             for c in contacts {
                 let _ = svc.routing.upsert(
@@ -2271,6 +2885,15 @@ async fn handle_inbound(
                 );
             }
 
+            handle_lookup_response(
+                svc,
+                now,
+                target,
+                &from_dest_b64,
+                &contact_ids,
+                inserted as u64,
+            );
+
             // If this response was part of a user-initiated keyword lookup/publish, nudge the
             // job forward immediately instead of waiting for the next maintenance tick.
             if svc.keyword_jobs.contains_key(&target) {
@@ -2279,6 +2902,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_PING => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             // PONG has an empty payload.
             let pong_plain = KadPacket::encode(KADEMLIA2_PONG, &[]);
             let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
@@ -2299,6 +2923,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_PUBLISH_KEY_REQ => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             // Be lenient: if we can't parse the full payload, we still want to ACK (if we can
             // read the keyword prefix) to stop retransmits, and store any entries we did parse.
             let (keyword, entries, complete, declared_count) =
@@ -2435,6 +3060,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_PUBLISH_SOURCE_REQ => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             svc.stats_window.recv_publish_source_reqs += 1;
             let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
                 Ok(r) => r,
@@ -2478,6 +3104,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_SEARCH_KEY_REQ => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             svc.stats_window.recv_search_key_reqs += 1;
             let req = match decode_kad2_search_key_req(&pkt.payload) {
                 Ok(r) => r,
@@ -2523,6 +3150,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_SEARCH_SOURCE_REQ => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             svc.stats_window.recv_search_source_reqs += 1;
             let req = match decode_kad2_search_source_req(&pkt.payload) {
                 Ok(r) => r,
@@ -2561,6 +3189,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_SEARCH_RES => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             let res: Kad2SearchRes = match decode_kad2_search_res(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
@@ -2668,6 +3297,7 @@ async fn handle_inbound(
         }
 
         KADEMLIA2_PUBLISH_RES => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             // Publish results can be different shapes (key/source/notes).
             // - Key:   <u128 key><u8 load>
             // - Source: <u128 file><u32 sources><u32 complete><u8 load>
