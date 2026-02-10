@@ -509,7 +509,7 @@ async fn handle_command(
     let now = Instant::now();
     match cmd {
         KadServiceCommand::SearchSources { file, file_size } => {
-            send_search_sources(svc, sock, crypto, file, file_size).await?;
+            send_search_sources(svc, sock, crypto, cfg, file, file_size).await?;
         }
         KadServiceCommand::SearchKeyword { keyword } => {
             touch_keyword_interest(svc, cfg, keyword, now);
@@ -546,7 +546,7 @@ async fn handle_command(
             .await?;
         }
         KadServiceCommand::PublishSource { file, file_size } => {
-            send_publish_source(svc, sock, crypto, file, file_size).await?;
+            send_publish_source(svc, sock, crypto, cfg, file, file_size).await?;
         }
         KadServiceCommand::GetSources { file, respond_to } => {
             let sources = svc
@@ -622,6 +622,7 @@ async fn send_search_sources(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
     crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
     file: KadId,
     file_size: u64,
 ) -> Result<()> {
@@ -629,23 +630,15 @@ async fn send_search_sources(
         return Ok(());
     }
 
-    // Ask a few peers, but prefer ones we've actually heard from recently.
-    // (Search requests are user-initiated, so it is OK to be a bit less conservative than
-    // the background crawl loop.)
     let now = Instant::now();
-    let peers = svc.routing.closest_to_distance_first_prefer_live(
-        file,
-        8,
-        0,
-        now,
-        Duration::from_secs(10 * 60),
-        3,
-    );
+    let peers = closest_peers_by_distance(svc, file, 8, 3, 0);
+    let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 search source only for version >= 3.
         if p.kad_version < 3 {
             continue;
         }
+        maybe_send_hello_to_peer(svc, sock, crypto, &p, now, hello_min).await?;
         let payload = encode_kad2_search_source_req(file, 0, file_size);
         if let Err(err) =
             send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_SOURCE_REQ, &payload).await
@@ -668,6 +661,7 @@ async fn send_publish_source(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
     crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
     file: KadId,
     file_size: u64,
 ) -> Result<()> {
@@ -675,21 +669,15 @@ async fn send_publish_source(
         return Ok(());
     }
 
-    // Publish to a few peers, prefer recently-live.
     let now = Instant::now();
-    let peers = svc.routing.closest_to_distance_first_prefer_live(
-        file,
-        6,
-        0,
-        now,
-        Duration::from_secs(10 * 60),
-        4,
-    );
+    let peers = closest_peers_by_distance(svc, file, 6, 4, 0);
+    let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 publish source only for version >= 4.
         if p.kad_version < 4 {
             continue;
         }
+        maybe_send_hello_to_peer(svc, sock, crypto, &p, now, hello_min).await?;
         let payload = encode_kad2_publish_source_req(
             file,
             crypto.my_kad_id,
@@ -865,14 +853,8 @@ async fn progress_keyword_job(
         return Ok(());
     }
 
-    let peers = svc.routing.closest_to_distance_first_prefer_live(
-        keyword,
-        32,
-        0,
-        now,
-        Duration::from_secs(30 * 60),
-        3,
-    );
+    let peers = closest_peers_by_distance(svc, keyword, 32, 3, 0);
+    let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
 
     if job.want_search && now >= job.next_search_at {
         let mut sent = 0usize;
@@ -889,6 +871,7 @@ async fn progress_keyword_job(
                 continue;
             }
 
+            maybe_send_hello_to_peer(svc, sock, crypto, p, now, hello_min).await?;
             let payload = encode_kad2_search_key_req(keyword, 0);
             if send_kad2_packet(sock, p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload)
                 .await
@@ -930,6 +913,7 @@ async fn progress_keyword_job(
                 continue;
             }
 
+            maybe_send_hello_to_peer(svc, sock, crypto, p, now, hello_min).await?;
             let entries = [(
                 pubspec.file,
                 pubspec.filename.as_str(),
@@ -962,6 +946,78 @@ async fn progress_keyword_job(
 
     svc.keyword_jobs.insert(keyword, job);
     Ok(())
+}
+
+fn closest_peers_by_distance(
+    svc: &KadService,
+    target: KadId,
+    max: usize,
+    min_kad_version: u8,
+    exclude_dest_hash: u32,
+) -> Vec<ImuleNode> {
+    let mut peers = svc.routing.closest_to(target, max * 2, exclude_dest_hash);
+    peers.retain(|p| p.kad_version >= min_kad_version);
+    peers.truncate(max);
+    peers
+}
+
+async fn maybe_send_hello_to_peer(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    peer: &ImuleNode,
+    now: Instant,
+    min_interval: Duration,
+) -> Result<()> {
+    let dest = peer.udp_dest_b64();
+    let Some(st) = svc.routing.get_by_dest(&dest) else {
+        return Ok(());
+    };
+    if !should_send_hello(st, now, min_interval) {
+        return Ok(());
+    }
+
+    let hello_plain_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
+    let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_plain_payload);
+
+    let target_kad_id = KadId(peer.client_id);
+    let sender_verify_key =
+        udp_crypto::udp_verify_key(crypto.udp_key_secret, peer.udp_dest_hash_code());
+    let receiver_verify_key = if peer.udp_key_ip == crypto.my_dest_hash {
+        peer.udp_key
+    } else {
+        0
+    };
+
+    let out = udp_crypto::encrypt_kad_packet(
+        &hello_plain,
+        target_kad_id,
+        receiver_verify_key,
+        sender_verify_key,
+    )?;
+
+    if let Err(err) = sock.send_to(&dest, &out).await {
+        tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
+    } else {
+        svc.stats_window.sent_hellos += 1;
+        svc.routing.mark_hello_sent_by_dest(&dest, now);
+    }
+
+    Ok(())
+}
+
+fn should_send_hello(
+    st: &crate::kad::routing::NodeState,
+    now: Instant,
+    min_interval: Duration,
+) -> bool {
+    if st.needs_hello {
+        return true;
+    }
+    match st.last_hello {
+        Some(t) => now.saturating_duration_since(t) >= min_interval,
+        None => true,
+    }
 }
 
 async fn send_kad2_packet(

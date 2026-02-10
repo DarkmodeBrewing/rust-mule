@@ -16,6 +16,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Increased keyword job cadence/batch size slightly to improve reach without flooding.
 - Ran `cargo fmt`, `cargo clippy`, `cargo test` (clippy still reports pre-existing warnings).
 - Extended `docs/scripts/two_instance_dht_selftest.sh` to include source publish/search flows and peer snapshots.
+- Added preflight HELLOs for publish/search targets and switched publish/search target selection to distance-only (no liveness tiebreak).
 
 ## Decisions (2026-02-10)
 
@@ -25,6 +26,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Documented workflow: write/update tests where applicable, run fmt/clippy/test, commit + push per iteration.
 - Accept existing clippy warnings for now; no functional changes required for this iteration.
 - Use the two-instance script to exercise source publish/search as part of routine sanity checks.
+- Prioritize DHT correctness over liveness when selecting publish/search targets.
 
 ## Next Steps (2026-02-10)
 
@@ -33,6 +35,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Consider a small UI view over `/kad/peers` to spot real inbound activity quickly.
 - Optionally address remaining clippy warnings in unrelated files.
 - Run the updated two-instance script and review `OUT_FILE` + logs for source publish/search behavior.
+- Re-run two-instance test to see if HELLO preflight improves `PUBLISH_RES` / `SEARCH_RES` results.
 
 ## Roadmap Notes
 
@@ -47,6 +50,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-10: Add `/kad/peers` API endpoint and new inbound request counters in `/status`; slightly increase keyword job cadence/batch size.
 - 2026-02-10: Add workflow guidance in `AGENTS.md` (tests, fmt/clippy/test, commit + push per iteration).
 - 2026-02-10: Extend two-instance selftest to include source publish/search and peer snapshots; add `kad_peers_get.sh`.
+- 2026-02-10: Add HELLO preflight for publish/search targets and use distance-only selection for DHT-critical actions.
 - 2026-02-06: Embed distributable nodes init seed at `assets/nodes.initseed.dat`; create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from embedded seed (best-effort) so runtime no longer depends on repo-local reference folders.
 - 2026-02-06: Reduce default stdout verbosity to `info` (code default and repo `config.toml`; file logging remains configurable and can stay `debug`).
 - 2026-02-06: Make Kad UDP key secret file-backed only (`data/kad_udp_key_secret.dat`); `kad.udp_key_secret` is deprecated/ignored to reduce misconfiguration risk.
