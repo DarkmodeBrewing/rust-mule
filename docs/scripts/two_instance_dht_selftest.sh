@@ -42,6 +42,7 @@ Options:
   --rounds N               Default: 2
   --wait-publish-secs N    Default: 60
   --wait-search-secs N     Default: 15
+  --wait-sources-secs N    Default: 15
   --pause-secs N           Default: 20
 EOF
 }
@@ -65,6 +66,7 @@ FILE_TYPE=""
 ROUNDS="2"
 WAIT_PUBLISH_SECS="60"
 WAIT_SEARCH_SECS="15"
+WAIT_SOURCES_SECS="15"
 PAUSE_SECS="20"
 
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
@@ -234,6 +236,65 @@ get_keyword_results() {
   append_blank_line
 }
 
+publish_source() {
+  local name="$1"
+  local base_url="$2"
+  local token_file="$3"
+  local file_id_hex="$4"
+  local file_size="$5"
+
+  log "Publish source on $name file_id_hex=$file_id_hex size=$file_size"
+  docs/scripts/kad_publish_source.sh \
+    --base-url "$base_url" \
+    --token-file "$token_file" \
+    --file-id-hex "$file_id_hex" \
+    --file-size "$file_size" \
+    | tee -a "$OUT_FILE"
+  append_blank_line
+}
+
+search_sources() {
+  local name="$1"
+  local base_url="$2"
+  local token_file="$3"
+  local file_id_hex="$4"
+  local file_size="$5"
+
+  log "Search sources on $name file_id_hex=$file_id_hex size=$file_size"
+  docs/scripts/kad_search_sources.sh \
+    --base-url "$base_url" \
+    --token-file "$token_file" \
+    --file-id-hex "$file_id_hex" \
+    --file-size "$file_size" \
+    | tee -a "$OUT_FILE"
+  append_blank_line
+}
+
+get_sources() {
+  local name="$1"
+  local base_url="$2"
+  local token_file="$3"
+  local file_id_hex="$4"
+
+  log "Get sources on $name file_id_hex=$file_id_hex"
+  docs/scripts/kad_sources_get.sh \
+    --base-url "$base_url" \
+    --token-file "$token_file" \
+    --file-id-hex "$file_id_hex" \
+    | tee -a "$OUT_FILE"
+  append_blank_line
+}
+
+peers_snapshot() {
+  local name="$1"
+  local base_url="$2"
+  local token_file="$3"
+
+  log "Peers $name ($base_url)"
+  docs/scripts/kad_peers_get.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
+  append_blank_line
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --a-base-url) A_BASE_URL="$2"; shift 2 ;;
@@ -261,6 +322,7 @@ while [[ $# -gt 0 ]]; do
     --rounds) ROUNDS="$2"; shift 2 ;;
     --wait-publish-secs) WAIT_PUBLISH_SECS="$2"; shift 2 ;;
     --wait-search-secs) WAIT_SEARCH_SECS="$2"; shift 2 ;;
+    --wait-sources-secs) WAIT_SOURCES_SECS="$2"; shift 2 ;;
     --pause-secs) PAUSE_SECS="$2"; shift 2 ;;
 
     -h|--help) usage; exit 0 ;;
@@ -275,6 +337,7 @@ log "OUT_FILE=$OUT_FILE"
 log "A_BASE_URL=$A_BASE_URL A_TOKEN_FILE=$A_TOKEN_FILE"
 log "B_BASE_URL=$B_BASE_URL B_TOKEN_FILE=$B_TOKEN_FILE"
 log "ROUNDS=$ROUNDS WAIT_PUBLISH_SECS=$WAIT_PUBLISH_SECS WAIT_SEARCH_SECS=$WAIT_SEARCH_SECS PAUSE_SECS=$PAUSE_SECS"
+log "WAIT_SOURCES_SECS=$WAIT_SOURCES_SECS"
 log "WARMUP_LIVE=$WARMUP_LIVE WARMUP_TIMEOUT_SECS=$WARMUP_TIMEOUT_SECS WARMUP_CHECK_SECS=$WARMUP_CHECK_SECS WARMUP_STABLE_SAMPLES=$WARMUP_STABLE_SAMPLES"
 
 if [[ -n "$QUERY" ]]; then
@@ -287,6 +350,8 @@ healthcheck "B" "$B_BASE_URL"
 
 status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
 status_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+peers_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+peers_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
 
 wait_for_warmup "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$WARMUP_LIVE" "$WARMUP_TIMEOUT_SECS" "$WARMUP_CHECK_SECS" "$WARMUP_STABLE_SAMPLES"
 wait_for_warmup "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$WARMUP_LIVE" "$WARMUP_TIMEOUT_SECS" "$WARMUP_CHECK_SECS" "$WARMUP_STABLE_SAMPLES"
@@ -327,6 +392,27 @@ for ((i=1; i<=ROUNDS; i++)); do
 
   status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
   status_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+  peers_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+  peers_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+
+  log "Pausing ${PAUSE_SECS}s..."
+  sleep "$PAUSE_SECS"
+
+  log "=== Round $i/$ROUNDS: A source -> B ==="
+
+  publish_source "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$A_FILE_ID_HEX" "$FILE_SIZE"
+  log "Waiting ${WAIT_PUBLISH_SECS}s for publish source to propagate..."
+  sleep "$WAIT_PUBLISH_SECS"
+
+  search_sources "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$A_FILE_ID_HEX" "$FILE_SIZE" >/dev/null
+  log "Waiting ${WAIT_SOURCES_SECS}s for source replies (B)..."
+  sleep "$WAIT_SOURCES_SECS"
+  get_sources "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$A_FILE_ID_HEX"
+
+  status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+  status_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+  peers_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+  peers_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
 
   log "Pausing ${PAUSE_SECS}s..."
   sleep "$PAUSE_SECS"
@@ -364,6 +450,27 @@ for ((i=1; i<=ROUNDS; i++)); do
 
   status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
   status_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+  peers_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+  peers_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+
+  log "Pausing ${PAUSE_SECS}s..."
+  sleep "$PAUSE_SECS"
+
+  log "=== Round $i/$ROUNDS: B source -> A ==="
+
+  publish_source "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$B_FILE_ID_HEX" "$FILE_SIZE"
+  log "Waiting ${WAIT_PUBLISH_SECS}s for publish source to propagate..."
+  sleep "$WAIT_PUBLISH_SECS"
+
+  search_sources "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$B_FILE_ID_HEX" "$FILE_SIZE" >/dev/null
+  log "Waiting ${WAIT_SOURCES_SECS}s for source replies (A)..."
+  sleep "$WAIT_SOURCES_SECS"
+  get_sources "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$B_FILE_ID_HEX"
+
+  status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+  status_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
+  peers_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
+  peers_snapshot "B" "$B_BASE_URL" "$B_TOKEN_FILE"
 
   log "Pausing ${PAUSE_SECS}s..."
   sleep "$PAUSE_SECS"
