@@ -14,6 +14,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Added debug routing endpoints (`/debug/routing/*`) plus debug lookup trigger (`/debug/lookup_once`) and per-bucket refresh lookups.
 - Added staleness-based bucket refresh with an under-populated growth mode; routing status logs now include bucket fill + verified %.
 - Routing table updates now treat inbound responses as activity (last_seen/last_inbound) and align bucket index to MSB distance.
+- Ran `cargo fmt`, `cargo clippy`, `cargo test` after the debug/refresh changes (clippy warnings remain; see prior notes).
 - Added `origin` field to keyword hits (`local` vs `network`) in the API response.
 - Added `/kad/peers` API endpoint and extra inbound-request counters to `/status` for visibility.
 - Increased keyword job cadence/batch size slightly to improve reach without flooding.
