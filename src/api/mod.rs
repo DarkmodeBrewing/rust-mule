@@ -16,7 +16,9 @@ use crate::{
     config::ApiConfig,
     kad::{
         KadId, keyword,
-        service::{KadKeywordHit, KadPeerInfo, KadServiceCommand, KadServiceStatus, KadSourceEntry},
+        service::{
+            KadKeywordHit, KadPeerInfo, KadServiceCommand, KadServiceStatus, KadSourceEntry,
+        },
     },
 };
 
@@ -367,11 +369,8 @@ fn status_sse_stream(
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     use futures_util::StreamExt as _;
 
-    let initial_stream = futures_util::stream::iter(
-        initial
-            .into_iter()
-            .map(|st| Ok::<KadServiceStatus, Infallible>(st)),
-    );
+    let initial_stream =
+        futures_util::stream::iter(initial.into_iter().map(Ok::<KadServiceStatus, Infallible>));
     let merged = initial_stream.chain(stream.filter_map(|msg| async move { msg.ok().map(Ok) }));
 
     merged.map(|Ok(status)| {

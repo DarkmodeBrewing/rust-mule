@@ -14,7 +14,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Added `origin` field to keyword hits (`local` vs `network`) in the API response.
 - Added `/kad/peers` API endpoint and extra inbound-request counters to `/status` for visibility.
 - Increased keyword job cadence/batch size slightly to improve reach without flooding.
-- Requested maintenance loop: cargo tooling not available in this environment (fmt/clippy/test not run).
+- Ran `cargo fmt`, `cargo clippy`, `cargo test` (clippy still reports pre-existing warnings).
 
 ## Decisions (2026-02-10)
 
@@ -22,13 +22,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Keep local publish injection, but expose `origin` so tests are unambiguous.
 - Keep Rust-native architecture; optimize behavioral parity rather than line-by-line porting.
 - Documented workflow: write/update tests where applicable, run fmt/clippy/test, commit + push per iteration.
+- Accept existing clippy warnings for now; no functional changes required for this iteration.
 
 ## Next Steps (2026-02-10)
 
 - Consider adding a debug toggle to disable local injection during tests.
 - Consider clearing per-keyword job `sent_to_*` sets on new API commands to allow re-tries to the same peers.
 - Consider a small UI view over `/kad/peers` to spot real inbound activity quickly.
-- Ensure cargo tooling is available in the dev environment so fmt/clippy/test can run.
+- Optionally address remaining clippy warnings in unrelated files.
 
 ## Roadmap Notes
 

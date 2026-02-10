@@ -1965,17 +1965,16 @@ async fn handle_inbound(
                 );
             }
 
-            if let Some(agent) = &hello.agent {
-                if let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
-                    && st.peer_agent.is_none()
-                {
-                    st.peer_agent = Some(agent.clone());
-                    tracing::debug!(
-                        from = %crate::i2p::b64::short(&from_dest_b64),
-                        agent = %agent,
-                        "learned peer agent from Kad2 HELLO_REQ"
-                    );
-                }
+            if let Some(agent) = &hello.agent
+                && let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
+                && st.peer_agent.is_none()
+            {
+                st.peer_agent = Some(agent.clone());
+                tracing::debug!(
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    agent = %agent,
+                    "learned peer agent from Kad2 HELLO_REQ"
+                );
             }
 
             let receiver_verify_key = decrypted.sender_verify_key;
@@ -2040,17 +2039,16 @@ async fn handle_inbound(
                 );
             }
 
-            if let Some(agent) = &hello.agent {
-                if let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
-                    && st.peer_agent.is_none()
-                {
-                    st.peer_agent = Some(agent.clone());
-                    tracing::debug!(
-                        from = %crate::i2p::b64::short(&from_dest_b64),
-                        agent = %agent,
-                        "learned peer agent from Kad2 HELLO_RES"
-                    );
-                }
+            if let Some(agent) = &hello.agent
+                && let Some(st) = svc.routing.get_mut_by_dest(&from_dest_b64)
+                && st.peer_agent.is_none()
+            {
+                st.peer_agent = Some(agent.clone());
+                tracing::debug!(
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    agent = %agent,
+                    "learned peer agent from Kad2 HELLO_RES"
+                );
             }
 
             let misc = hello.tags.get(&TAG_KADMISCOPTIONS).copied().unwrap_or(0) as u8;
