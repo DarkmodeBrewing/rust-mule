@@ -71,6 +71,7 @@ pub async fn serve(
         .route("/debug/routing/buckets", get(debug_routing_buckets))
         .route("/debug/routing/nodes", get(debug_routing_nodes))
         .route("/debug/lookup_once", post(debug_lookup_once))
+        .route("/debug/probe_peer", post(debug_probe_peer))
         .route("/kad/sources/:file_id_hex", get(kad_sources))
         .route(
             "/kad/keyword_results/:keyword_id_hex",
@@ -175,6 +176,23 @@ struct DebugLookupReq {
 #[derive(Debug, Serialize)]
 struct DebugLookupResponse {
     target_id_hex: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct DebugProbeReq {
+    udp_dest_b64: String,
+    keyword_id_hex: String,
+    file_id_hex: String,
+    filename: String,
+    file_size: u64,
+    #[serde(default)]
+    file_type: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct DebugProbeResponse {
+    queued: bool,
+    peer_found: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -369,6 +387,43 @@ async fn debug_lookup_once(
 
     Ok(Json(DebugLookupResponse {
         target_id_hex: target_id.to_hex_lower(),
+    }))
+}
+
+async fn debug_probe_peer(
+    State(state): State<ApiState>,
+    Json(req): Json<DebugProbeReq>,
+) -> Result<Json<DebugProbeResponse>, StatusCode> {
+    if req.filename.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let keyword = KadId::from_hex(&req.keyword_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::DebugProbePeer {
+            dest_b64: req.udp_dest_b64,
+            keyword,
+            file,
+            filename: req.filename,
+            file_size: req.file_size,
+            file_type: req.file_type,
+            respond_to: tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let peer_found = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(DebugProbeResponse {
+        queued: peer_found,
+        peer_found,
     }))
 }
 

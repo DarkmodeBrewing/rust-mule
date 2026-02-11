@@ -165,6 +165,8 @@ struct KadServiceStats {
     bootstrap_contacts: u64,
     sent_hellos: u64,
     recv_hello_ress: u64,
+    sent_hello_acks: u64,
+    recv_hello_acks: u64,
     timeouts: u64,
     new_nodes: u64,
     evicted: u64,
@@ -215,6 +217,8 @@ pub struct KadServiceStatus {
     pub bootstrap_contacts: u64,
     pub sent_hellos: u64,
     pub recv_hello_ress: u64,
+    pub sent_hello_acks: u64,
+    pub recv_hello_acks: u64,
     pub timeouts: u64,
     pub new_nodes: u64,
     pub evicted: u64,
@@ -295,6 +299,15 @@ pub enum KadServiceCommand {
     StartDebugLookup {
         target: Option<KadId>,
         respond_to: oneshot::Sender<KadId>,
+    },
+    DebugProbePeer {
+        dest_b64: String,
+        keyword: KadId,
+        file: KadId,
+        filename: String,
+        file_size: u64,
+        file_type: Option<String>,
+        respond_to: oneshot::Sender<bool>,
     },
 }
 
@@ -728,6 +741,37 @@ async fn handle_command(
             let target = target.unwrap_or_else(|| KadId::random().unwrap_or(crypto.my_kad_id));
             start_lookup(svc, target, LookupKind::Debug, None, now);
             let _ = respond_to.send(target);
+        }
+        KadServiceCommand::DebugProbePeer {
+            dest_b64,
+            keyword,
+            file,
+            filename,
+            file_size,
+            file_type,
+            respond_to,
+        } => {
+            let ok = match debug_probe_peer(
+                svc,
+                sock,
+                crypto,
+                &dest_b64,
+                keyword,
+                file,
+                &filename,
+                file_size,
+                file_type.as_deref(),
+                now,
+            )
+            .await
+            {
+                Ok(ok) => ok,
+                Err(err) => {
+                    tracing::debug!(error = %err, to = %crate::i2p::b64::short(&dest_b64), "debug probe failed");
+                    false
+                }
+            };
+            let _ = respond_to.send(ok);
         }
     }
     Ok(())
@@ -1579,6 +1623,78 @@ async fn send_hello_batch(
     Ok(())
 }
 
+async fn debug_probe_peer(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    crypto: KadServiceCrypto,
+    dest_b64: &str,
+    keyword: KadId,
+    file: KadId,
+    filename: &str,
+    file_size: u64,
+    file_type: Option<&str>,
+    now: Instant,
+) -> Result<bool> {
+    let Some(st) = svc.routing.get_by_dest(dest_b64) else {
+        return Ok(false);
+    };
+    let peer = st.node.clone();
+
+    let hello_payload = encode_kad2_hello_req(1, crypto.my_kad_id, &crypto.my_dest);
+    let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_payload);
+    sock.send_to(dest_b64, &hello_plain).await?;
+    svc.stats_window.sent_hellos += 1;
+    svc.routing.mark_hello_sent_by_dest(dest_b64, now);
+
+    let search_payload = encode_kad2_search_key_req(keyword, 0);
+    if let Err(err) = send_kad2_packet(
+        sock,
+        &peer,
+        crypto,
+        KADEMLIA2_SEARCH_KEY_REQ,
+        &search_payload,
+    )
+    .await
+    {
+        tracing::debug!(
+            error = %err,
+            to = %crate::i2p::b64::short(dest_b64),
+            "debug probe failed to send SEARCH_KEY_REQ"
+        );
+    } else {
+        svc.stats_window.sent_search_key_reqs += 1;
+    }
+
+    let publish_payload =
+        encode_kad2_publish_key_req(keyword, &[(file, filename, file_size, file_type)]);
+    if let Err(err) = send_kad2_packet(
+        sock,
+        &peer,
+        crypto,
+        KADEMLIA2_PUBLISH_KEY_REQ,
+        &publish_payload,
+    )
+    .await
+    {
+        tracing::debug!(
+            error = %err,
+            to = %crate::i2p::b64::short(dest_b64),
+            "debug probe failed to send PUBLISH_KEY_REQ"
+        );
+    } else {
+        svc.stats_window.sent_publish_key_reqs += 1;
+    }
+
+    tracing::debug!(
+        to = %crate::i2p::b64::short(dest_b64),
+        keyword = %keyword.to_hex_lower(),
+        file = %file.to_hex_lower(),
+        "debug probe sent HELLO/SEARCH_KEY/PUBLISH_KEY"
+    );
+
+    Ok(true)
+}
+
 async fn send_bootstrap_batch(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
@@ -2358,6 +2474,8 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         bootstrap_contacts: w.bootstrap_contacts,
         sent_hellos: w.sent_hellos,
         recv_hello_ress: w.recv_hello_ress,
+        sent_hello_acks: w.sent_hello_acks,
+        recv_hello_acks: w.recv_hello_acks,
         timeouts: w.timeouts,
         new_nodes: w.new_nodes,
         evicted: w.evicted,
@@ -2425,6 +2543,8 @@ fn publish_status(
         bootstrap_contacts = st.bootstrap_contacts,
         sent_hellos = st.sent_hellos,
         recv_hello_ress = st.recv_hello_ress,
+        sent_hello_acks = st.sent_hello_acks,
+        recv_hello_acks = st.recv_hello_acks,
         timeouts = st.timeouts,
         new_nodes = st.new_nodes,
         evicted = st.evicted,
@@ -2769,12 +2889,22 @@ async fn handle_inbound(
                     sender_verify_key,
                 )?;
                 let _ = sock.send_to(&from_dest_b64, &ack).await;
+                svc.stats_window.sent_hello_acks += 1;
+                tracing::debug!(
+                    to = %crate::i2p::b64::short(&from_dest_b64),
+                    "sent HELLO_RES_ACK"
+                );
             }
             svc.stats_window.recv_hello_ress += 1;
         }
 
         KADEMLIA2_HELLO_RES_ACK => {
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+            svc.stats_window.recv_hello_acks += 1;
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                "got HELLO_RES_ACK"
+            );
         }
 
         KADEMLIA2_REQ => {
@@ -3021,6 +3151,15 @@ async fn handle_inbound(
                 };
 
             svc.stats_window.recv_publish_key_reqs += 1;
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                keyword = %keyword.to_hex_lower(),
+                declared = declared_count,
+                parsed = entries.len(),
+                complete,
+                len = pkt.payload.len(),
+                "recv PUBLISH_KEY_REQ"
+            );
             if !complete {
                 svc.stats_window.recv_publish_key_decode_failures += 1;
 
@@ -3114,6 +3253,12 @@ async fn handle_inbound(
                     return Ok(());
                 }
             };
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                file = %req.file.to_hex_lower(),
+                source = %req.source.to_hex_lower(),
+                "recv PUBLISH_SOURCE_REQ"
+            );
 
             if let Some(raw) = &from_dest_raw
                 && raw.len() == I2P_DEST_LEN
@@ -3158,6 +3303,13 @@ async fn handle_inbound(
                     return Ok(());
                 }
             };
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                target = %req.target.to_hex_lower(),
+                start = req.start_position,
+                restrictive = req.restrictive,
+                "recv SEARCH_KEY_REQ"
+            );
 
             let results = svc
                 .keyword_store_by_keyword
@@ -3204,6 +3356,13 @@ async fn handle_inbound(
                     return Ok(());
                 }
             };
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                target = %req.target.to_hex_lower(),
+                start = req.start_position,
+                file_size = req.file_size,
+                "recv SEARCH_SOURCE_REQ"
+            );
 
             let results = svc
                 .sources_by_file
