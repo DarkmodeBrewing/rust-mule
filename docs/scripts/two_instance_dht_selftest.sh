@@ -41,10 +41,12 @@ Options:
 
   --rounds N               Default: 2
   --wait-publish-secs N    Default: 60
-  --wait-search-secs N     Default: 15
+  --wait-search-secs N     Default: 45
   --wait-sources-secs N    Default: 15
+  --poll-interval-secs N   Default: 10 (used for keyword result polling)
   --pause-secs N           Default: 20
   --debug-lookup           Trigger one /debug/lookup_once per instance (default: off)
+  --peers-snapshot MODE    one of: each|first|none. Default: each
 EOF
 }
 
@@ -66,10 +68,12 @@ FILE_TYPE=""
 
 ROUNDS="2"
 WAIT_PUBLISH_SECS="60"
-WAIT_SEARCH_SECS="15"
+WAIT_SEARCH_SECS="45"
 WAIT_SOURCES_SECS="15"
+POLL_INTERVAL_SECS="10"
 PAUSE_SECS="20"
 DEBUG_LOOKUP="0"
+PEERS_SNAPSHOT="each"
 
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
 OUT_FILE="tmp/two_instance_dht_selftest_$(date +%Y%m%d_%H%M%S).log"
@@ -108,6 +112,54 @@ extract_json_int_field() {
     return 0
   fi
   echo "${m#*:}"
+}
+
+extract_has_network_origin() {
+  # Return "1" if any hit has origin=network in the JSON payload, else "0".
+  local json="$1"
+  if printf "%s" "$json" | grep -q "\"origin\":\"network\""; then
+    echo "1"
+  else
+    echo "0"
+  fi
+}
+
+poll_keyword_results() {
+  local name="$1"
+  local base_url="$2"
+  local token_file="$3"
+  local keyword_id_hex="$4"
+  local timeout_secs="$5"
+  local interval_secs="$6"
+
+  log "Polling keyword results on $name keyword_id_hex=$keyword_id_hex (timeout=${timeout_secs}s, interval=${interval_secs}s)"
+  local start now
+  start="$(date +%s)"
+  while true; do
+    now="$(date +%s)"
+    if (( now - start > timeout_secs )); then
+      log "WARN: polling keyword results timed out on $name"
+      get_keyword_results "$name" "$base_url" "$token_file" "$keyword_id_hex" >/dev/null
+      return 0
+    fi
+
+    local json has_net
+    json="$(docs/scripts/kad_keyword_results_get.sh \
+      --base-url "$base_url" \
+      --token-file "$token_file" \
+      --keyword-id-hex "$keyword_id_hex" 2>/dev/null || true)"
+    has_net="$(extract_has_network_origin "$json")"
+
+    printf "%s\n" "$json" | tee -a "$OUT_FILE" >/dev/null
+    append_blank_line
+
+    if [[ "$has_net" == "1" ]]; then
+      log "Detected network-origin hit on $name"
+      return 0
+    fi
+
+    sleep "$interval_secs"
+  done
 }
 
 wait_for_warmup() {
@@ -292,9 +344,19 @@ peers_snapshot() {
   local base_url="$2"
   local token_file="$3"
 
+  case "$PEERS_SNAPSHOT" in
+    none) return 0 ;;
+    first)
+      if [[ -n "${PEERS_SNAPSHOT_DONE:-}" ]]; then
+        return 0
+      fi
+      ;;
+  esac
+
   log "Peers $name ($base_url)"
   bash docs/scripts/kad_peers_get.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
+  PEERS_SNAPSHOT_DONE="1"
 }
 
 routing_summary_snapshot() {
@@ -355,8 +417,10 @@ while [[ $# -gt 0 ]]; do
     --wait-publish-secs) WAIT_PUBLISH_SECS="$2"; shift 2 ;;
     --wait-search-secs) WAIT_SEARCH_SECS="$2"; shift 2 ;;
     --wait-sources-secs) WAIT_SOURCES_SECS="$2"; shift 2 ;;
+    --poll-interval-secs) POLL_INTERVAL_SECS="$2"; shift 2 ;;
     --pause-secs) PAUSE_SECS="$2"; shift 2 ;;
     --debug-lookup) DEBUG_LOOKUP="1"; shift 1 ;;
+    --peers-snapshot) PEERS_SNAPSHOT="$2"; shift 2 ;;
 
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -371,6 +435,7 @@ log "A_BASE_URL=$A_BASE_URL A_TOKEN_FILE=$A_TOKEN_FILE"
 log "B_BASE_URL=$B_BASE_URL B_TOKEN_FILE=$B_TOKEN_FILE"
 log "ROUNDS=$ROUNDS WAIT_PUBLISH_SECS=$WAIT_PUBLISH_SECS WAIT_SEARCH_SECS=$WAIT_SEARCH_SECS PAUSE_SECS=$PAUSE_SECS"
 log "WAIT_SOURCES_SECS=$WAIT_SOURCES_SECS"
+log "POLL_INTERVAL_SECS=$POLL_INTERVAL_SECS PEERS_SNAPSHOT=$PEERS_SNAPSHOT"
 log "WARMUP_LIVE=$WARMUP_LIVE WARMUP_TIMEOUT_SECS=$WARMUP_TIMEOUT_SECS WARMUP_CHECK_SECS=$WARMUP_CHECK_SECS WARMUP_STABLE_SAMPLES=$WARMUP_STABLE_SAMPLES"
 log "DEBUG_LOOKUP=$DEBUG_LOOKUP"
 
@@ -422,14 +487,10 @@ for ((i=1; i<=ROUNDS; i++)); do
 
   if [[ -n "$KEY_A" ]]; then
     search_keyword "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$KEY_A" >/dev/null
-    log "Waiting ${WAIT_SEARCH_SECS}s for search replies (A)..."
-    sleep "$WAIT_SEARCH_SECS"
-    get_keyword_results "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$KEY_A"
+    poll_keyword_results "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$KEY_A" "$WAIT_SEARCH_SECS" "$POLL_INTERVAL_SECS"
 
     search_keyword "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$KEY_A" >/dev/null
-    log "Waiting ${WAIT_SEARCH_SECS}s for search replies (B)..."
-    sleep "$WAIT_SEARCH_SECS"
-    get_keyword_results "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$KEY_A"
+    poll_keyword_results "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$KEY_A" "$WAIT_SEARCH_SECS" "$POLL_INTERVAL_SECS"
   else
     # Query-based fallback.
     log "Search keyword on A by query='$QUERY_A' (fallback)"
@@ -483,14 +544,10 @@ for ((i=1; i<=ROUNDS; i++)); do
 
   if [[ -n "$KEY_B" ]]; then
     search_keyword "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$KEY_B" >/dev/null
-    log "Waiting ${WAIT_SEARCH_SECS}s for search replies (B)..."
-    sleep "$WAIT_SEARCH_SECS"
-    get_keyword_results "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$KEY_B"
+    poll_keyword_results "B" "$B_BASE_URL" "$B_TOKEN_FILE" "$KEY_B" "$WAIT_SEARCH_SECS" "$POLL_INTERVAL_SECS"
 
     search_keyword "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$KEY_B" >/dev/null
-    log "Waiting ${WAIT_SEARCH_SECS}s for search replies (A)..."
-    sleep "$WAIT_SEARCH_SECS"
-    get_keyword_results "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$KEY_B"
+    poll_keyword_results "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$KEY_B" "$WAIT_SEARCH_SECS" "$POLL_INTERVAL_SECS"
   else
     log "Search keyword on B by query='$QUERY_B' (fallback)"
     docs/scripts/kad_search_keyword.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" --query "$QUERY_B" >/dev/null

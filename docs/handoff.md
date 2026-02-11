@@ -6,6 +6,12 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
+## Status (2026-02-11)
+
+- Updated `docs/scripts/two_instance_dht_selftest.sh` to poll keyword results (early exit on `origin=network`), add configurable poll interval, and allow peer snapshot frequency control.
+- Increased default `wait-search-secs` to 45s in the script (I2P cadence).
+- Updated `tmp/test_script_command.txt` with new flags for polling and peer snapshot mode.
+
 ## Status (2026-02-10)
 
 - Ran `docs/scripts/two_instance_dht_selftest.sh` (5 rounds). Each instance only saw its own locally-injected keyword hit; no cross-instance keyword hits observed.
@@ -74,6 +80,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-11: Tune two-instance selftest script with polling + peer snapshot controls; update `tmp/test_script_command.txt` to use new flags.
 - 2026-02-10: Two-instance DHT selftest (5 rounds) showed only local keyword hits; no cross-instance results, no publish-key acks, empty search responses; routing stayed flat (quiet network).
 - 2026-02-10: Add `origin` field to keyword hit API responses (`local` vs `network`).
 - 2026-02-10: Add `/kad/peers` API endpoint and new inbound request counters in `/status`; slightly increase keyword job cadence/batch size.
