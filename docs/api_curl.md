@@ -133,6 +133,31 @@ curl -sS "${AUTH[@]}" "${JSON[@]}" \
   "$BASE_URL/debug/lookup_once" | jq .
 ```
 
+## Debug: Probe A Specific Peer (HELLO + SEARCH + PUBLISH)
+
+Use `/kad/peers` to find a `udp_dest_b64` for a known peer.
+
+```bash
+UDP_DEST_B64="AAA...AAAA"
+KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
+FILE_ID_HEX="ffeeddccbbaa99887766554433221100"
+FILENAME="probe.bin"
+FILE_SIZE=123
+
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{\"udp_dest_b64\":\"$UDP_DEST_B64\",\"keyword_id_hex\":\"$KEYWORD_ID_HEX\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE}" \
+  "$BASE_URL/debug/probe_peer" | jq .
+```
+
+Optional file type:
+
+```bash
+FILE_TYPE="Pro"
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d "{\"udp_dest_b64\":\"$UDP_DEST_B64\",\"keyword_id_hex\":\"$KEYWORD_ID_HEX\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE,\"file_type\":\"$FILE_TYPE\"}" \
+  "$BASE_URL/debug/probe_peer" | jq .
+```
+
 ## KAD: Publish A Keyword->File Entry (DHT)
 
 This enqueues a Kad2 `PUBLISH_KEY_REQ` to a couple closest peers. It uses iMule-style keyword
