@@ -17,6 +17,7 @@ preferences_kad_path = "preferencesKad.dat"
 # service_req_min_interval_secs = 5
 # service_hello_batch = 5
 # service_hello_min_interval_secs = 300
+# service_hello_dual_obfuscated = false
 # service_refresh_interval_secs = 2700
 # service_refresh_buckets_per_tick = 1
 # service_refresh_underpopulated_min_contacts = 60

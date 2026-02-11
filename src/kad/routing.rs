@@ -93,6 +93,10 @@ impl RoutingTable {
         self.by_id.get(id)
     }
 
+    pub fn id_for_dest(&self, dest_b64: &str) -> Option<KadId> {
+        self.by_dest.get(dest_b64).copied()
+    }
+
     pub fn get_mut_by_dest(&mut self, dest_b64: &str) -> Option<&mut NodeState> {
         let id = *self.by_dest.get(dest_b64)?;
         self.by_id.get_mut(&id)

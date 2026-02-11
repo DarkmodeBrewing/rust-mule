@@ -19,6 +19,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Aligned Kad2 HELLO_REQ encoding with iMule: kadVersion=1, empty TagList, sent unobfuscated.
 - Added HELLO_RES_ACK counters (sent/recv), per-request debug logs for publish/search requests, and a `/debug/probe_peer` API to send HELLO/SEARCH/PUBLISH to a specific peer.
 - Added `/debug/probe_peer` curl docs + script (`docs/api_curl.md`, `docs/scripts/debug_probe_peer.sh`).
+- Added KAD2 RES contact acceptance stats (per-response debug log) and HELLO_RES_ACK skip counter.
+- Added optional dual HELLO_REQ mode (plain + obfuscated) behind `kad.service_hello_dual_obfuscated` (experimental).
+- Added config flag wiring for dual-HELLO mode and contact acceptance stats logging; updated `config.toml` hint.
+- Ran `cargo fmt`, `cargo clippy`, `cargo test` after these changes (clippy warnings remain; see prior notes).
 - Ran `cargo fmt`, `cargo clippy`, `cargo test` after debug probe + logging changes (clippy warnings remain; see prior notes).
 - Ran `cargo fmt`, `cargo clippy`, `cargo test` after HELLO/live-peer changes (clippy warnings remain; see prior notes).
 - Added `origin` field to keyword hits (`local` vs `network`) in the API response.
@@ -43,6 +47,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Prefer recently-live peers first for publish/search while keeping distance correctness as fallback.
 - Match iMule HELLO_REQ behavior (unencrypted, kadVersion=1, empty TagList) to improve interop.
 - Add a targeted debug probe endpoint rather than relying on background jobs to validate per-peer responses.
+- Add per-response acceptance stats and HELLO_ACK skip counters to see why routing doesn’t grow.
+- Add an optional dual-HELLO mode (explicitly marked as “perhaps”, since it diverges from iMule).
+- Dual-HELLO is explicitly flagged as a “perhaps”/experimental divergence from iMule behavior.
 
 ## Next Steps (2026-02-10)
 
@@ -56,6 +63,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Re-run the two-instance script (now with post-warmup routing snapshots) and check for HELLO traffic + publish/search ACKs.
 - Re-run two-instance test and check for `recv_hello_ress` / `recv_hello_reqs` increases after HELLO_REQ change.
 - Use `/debug/probe_peer` against a known peer from `/kad/peers` to check HELLO/SEARCH/PUBLISH responses.
+- If `hello_ack_skipped_no_sender_key` keeps climbing, consider enabling `kad.service_hello_dual_obfuscated = true` for a test run.
+- If `KAD2 RES contact acceptance stats` show high `dest_mismatch` or `already_id`, investigate routing filters or seed freshness.
 
 ## Roadmap Notes
 
@@ -77,6 +86,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-10: Align Kad2 HELLO_REQ with iMule (kadVersion=1, empty taglist, unobfuscated); add `encode_kad2_hello_req` and update HELLO send paths.
 - 2026-02-10: Add HELLO_RES_ACK counters + publish/search request debug logs; add `/debug/probe_peer` API for targeted HELLO/SEARCH/PUBLISH probes.
 - 2026-02-10: Document `/debug/probe_peer` in `docs/api_curl.md` and add `docs/scripts/debug_probe_peer.sh`.
+- 2026-02-10: Add KAD2 RES contact acceptance stats (debug) + HELLO_ACK skip counter; add optional dual HELLO_REQ mode behind config flag (experimental, diverges from iMule).
+- 2026-02-10: Wire `kad.service_hello_dual_obfuscated` config; add KAD2 RES acceptance stats and HELLO_ACK skip counters to status/logs; update `config.toml`.
 - 2026-02-06: Embed distributable nodes init seed at `assets/nodes.initseed.dat`; create `data/nodes.initseed.dat` and `data/nodes.fallback.dat` from embedded seed (best-effort) so runtime no longer depends on repo-local reference folders.
 - 2026-02-06: Reduce default stdout verbosity to `info` (code default and repo `config.toml`; file logging remains configurable and can stay `debug`).
 - 2026-02-06: Make Kad UDP key secret file-backed only (`data/kad_udp_key_secret.dat`); `kad.udp_key_secret` is deprecated/ignored to reduce misconfiguration risk.

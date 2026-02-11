@@ -333,6 +333,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             hello_every_secs: config.kad.service_hello_every_secs,
             hello_batch: config.kad.service_hello_batch,
             hello_min_interval_secs: config.kad.service_hello_min_interval_secs,
+            hello_dual_obfuscated: config.kad.service_hello_dual_obfuscated,
             maintenance_every_secs: config.kad.service_maintenance_every_secs,
             status_every_secs: config.kad.service_status_every_secs,
             max_failures: config.kad.service_max_failures,

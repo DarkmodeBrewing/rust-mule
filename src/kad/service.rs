@@ -61,6 +61,9 @@ pub struct KadServiceConfig {
     pub hello_every_secs: u64,
     pub hello_batch: usize,
     pub hello_min_interval_secs: u64,
+    /// Optional: send a second obfuscated HELLO_REQ if we already have a receiver key.
+    /// This diverges from iMule's plain-HELLO behavior and is experimental.
+    pub hello_dual_obfuscated: bool,
 
     pub maintenance_every_secs: u64,
     pub status_every_secs: u64,
@@ -124,6 +127,7 @@ impl Default for KadServiceConfig {
             hello_every_secs: 10,
             hello_batch: 2,
             hello_min_interval_secs: 900,
+            hello_dual_obfuscated: false,
 
             maintenance_every_secs: 5,
             status_every_secs: 60,
@@ -167,6 +171,7 @@ struct KadServiceStats {
     recv_hello_ress: u64,
     sent_hello_acks: u64,
     recv_hello_acks: u64,
+    hello_ack_skipped_no_sender_key: u64,
     timeouts: u64,
     new_nodes: u64,
     evicted: u64,
@@ -219,6 +224,7 @@ pub struct KadServiceStatus {
     pub recv_hello_ress: u64,
     pub sent_hello_acks: u64,
     pub recv_hello_acks: u64,
+    pub hello_ack_skipped_no_sender_key: u64,
     pub timeouts: u64,
     pub new_nodes: u64,
     pub evicted: u64,
@@ -755,6 +761,7 @@ async fn handle_command(
                 svc,
                 sock,
                 crypto,
+                cfg,
                 &dest_b64,
                 keyword,
                 file,
@@ -958,7 +965,7 @@ async fn send_search_sources(
         if p.kad_version < 3 {
             continue;
         }
-        maybe_send_hello_to_peer(svc, sock, crypto, &p, now, hello_min).await?;
+        maybe_send_hello_to_peer(svc, sock, crypto, cfg, &p, now, hello_min).await?;
         let payload = encode_kad2_search_source_req(file, 0, file_size);
         if let Err(err) =
             send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_SOURCE_REQ, &payload).await
@@ -997,7 +1004,7 @@ async fn send_publish_source(
         if p.kad_version < 4 {
             continue;
         }
-        maybe_send_hello_to_peer(svc, sock, crypto, &p, now, hello_min).await?;
+        maybe_send_hello_to_peer(svc, sock, crypto, cfg, &p, now, hello_min).await?;
         let payload = encode_kad2_publish_source_req(
             file,
             crypto.my_kad_id,
@@ -1191,7 +1198,7 @@ async fn progress_keyword_job(
                 continue;
             }
 
-            maybe_send_hello_to_peer(svc, sock, crypto, p, now, hello_min).await?;
+            maybe_send_hello_to_peer(svc, sock, crypto, cfg, p, now, hello_min).await?;
             let payload = encode_kad2_search_key_req(keyword, 0);
             if send_kad2_packet(sock, p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload)
                 .await
@@ -1233,7 +1240,7 @@ async fn progress_keyword_job(
                 continue;
             }
 
-            maybe_send_hello_to_peer(svc, sock, crypto, p, now, hello_min).await?;
+            maybe_send_hello_to_peer(svc, sock, crypto, cfg, p, now, hello_min).await?;
             let entries = [(
                 pubspec.file,
                 pubspec.filename.as_str(),
@@ -1318,6 +1325,7 @@ async fn maybe_send_hello_to_peer(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
     crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
     peer: &ImuleNode,
     now: Instant,
     min_interval: Duration,
@@ -1339,7 +1347,7 @@ async fn maybe_send_hello_to_peer(
         0
     };
 
-    let out = hello_plain;
+    let out = hello_plain.clone();
 
     if let Err(err) = sock.send_to(&dest, &out).await {
         tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
@@ -1353,6 +1361,32 @@ async fn maybe_send_hello_to_peer(
             receiver_key = receiver_verify_key != 0,
             "sent HELLO_REQ"
         );
+    }
+
+    if cfg.hello_dual_obfuscated && peer.kad_version >= 6 && receiver_verify_key != 0 {
+        let target_kad_id = KadId(peer.client_id);
+        let sender_verify_key =
+            udp_crypto::udp_verify_key(crypto.udp_key_secret, peer.udp_dest_hash_code());
+        if let Ok(hello) = udp_crypto::encrypt_kad_packet(
+            &hello_plain,
+            target_kad_id,
+            receiver_verify_key,
+            sender_verify_key,
+        ) {
+            if let Err(err) = sock.send_to(&dest, &hello).await {
+                tracing::debug!(
+                    error = %err,
+                    to = %dest,
+                    "failed sending KAD2 HELLO_REQ (dual obfuscated)"
+                );
+            } else {
+                svc.stats_window.sent_hellos += 1;
+                tracing::debug!(
+                    to = %crate::i2p::b64::short(&dest),
+                    "sent HELLO_REQ (dual obfuscated)"
+                );
+            }
+        }
     }
 
     Ok(())
@@ -1371,7 +1405,7 @@ async fn maybe_hello_on_inbound(
     };
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     let peer = st.node.clone();
-    maybe_send_hello_to_peer(svc, sock, crypto, &peer, now, hello_min).await
+    maybe_send_hello_to_peer(svc, sock, crypto, cfg, &peer, now, hello_min).await
 }
 
 fn should_send_hello(
@@ -1618,6 +1652,34 @@ async fn send_hello_batch(
             svc.stats_window.sent_hellos += 1;
             svc.routing.mark_hello_sent_by_dest(&dest, now);
         }
+
+        if cfg.hello_dual_obfuscated
+            && p.kad_version >= 6
+            && p.udp_key_ip == crypto.my_dest_hash
+            && p.udp_key != 0
+        {
+            let target_kad_id = KadId(p.client_id);
+            let sender_verify_key =
+                udp_crypto::udp_verify_key(crypto.udp_key_secret, p.udp_dest_hash_code());
+            let receiver_verify_key = p.udp_key;
+            if let Ok(hello) = udp_crypto::encrypt_kad_packet(
+                &hello_plain,
+                target_kad_id,
+                receiver_verify_key,
+                sender_verify_key,
+            ) {
+                if let Err(err) = sock.send_to(&dest, &hello).await {
+                    tracing::debug!(
+                        error = %err,
+                        to = %dest,
+                        "failed sending KAD2 HELLO_REQ (dual obfuscated)"
+                    );
+                } else {
+                    tracing::trace!(to = %dest, "sent KAD2 HELLO_REQ (dual obfuscated)");
+                    svc.stats_window.sent_hellos += 1;
+                }
+            }
+        }
     }
 
     Ok(())
@@ -1627,6 +1689,7 @@ async fn debug_probe_peer(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
     crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
     dest_b64: &str,
     keyword: KadId,
     file: KadId,
@@ -1645,6 +1708,33 @@ async fn debug_probe_peer(
     sock.send_to(dest_b64, &hello_plain).await?;
     svc.stats_window.sent_hellos += 1;
     svc.routing.mark_hello_sent_by_dest(dest_b64, now);
+
+    if cfg.hello_dual_obfuscated
+        && peer.kad_version >= 6
+        && peer.udp_key_ip == crypto.my_dest_hash
+        && peer.udp_key != 0
+    {
+        let target_kad_id = KadId(peer.client_id);
+        let sender_verify_key =
+            udp_crypto::udp_verify_key(crypto.udp_key_secret, peer.udp_dest_hash_code());
+        let receiver_verify_key = peer.udp_key;
+        if let Ok(hello) = udp_crypto::encrypt_kad_packet(
+            &hello_plain,
+            target_kad_id,
+            receiver_verify_key,
+            sender_verify_key,
+        ) {
+            if let Err(err) = sock.send_to(dest_b64, &hello).await {
+                tracing::debug!(
+                    error = %err,
+                    to = %crate::i2p::b64::short(dest_b64),
+                    "debug probe failed to send HELLO_REQ (dual obfuscated)"
+                );
+            } else {
+                svc.stats_window.sent_hellos += 1;
+            }
+        }
+    }
 
     let search_payload = encode_kad2_search_key_req(keyword, 0);
     if let Err(err) = send_kad2_packet(
@@ -2476,6 +2566,7 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         recv_hello_ress: w.recv_hello_ress,
         sent_hello_acks: w.sent_hello_acks,
         recv_hello_acks: w.recv_hello_acks,
+        hello_ack_skipped_no_sender_key: w.hello_ack_skipped_no_sender_key,
         timeouts: w.timeouts,
         new_nodes: w.new_nodes,
         evicted: w.evicted,
@@ -2545,6 +2636,7 @@ fn publish_status(
         recv_hello_ress = st.recv_hello_ress,
         sent_hello_acks = st.sent_hello_acks,
         recv_hello_acks = st.recv_hello_acks,
+        hello_ack_skipped_no_sender_key = st.hello_ack_skipped_no_sender_key,
         timeouts = st.timeouts,
         new_nodes = st.new_nodes,
         evicted = st.evicted,
@@ -2894,6 +2986,12 @@ async fn handle_inbound(
                     to = %crate::i2p::b64::short(&from_dest_b64),
                     "sent HELLO_RES_ACK"
                 );
+            } else if wants_ack {
+                svc.stats_window.hello_ack_skipped_no_sender_key += 1;
+                tracing::debug!(
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    "skipped HELLO_RES_ACK (missing sender key)"
+                );
             }
             svc.stats_window.recv_hello_ress += 1;
         }
@@ -3035,21 +3133,54 @@ async fn handle_inbound(
                     "failed HELLO preflight on KAD2 RES"
                 );
             }
-            let before = svc.routing.len();
+            let mut total = 0usize;
+            let mut inserted = 0usize;
+            let mut updated = 0usize;
+            let mut ignored_zero = 0usize;
+            let mut ignored_self = 0usize;
+            let mut already_id = 0usize;
+            let mut already_dest = 0usize;
+            let mut dest_mismatch = 0usize;
             for c in contacts {
-                let _ = svc.routing.upsert(
+                total += 1;
+                let id = c.node_id;
+                let node = ImuleNode {
+                    kad_version: c.kad_version,
+                    client_id: c.node_id.0,
+                    udp_dest: c.udp_dest,
+                    udp_key: 0,
+                    udp_key_ip: 0,
+                    verified: false,
+                };
+                let dest_b64 = node.udp_dest_b64();
+                if svc.routing.contains_id(id) {
+                    already_id += 1;
+                }
+                if let Some(existing_id) = svc.routing.id_for_dest(&dest_b64) {
+                    if existing_id == id {
+                        already_dest += 1;
+                    } else {
+                        dest_mismatch += 1;
+                    }
+                }
+                let outcome = svc.routing.upsert(
                     ImuleNode {
-                        kad_version: c.kad_version,
-                        client_id: c.node_id.0,
-                        udp_dest: c.udp_dest,
-                        udp_key: 0,
-                        udp_key_ip: 0,
-                        verified: false,
+                        kad_version: node.kad_version,
+                        client_id: node.client_id,
+                        udp_dest: node.udp_dest,
+                        udp_key: node.udp_key,
+                        udp_key_ip: node.udp_key_ip,
+                        verified: node.verified,
                     },
                     now,
                 );
+                match outcome {
+                    crate::kad::routing::UpsertOutcome::Inserted => inserted += 1,
+                    crate::kad::routing::UpsertOutcome::Updated => updated += 1,
+                    crate::kad::routing::UpsertOutcome::IgnoredZeroId => ignored_zero += 1,
+                    crate::kad::routing::UpsertOutcome::IgnoredSelf => ignored_self += 1,
+                }
             }
-            let inserted = svc.routing.len().saturating_sub(before);
             if inserted > 0 {
                 svc.stats_window.new_nodes += inserted as u64;
                 tracing::debug!(
@@ -3059,6 +3190,19 @@ async fn handle_inbound(
                     "learned new nodes from KAD2 RES"
                 );
             }
+            tracing::debug!(
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                total,
+                inserted,
+                updated,
+                ignored_zero,
+                ignored_self,
+                already_id,
+                already_dest,
+                dest_mismatch,
+                routing = svc.routing.len(),
+                "KAD2 RES contact acceptance stats"
+            );
 
             handle_lookup_response(
                 svc,

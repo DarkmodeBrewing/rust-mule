@@ -107,6 +107,9 @@ fn default_kad_service_hello_batch() -> usize {
 fn default_kad_service_hello_min_interval_secs() -> u64 {
     900
 }
+fn default_kad_service_hello_dual_obfuscated() -> bool {
+    false
+}
 fn default_kad_service_maintenance_every_secs() -> u64 {
     5
 }
@@ -256,6 +259,9 @@ pub struct KadConfig {
     pub service_hello_every_secs: u64,
     pub service_hello_batch: usize,
     pub service_hello_min_interval_secs: u64,
+    /// Optional: send a second obfuscated HELLO_REQ if we already have a receiver key.
+    /// This diverges from iMule's plain-HELLO behavior and is experimental.
+    pub service_hello_dual_obfuscated: bool,
 
     pub service_maintenance_every_secs: u64,
     pub service_status_every_secs: u64,
@@ -345,6 +351,7 @@ impl Default for KadConfig {
             service_hello_every_secs: default_kad_service_hello_every_secs(),
             service_hello_batch: default_kad_service_hello_batch(),
             service_hello_min_interval_secs: default_kad_service_hello_min_interval_secs(),
+            service_hello_dual_obfuscated: default_kad_service_hello_dual_obfuscated(),
 
             service_maintenance_every_secs: default_kad_service_maintenance_every_secs(),
             service_status_every_secs: default_kad_service_status_every_secs(),
