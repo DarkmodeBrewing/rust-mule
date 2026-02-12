@@ -8,6 +8,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Ran Prettier on `ui/assets/js/app.js` and `ui/assets/js/helpers.js` using `ui/.prettierrc` rules; verified with `prettier --check`.
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after JS formatting pass (`cargo test` passed; existing clippy warnings unchanged).
 - Added `ui/node_stats.html` with the same shell structure as other UI pages.
 - Implemented node status view for live/active visibility:
   - Loads `/api/v1/status` and `/api/v1/kad/peers`.
@@ -136,6 +138,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Use `ui/.prettierrc` as the canonical formatter config for UI JS files (`ui/assets/js/*`).
 - Define node UI state as:
   - `active`: `last_inbound_secs_ago <= 600`
   - `live`: `last_seen_secs_ago <= 600`
@@ -202,6 +205,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Format `ui/assets/js/app.js` and `ui/assets/js/helpers.js` with `ui/.prettierrc`; verify with `prettier --check`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `ui/node_stats.html` with shell + node status table/KPIs using `/api/v1/status` and `/api/v1/kad/peers`; implement `appNodeStats()`; point shell nav "Nodes / Routing" to `/ui/node_stats`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `/api/v1/searches` and `/api/v1/searches/:search_id` for active keyword jobs; wire search-thread sidebars to API; add `ui/search_details.html` that loads details via `searchId` query param; update API docs; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Replicate shell in `ui/search.html`; implement first keyword search form wired to `/api/v1/kad/search_keyword` + `/api/v1/kad/keyword_results/:keyword_id_hex`; add reusable form CSS classes/tokens and `apiPost()` helper; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).

@@ -1,45 +1,50 @@
-import { apiGet, apiPost, bootstrapToken, openStatusEventStream } from "./helpers.js";
+import {
+  apiGet,
+  apiPost,
+  bootstrapToken,
+  openStatusEventStream,
+} from './helpers.js';
 
 function parseSearchIdFromQuery() {
   const params = new URLSearchParams(window.location.search);
-  return (params.get("searchId") || "").trim();
+  return (params.get('searchId') || '').trim();
 }
 
 function stateClass(state) {
-  if (state === "running") {
-    return "state-running";
+  if (state === 'running') {
+    return 'state-running';
   }
-  if (state === "complete") {
-    return "state-done";
+  if (state === 'complete') {
+    return 'state-done';
   }
-  return "state-idle";
+  return 'state-idle';
 }
 
 function nodeState(peer) {
   const inbound = peer?.last_inbound_secs_ago;
   const seen = peer?.last_seen_secs_ago;
-  if (typeof inbound === "number" && inbound <= 600) {
-    return "active";
+  if (typeof inbound === 'number' && inbound <= 600) {
+    return 'active';
   }
-  if (typeof seen === "number" && seen <= 600) {
-    return "live";
+  if (typeof seen === 'number' && seen <= 600) {
+    return 'live';
   }
-  return "idle";
+  return 'idle';
 }
 
 function nodeStateClass(peer) {
   const state = nodeState(peer);
-  if (state === "active") {
-    return "state-running";
+  if (state === 'active') {
+    return 'state-running';
   }
-  if (state === "live") {
-    return "state-done";
+  if (state === 'live') {
+    return 'state-done';
   }
-  return "state-idle";
+  return 'state-idle';
 }
 
 async function loadSearchThreads(ctx) {
-  const data = await apiGet("/searches");
+  const data = await apiGet('/searches');
   ctx.searchThreads = Array.isArray(data?.searches) ? data.searches : [];
 }
 
@@ -47,8 +52,8 @@ window.indexApp = function indexApp() {
   return {
     loading: false,
     connected: false,
-    error: "",
-    token: "",
+    error: '',
+    token: '',
     status: null,
     sse: null,
     searchThreads: [],
@@ -59,14 +64,14 @@ window.indexApp = function indexApp() {
 
     get prettyStatus() {
       if (!this.status) {
-        return "{}";
+        return '{}';
       }
       return JSON.stringify(this.status, null, 2);
     },
 
     async init() {
       this.loading = true;
-      this.error = "";
+      this.error = '';
 
       try {
         this.token = await bootstrapToken();
@@ -82,8 +87,8 @@ window.indexApp = function indexApp() {
 
     async refreshStatus() {
       try {
-        this.error = "";
-        this.status = await apiGet("/status");
+        this.error = '';
+        this.status = await apiGet('/status');
       } catch (err) {
         this.error = String(err?.message || err);
       }
@@ -130,9 +135,9 @@ window.appSearch = function appSearch() {
   return {
     loading: false,
     submitting: false,
-    error: "",
-    query: "",
-    keywordIdHex: "",
+    error: '',
+    query: '',
+    keywordIdHex: '',
     searchResponse: null,
     keywordResults: null,
     searchThreads: [],
@@ -147,14 +152,14 @@ window.appSearch = function appSearch() {
 
     get prettySearchResponse() {
       if (!this.searchResponse) {
-        return "{}";
+        return '{}';
       }
       return JSON.stringify(this.searchResponse, null, 2);
     },
 
     async init() {
       this.loading = true;
-      this.error = "";
+      this.error = '';
       try {
         await bootstrapToken();
         await this.refreshThreads();
@@ -167,10 +172,10 @@ window.appSearch = function appSearch() {
 
     async submitSearch() {
       this.submitting = true;
-      this.error = "";
+      this.error = '';
       try {
         const payload = this.buildPayload();
-        this.searchResponse = await apiPost("/kad/search_keyword", payload);
+        this.searchResponse = await apiPost('/kad/search_keyword', payload);
         await this.refreshResults();
         await this.refreshThreads();
       } catch (err) {
@@ -190,7 +195,9 @@ window.appSearch = function appSearch() {
         this.keywordResults = null;
         return;
       }
-      this.keywordResults = await apiGet(`/kad/keyword_results/${keywordIdHex}`);
+      this.keywordResults = await apiGet(
+        `/kad/keyword_results/${keywordIdHex}`,
+      );
     },
 
     buildPayload() {
@@ -201,7 +208,7 @@ window.appSearch = function appSearch() {
 
       const query = this.query.trim();
       if (!query) {
-        throw new Error("enter a keyword query or keyword id");
+        throw new Error('enter a keyword query or keyword id');
       }
       return { query };
     },
@@ -211,8 +218,8 @@ window.appSearch = function appSearch() {
 window.appSearchDetails = function appSearchDetails() {
   return {
     loading: false,
-    error: "",
-    searchId: "",
+    error: '',
+    searchId: '',
     details: null,
     searchThreads: [],
 
@@ -226,21 +233,21 @@ window.appSearchDetails = function appSearchDetails() {
 
     get prettyDetails() {
       if (!this.details) {
-        return "{}";
+        return '{}';
       }
       return JSON.stringify(this.details, null, 2);
     },
 
     async init() {
       this.loading = true;
-      this.error = "";
+      this.error = '';
       this.searchId = parseSearchIdFromQuery();
 
       try {
         await bootstrapToken();
         await this.refreshThreads();
         if (!this.searchId) {
-          throw new Error("missing searchId query parameter");
+          throw new Error('missing searchId query parameter');
         }
         await this.loadDetails();
       } catch (err) {
@@ -266,7 +273,7 @@ window.appSearchDetails = function appSearchDetails() {
 window.appNodeStats = function appNodeStats() {
   return {
     loading: false,
-    error: "",
+    error: '',
     status: null,
     peers: [],
     searchThreads: [],
@@ -288,16 +295,16 @@ window.appNodeStats = function appNodeStats() {
     },
 
     get liveNodes() {
-      return this.peers.filter((p) => this.nodeState(p) !== "idle").length;
+      return this.peers.filter((p) => this.nodeState(p) !== 'idle').length;
     },
 
     get activeNodes() {
-      return this.peers.filter((p) => this.nodeState(p) === "active").length;
+      return this.peers.filter((p) => this.nodeState(p) === 'active').length;
     },
 
     async init() {
       this.loading = true;
-      this.error = "";
+      this.error = '';
       try {
         await bootstrapToken();
         await this.refreshThreads();
@@ -315,24 +322,25 @@ window.appNodeStats = function appNodeStats() {
 
     async refresh() {
       try {
-        this.error = "";
+        this.error = '';
         const [statusResp, peersResp] = await Promise.all([
-          apiGet("/status"),
-          apiGet("/kad/peers"),
+          apiGet('/status'),
+          apiGet('/kad/peers'),
         ]);
         this.status = statusResp;
         const rawPeers = Array.isArray(peersResp?.peers) ? peersResp.peers : [];
-        this.peers = rawPeers
-          .slice()
-          .sort((a, b) => {
-            const sa = this.nodeState(a);
-            const sb = this.nodeState(b);
-            const rank = { active: 0, live: 1, idle: 2 };
-            if (rank[sa] !== rank[sb]) {
-              return rank[sa] - rank[sb];
-            }
-            return (a.last_seen_secs_ago ?? Number.MAX_SAFE_INTEGER) - (b.last_seen_secs_ago ?? Number.MAX_SAFE_INTEGER);
-          });
+        this.peers = rawPeers.slice().sort((a, b) => {
+          const sa = this.nodeState(a);
+          const sb = this.nodeState(b);
+          const rank = { active: 0, live: 1, idle: 2 };
+          if (rank[sa] !== rank[sb]) {
+            return rank[sa] - rank[sb];
+          }
+          return (
+            (a.last_seen_secs_ago ?? Number.MAX_SAFE_INTEGER) -
+            (b.last_seen_secs_ago ?? Number.MAX_SAFE_INTEGER)
+          );
+        });
       } catch (err) {
         this.error = String(err?.message || err);
       }

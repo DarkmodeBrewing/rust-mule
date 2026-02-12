@@ -1,8 +1,8 @@
-const API_BASE = "/api/v1";
-const TOKEN_KEY = "api_token";
+const API_BASE = '/api/v1';
+const TOKEN_KEY = 'api_token';
 
 export function getToken() {
-  return sessionStorage.getItem(TOKEN_KEY) || "";
+  return sessionStorage.getItem(TOKEN_KEY) || '';
 }
 
 export function setToken(token) {
@@ -17,12 +17,12 @@ export async function bootstrapToken() {
 
   const res = await fetch(`${API_BASE}/dev/auth`);
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
+    const body = await res.text().catch(() => '');
     throw new Error(`dev auth failed: ${res.status} ${body}`);
   }
   const data = await res.json();
   if (!data?.token) {
-    throw new Error("dev auth response missing token");
+    throw new Error('dev auth response missing token');
   }
 
   setToken(data.token);
@@ -32,7 +32,7 @@ export async function bootstrapToken() {
 function authHeaders() {
   const token = getToken();
   if (!token) {
-    throw new Error("missing api token in sessionStorage");
+    throw new Error('missing api token in sessionStorage');
   }
   return { Authorization: `Bearer ${token}` };
 }
@@ -42,7 +42,7 @@ export async function apiGet(path) {
     headers: authHeaders(),
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
+    const body = await res.text().catch(() => '');
     throw new Error(`${path}: ${res.status} ${body}`);
   }
   return res.json();
@@ -50,15 +50,15 @@ export async function apiGet(path) {
 
 export async function apiPost(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
-    method: "POST",
+    method: 'POST',
     headers: {
       ...authHeaders(),
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await res.text().catch(() => '');
     throw new Error(`${path}: ${res.status} ${text}`);
   }
   return res.json();
@@ -67,17 +67,19 @@ export async function apiPost(path, body) {
 export function openStatusEventStream(onStatus, onError) {
   const token = getToken();
   if (!token) {
-    throw new Error("cannot open events stream without token");
+    throw new Error('cannot open events stream without token');
   }
 
-  const es = new EventSource(`${API_BASE}/events?token=${encodeURIComponent(token)}`);
-  es.addEventListener("status", (event) => {
+  const es = new EventSource(
+    `${API_BASE}/events?token=${encodeURIComponent(token)}`,
+  );
+  es.addEventListener('status', (event) => {
     try {
       onStatus(JSON.parse(event.data));
     } catch (err) {
       onError?.(`bad status payload: ${String(err)}`);
     }
   });
-  es.onerror = () => onError?.("events stream disconnected");
+  es.onerror = () => onError?.('events stream disconnected');
   return es;
 }
