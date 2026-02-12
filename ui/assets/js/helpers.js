@@ -48,6 +48,22 @@ export async function apiGet(path) {
   return res.json();
 }
 
+export async function apiPost(path, body) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`${path}: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
 export function openStatusEventStream(onStatus, onError) {
   const token = getToken();
   if (!token) {
@@ -65,4 +81,3 @@ export function openStatusEventStream(onStatus, onError) {
   es.onerror = () => onError?.("events stream disconnected");
   return es;
 }
-

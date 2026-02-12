@@ -239,6 +239,38 @@ a:hover {
   min-width: 0;
 }
 
+.form-grid {
+  display: grid;
+  gap: var(--s-3);
+}
+
+.field {
+  display: grid;
+  gap: var(--s-2);
+}
+
+.field label {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+
+.input {
+  width: 100%;
+  min-height: var(--control-min-height);
+  padding: var(--control-pad-y) var(--control-pad-x);
+  border-radius: var(--control-radius);
+  border: var(--line) solid var(--border);
+  background: var(--panel-2);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+}
+
+.input:focus {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
 @media (max-width: 60rem) {
   .shell {
     grid-template-columns: 1fr;

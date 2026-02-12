@@ -17,11 +17,114 @@
 </head>
 
 <body x-data="appSearch()" x-init="init()">
-    <section class="container">
-        <div class="card">
-            <h1>Search (Placeholder)</h1>
-            <p x-text="message"></p>
-        </div>
+    <section class="container shell">
+        <aside class="card sidebar">
+            <h2>rust-mule</h2>
+            <p>Search dashboard shell</p>
+
+            <h3 class="mt-4">Navigation</h3>
+            <ul class="nav-list mt-3">
+                <li><a href="/ui">Overview</a></li>
+                <li><a href="/ui/search">Searches</a></li>
+                <li><a href="/ui">Nodes / Routing</a></li>
+                <li><a href="/ui">Logs</a></li>
+                <li><a href="/ui">Settings</a></li>
+            </ul>
+
+            <h3 class="mt-4">Search Threads</h3>
+            <ul class="search-list mt-3">
+                <li class="search-item">
+                    <div class="flex gap-3">
+                        <strong>linux iso</strong>
+                        <span class="badge state-running">running</span>
+                    </div>
+                    <small>queued keyword search</small>
+                </li>
+                <li class="search-item">
+                    <div class="flex gap-3">
+                        <strong>debian image</strong>
+                        <span class="badge state-done">complete</span>
+                    </div>
+                    <small>network hits cached</small>
+                </li>
+            </ul>
+
+            <div class="mt-4">
+                <button class="btn btn-primary" type="button">+ New Search</button>
+            </div>
+        </aside>
+
+        <main class="main-scroll grid gap-4">
+            <div class="card">
+                <h1>Keyword Search</h1>
+                <p>First version: queue Kad keyword lookup and fetch cached hits by keyword hash.</p>
+                <p class="mt-3" x-show="error" x-text="error"></p>
+            </div>
+
+            <div class="card">
+                <h2>Search Form</h2>
+                <form class="form-grid mt-3" @submit.prevent="submitSearch()">
+                    <div class="field">
+                        <label for="query">Keyword Query</label>
+                        <input id="query" class="input" type="text" placeholder="ubuntu iso"
+                            x-model="query" autocomplete="off">
+                    </div>
+
+                    <div class="field">
+                        <label for="keyword-id-hex">Keyword ID Hex (optional)</label>
+                        <input id="keyword-id-hex" class="input" type="text"
+                            placeholder="00112233445566778899aabbccddeeff" x-model="keywordIdHex" autocomplete="off">
+                    </div>
+
+                    <div class="flex gap-3 flex-wrap">
+                        <button class="btn btn-primary" type="submit" x-bind:disabled="submitting || loading">
+                            <span x-text="submitting ? 'Searching...' : 'Search Keyword'"></span>
+                        </button>
+                        <button class="btn" type="button" @click="refreshResults()" x-bind:disabled="submitting || loading">
+                            Refresh Results
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card">
+                <h2>Search Request</h2>
+                <pre class="log" x-text="prettySearchResponse"></pre>
+            </div>
+
+            <div class="card">
+                <h2>Keyword Hits</h2>
+                <table class="table mt-3">
+                    <thead>
+                        <tr>
+                            <th>File Name</th>
+                            <th>Size</th>
+                            <th>Origin</th>
+                            <th>File ID</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <template x-if="!keywordResults || !keywordResults.hits || keywordResults.hits.length === 0">
+                            <tr>
+                                <td colspan="4">No hits yet. Run search and refresh while the network responds.</td>
+                            </tr>
+                        </template>
+                        <template x-for="hit in ((keywordResults && keywordResults.hits) ? keywordResults.hits : [])"
+                            :key="hit.file_id_hex + hit.filename">
+                            <tr>
+                                <td x-text="hit.filename"></td>
+                                <td x-text="hit.file_size"></td>
+                                <td x-text="hit.origin"></td>
+                                <td x-text="hit.file_id_hex"></td>
+                            </tr>
+                        </template>
+                    </tbody>
+                </table>
+                <p class="mt-3" x-show="activeKeywordIdHex">
+                    Active keyword id: <code x-text="activeKeywordIdHex"></code>
+                </p>
+            </div>
+        </main>
     </section>
 </body>
 

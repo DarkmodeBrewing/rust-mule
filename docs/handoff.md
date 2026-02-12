@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Replicated the app shell layout in `ui/search.html` (sidebar + main panel) to match the index page structure.
+- Implemented first functional keyword-search form in the search UI:
+  - Added query and optional `keyword_id_hex` inputs.
+  - Wired `POST /api/v1/kad/search_keyword` submission from Alpine (`appSearch.submitSearch`).
+  - Added results refresh via `GET /api/v1/kad/keyword_results/:keyword_id_hex`.
+  - Added first-pass results table rendering for keyword hits.
+- Added reusable UI form styles in shared CSS:
+  - New form classes in `ui/assets/css/base.css` (`form-grid`, `field`, `input`).
+  - Added form-control tokens to `ui/assets/css/layout.css`.
+- Added JS helper `apiPost()` in `ui/assets/js/helpers.js` and expanded `appSearch()` state/actions in `ui/assets/js/app.js`.
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after search UI implementation (`cargo test` passed; existing clippy warnings unchanged).
 - Moved `index.html` inline styles into shared CSS:
   - Removed `<style>` block from `ui/index.html`.
   - Added reusable shell/sidebar/search-state classes in `ui/assets/css/base.css`.
@@ -100,6 +111,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Keep search UI v1 focused on real keyword-search queue + cached-hit retrieval rather than adding placeholder-only controls.
 - Enforce no inline `<style>` blocks in UI HTML; shared styles must live under `ui/assets/css/`.
 - Keep sizing/spacing/state tokens in `ui/assets/css/layout.css` and consume them from component/layout rules in `ui/assets/css/base.css`.
 - Keep `index.html` as a single-shell page aligned to the chat-style dashboard design, even before full search API wiring exists.
@@ -133,6 +145,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Add integration tests for API auth/CORS behavior (preflight + protected endpoint access patterns).
 - Expand UI beyond status/search placeholder views (routing table, peers, and publish/search workflow surfaces).
 - Replace static index sidebar/result placeholders with real search data once `/api/searches` endpoints are implemented.
+- Add search-history/thread state in the UI (persisted list of submitted keyword jobs and selection behavior).
 - Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
 - Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -156,6 +169,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Replicate shell in `ui/search.html`; implement first keyword search form wired to `/api/v1/kad/search_keyword` + `/api/v1/kad/keyword_results/:keyword_id_hex`; add reusable form CSS classes/tokens and `apiPost()` helper; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Remove inline styles from `ui/index.html`; move reusable shell/search layout rules to `ui/assets/css/base.css`; define layout/state CSS vars in `ui/assets/css/layout.css`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Redesign `ui/index.html` into the UI spec shell (sidebar + search-overview main panel), preserving existing Alpine status/token/SSE wiring; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Serve UI skeleton from backend (`/`, `/ui`, `/ui/:page`, `/ui/assets/*`) with safe path validation and static content handling; allow SSE query-token auth for `/api/v1/events`; add related tests and update UI JS/HTML/docs (`src/api/mod.rs`, `ui/*`, `README.md`, `docs/architecture.md`, `docs/TODO.md`).

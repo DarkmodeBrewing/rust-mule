@@ -1,4 +1,4 @@
-import { apiGet, bootstrapToken, getToken, openStatusEventStream } from "./helpers.js";
+import { apiGet, apiPost, bootstrapToken, openStatusEventStream } from "./helpers.js";
 
 window.indexApp = function indexApp() {
   return {
@@ -71,16 +71,71 @@ window.indexApp = function indexApp() {
 
 window.appSearch = function appSearch() {
   return {
-    message: "Search UI is next. Bootstrap is active on the overview page.",
-    init() {
-      // Keep token warm for future search views.
-      bootstrapToken().catch(() => {
-        this.message = "Unable to bootstrap token. Check /api/v1/dev/auth.";
-      });
-      if (getToken()) {
-        this.message = "Token ready. Search page skeleton is in place.";
+    loading: false,
+    submitting: false,
+    error: "",
+    query: "",
+    keywordIdHex: "",
+    searchResponse: null,
+    keywordResults: null,
+
+    get activeKeywordIdHex() {
+      return this.searchResponse?.keyword_id_hex || this.keywordIdHex.trim();
+    },
+
+    get prettySearchResponse() {
+      if (!this.searchResponse) {
+        return "{}";
       }
+      return JSON.stringify(this.searchResponse, null, 2);
+    },
+
+    async init() {
+      this.loading = true;
+      this.error = "";
+      try {
+        await bootstrapToken();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async submitSearch() {
+      this.submitting = true;
+      this.error = "";
+      try {
+        const payload = this.buildPayload();
+        this.searchResponse = await apiPost("/kad/search_keyword", payload);
+        await this.refreshResults();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      } finally {
+        this.submitting = false;
+      }
+    },
+
+    async refreshResults() {
+      const keywordIdHex = this.activeKeywordIdHex;
+      if (!keywordIdHex) {
+        this.keywordResults = null;
+        return;
+      }
+      this.keywordResults = await apiGet(`/kad/keyword_results/${keywordIdHex}`);
+    },
+
+    buildPayload() {
+      const keywordIdHex = this.keywordIdHex.trim();
+      if (keywordIdHex) {
+        return { keyword_id_hex: keywordIdHex };
+      }
+
+      const query = this.query.trim();
+      if (!query) {
+        throw new Error("enter a keyword query or keyword id");
+      }
+      return { query };
     },
   };
 };
-

@@ -31,4 +31,10 @@
   --state-running: #7dd3fc;
   --state-idle: #fcd34d;
   --state-done: #86efac;
+
+  /* Form controls */
+  --control-radius: var(--radius-sm);
+  --control-pad-y: 0.625rem;
+  --control-pad-x: 0.75rem;
+  --control-min-height: 2.5rem;
 }
