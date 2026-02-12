@@ -1,0 +1,13 @@
+html[data-theme="hc"] {
+  --bg: #000000;
+  --panel: #000000;
+  --border: #3a3a3a;
+  --fg: #ffffff;
+  --muted: #cfcfcf;
+
+  --accent: #ff6a00;
+  --signal: #00d5ff;
+  --ok: #00ff7f;
+  --warn: #ffd000;
+  --danger: #ff2d55;
+}

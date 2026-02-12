@@ -1,0 +1,13 @@
+html[data-theme="light"] {
+  --bg: #f6f7fb;
+  --panel: #ffffff;
+  --border: #d9deea;
+  --fg: #111827;
+  --muted: #55637a;
+
+  --accent: #c2441e;
+  --signal: #006fbf;
+  --ok: #1f9d55;
+  --warn: #b7791f;
+  --danger: #c81e3a;
+}

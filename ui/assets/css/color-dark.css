@@ -1,0 +1,16 @@
+:root {
+  /* Default colors */
+  --bg: #0b0e12;
+  --bg-2: #0f141b;
+  --panel: #121926;
+  --border: #202a3a;
+
+  --fg: #e6edf6;
+  --muted: #7f8aa3;
+
+  --accent: #e05a2a;
+  --signal: #33c3ff;
+  --ok: #4cd37b;
+  --warn: #ffcc66;
+  --danger: #ff4d6d;
+}
