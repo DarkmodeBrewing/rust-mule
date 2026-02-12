@@ -8,6 +8,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed deep KAD parity hardening pass against iMule reference (`source_ref`) on `feature/kad-imule-parity-deep-pass`:
+  - Added PacketTracking-style request/response correlation in `src/kad/service.rs`:
+    - track outgoing KAD request opcodes with 180s TTL,
+    - drop unrequested inbound response packets (bootstrap/hello/res/search/publish/pong shapes).
+  - Added per-peer inbound KAD request flood limiting in `src/kad/service.rs` (iMule-inspired limits by opcode family).
+  - Added service-mode handling for inbound `KADEMLIA2_BOOTSTRAP_REQ` and reply path:
+    - introduced `encode_kad2_bootstrap_res(...)` in `src/kad/wire.rs`,
+    - service now responds with self+routing contacts, encrypted with receiver-key flow when applicable.
+  - Removed remaining runtime brittle byte-slice `unwrap` conversions in:
+    - `src/kad/bootstrap.rs`
+    - `src/kad/udp_crypto.rs` (`udp_verify_key` path)
+  - Added tests in `src/kad/service.rs`:
+    - tracked out-request matching behavior,
+    - inbound request flood-limit behavior.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 62 tests).
+- Decisions: Keep implementation Rust-native (simple explicit tracker + hash-map counters) while matching iMule behavior intent (tracked responses, anti-flood request gating, bootstrap response semantics) without copying C++ structure.
+- Next steps: Optional follow-up parity pass can tighten ACK/challenge semantics further by emulating more of iMule `PacketTracking::LegacyChallenge` behavior for edge peers.
+- Change log: KAD service now behaves closer to iMule for bootstrap responsiveness, response legitimacy checks, and inbound request flood resistance.
+
 - Status: Completed panic-hardening follow-up for sanity findings (items 1..4) on `main`:
   - `src/logging.rs`: removed panic-on-poison in warning throttle lock path; now recovers poisoned mutex state and logs a warning.
   - `src/app.rs`: removed runtime `unwrap()` conversions for destination hash/array extraction; switched to explicit copy logic.

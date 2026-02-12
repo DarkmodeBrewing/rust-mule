@@ -295,6 +295,29 @@ pub fn decode_kad2_bootstrap_res(payload: &[u8]) -> Result<Kad2BootstrapRes> {
     })
 }
 
+pub fn encode_kad2_bootstrap_res(
+    sender_id: KadId,
+    sender_kad_version: u8,
+    sender_tcp_dest: &[u8; I2P_DEST_LEN],
+    contacts: &[Kad2Contact],
+) -> Vec<u8> {
+    // iMule Kad2 bootstrap response:
+    // <senderId u128><senderKadVersion u8><senderTcpDest 387><count u16><contacts...>
+    let mut out =
+        Vec::with_capacity(16 + 1 + I2P_DEST_LEN + 2 + contacts.len() * (1 + 16 + I2P_DEST_LEN));
+    out.extend_from_slice(&sender_id.to_crypt_bytes());
+    out.push(sender_kad_version);
+    out.extend_from_slice(sender_tcp_dest);
+    let count = (contacts.len().min(u16::MAX as usize)) as u16;
+    out.extend_from_slice(&count.to_le_bytes());
+    for c in contacts.iter().take(count as usize) {
+        out.push(c.kad_version);
+        out.extend_from_slice(&c.node_id.to_crypt_bytes());
+        out.extend_from_slice(&c.udp_dest);
+    }
+    out
+}
+
 pub fn encode_kad2_hello(
     my_kad_version: u8,
     my_id: KadId,

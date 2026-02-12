@@ -17,10 +17,10 @@ use crate::{
             decode_kad2_publish_res, decode_kad2_publish_res_key,
             decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_res,
             decode_kad2_search_key_req, decode_kad2_search_res, decode_kad2_search_source_req,
-            encode_kad1_res, encode_kad2_hello, encode_kad2_hello_req, encode_kad2_publish_key_req,
-            encode_kad2_publish_res_for_key, encode_kad2_publish_res_for_source,
-            encode_kad2_publish_source_req, encode_kad2_req, encode_kad2_res,
-            encode_kad2_search_key_req, encode_kad2_search_res_keyword,
+            encode_kad1_res, encode_kad2_bootstrap_res, encode_kad2_hello, encode_kad2_hello_req,
+            encode_kad2_publish_key_req, encode_kad2_publish_res_for_key,
+            encode_kad2_publish_res_for_source, encode_kad2_publish_source_req, encode_kad2_req,
+            encode_kad2_res, encode_kad2_search_key_req, encode_kad2_search_res_keyword,
             encode_kad2_search_res_sources, encode_kad2_search_source_req,
         },
     },
@@ -197,6 +197,23 @@ const KEYWORD_JOB_TTL: Duration = Duration::from_secs(2 * 60 * 60);
 const KEYWORD_JOB_LOOKUP_EVERY: Duration = Duration::from_secs(45);
 const KEYWORD_JOB_ACTION_EVERY: Duration = Duration::from_secs(45);
 const KEYWORD_JOB_ACTION_BATCH: usize = 5;
+const TRACKED_OUT_REQUEST_TTL: Duration = Duration::from_secs(180);
+const TRACKED_IN_CLEANUP_EVERY: Duration = Duration::from_secs(12 * 60);
+const TRACKED_IN_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
+
+#[derive(Debug, Clone)]
+struct TrackedOutRequest {
+    dest_b64: String,
+    request_opcode: u8,
+    inserted: Instant,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct TrackedInCounter {
+    first_added: Instant,
+    count: u32,
+    warned: bool,
+}
 
 impl Default for KadServiceConfig {
     fn default() -> Self {
@@ -541,6 +558,9 @@ pub struct KadService {
     keyword_jobs: HashMap<KadId, KeywordJob>,
 
     pending_reqs: HashMap<String, Instant>,
+    tracked_out_requests: Vec<TrackedOutRequest>,
+    tracked_in_requests: HashMap<u32, HashMap<u8, TrackedInCounter>>,
+    tracked_in_last_cleanup: Instant,
     crawl_round: u64,
     stats_window: KadServiceStats,
     publish_key_decode_fail_logged: HashSet<String>,
@@ -614,6 +634,9 @@ impl KadService {
             keyword_store_total: 0,
             keyword_jobs: HashMap::new(),
             pending_reqs: HashMap::new(),
+            tracked_out_requests: Vec::new(),
+            tracked_in_requests: HashMap::new(),
+            tracked_in_last_cleanup: now,
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
             publish_key_decode_fail_logged: HashSet::new(),
@@ -933,6 +956,68 @@ mod tests {
         assert!(!svc.keyword_store_by_keyword.contains_key(&keyword));
         assert_eq!(svc.keyword_hits_total, 0);
         assert_eq!(svc.keyword_store_total, 0);
+    }
+
+    #[test]
+    fn tracked_out_request_requires_matching_response() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let now = Instant::now();
+        let dest = "peer-a".to_string();
+
+        track_outgoing_request(&mut svc, &dest, KADEMLIA2_SEARCH_KEY_REQ, now);
+        assert!(consume_tracked_out_request(
+            &mut svc,
+            &dest,
+            KADEMLIA2_SEARCH_RES,
+            0,
+            now
+        ));
+        assert!(!consume_tracked_out_request(
+            &mut svc,
+            &dest,
+            KADEMLIA2_SEARCH_RES,
+            0,
+            now
+        ));
+
+        track_outgoing_request(&mut svc, &dest, KADEMLIA2_PUBLISH_SOURCE_REQ, now);
+        assert!(!consume_tracked_out_request(
+            &mut svc,
+            &dest,
+            KADEMLIA2_HELLO_RES,
+            0,
+            now
+        ));
+    }
+
+    #[test]
+    fn inbound_request_limit_drops_flood_after_threshold() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let now = Instant::now();
+        let from_hash = 42u32;
+
+        for _ in 0..30 {
+            assert!(inbound_request_allowed(
+                &mut svc,
+                from_hash,
+                KADEMLIA2_REQ,
+                now
+            ));
+        }
+        assert!(!inbound_request_allowed(
+            &mut svc,
+            from_hash,
+            KADEMLIA2_REQ,
+            now
+        ));
+        assert!(inbound_request_allowed(
+            &mut svc,
+            from_hash,
+            KADEMLIA2_REQ,
+            now + Duration::from_secs(61)
+        ));
     }
 }
 
@@ -1330,7 +1415,7 @@ async fn send_search_sources(
         maybe_send_hello_to_peer(svc, sock, crypto, cfg, &p, now, hello_min).await?;
         let payload = encode_kad2_search_source_req(file, 0, file_size);
         if let Err(err) =
-            send_kad2_packet(sock, &p, crypto, KADEMLIA2_SEARCH_SOURCE_REQ, &payload).await
+            send_kad2_packet(svc, sock, &p, crypto, KADEMLIA2_SEARCH_SOURCE_REQ, &payload).await
         {
             tracing::debug!(
                 error = %err,
@@ -1377,8 +1462,15 @@ async fn send_publish_source(
             &crypto.my_dest,
             Some(file_size),
         );
-        if let Err(err) =
-            send_kad2_packet(sock, &p, crypto, KADEMLIA2_PUBLISH_SOURCE_REQ, &payload).await
+        if let Err(err) = send_kad2_packet(
+            svc,
+            sock,
+            &p,
+            crypto,
+            KADEMLIA2_PUBLISH_SOURCE_REQ,
+            &payload,
+        )
+        .await
         {
             tracing::debug!(
                 error = %err,
@@ -1573,7 +1665,7 @@ async fn progress_keyword_job(
 
             maybe_send_hello_to_peer(svc, sock, crypto, cfg, p, now, hello_min).await?;
             let payload = encode_kad2_search_key_req(keyword, 0);
-            if send_kad2_packet(sock, p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload)
+            if send_kad2_packet(svc, sock, p, crypto, KADEMLIA2_SEARCH_KEY_REQ, &payload)
                 .await
                 .is_ok()
             {
@@ -1622,7 +1714,7 @@ async fn progress_keyword_job(
                 pubspec.file_type.as_deref(),
             )];
             let payload = encode_kad2_publish_key_req(keyword, &entries);
-            if send_kad2_packet(sock, p, crypto, KADEMLIA2_PUBLISH_KEY_REQ, &payload)
+            if send_kad2_packet(svc, sock, p, crypto, KADEMLIA2_PUBLISH_KEY_REQ, &payload)
                 .await
                 .is_ok()
             {
@@ -1706,6 +1798,7 @@ async fn maybe_send_hello_to_peer(
     if let Err(err) = sock.send_to(&dest, &out).await {
         tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
     } else {
+        track_outgoing_request(svc, &dest, KADEMLIA2_HELLO_REQ, now);
         svc.stats_window.sent_hellos += 1;
         svc.routing.mark_hello_sent_by_dest(&dest, now);
         tracing::debug!(
@@ -1776,7 +1869,139 @@ fn should_send_hello(
     }
 }
 
+fn canonical_request_opcode(opcode: u8) -> Option<u8> {
+    match opcode {
+        KADEMLIA2_BOOTSTRAP_REQ => Some(KADEMLIA2_BOOTSTRAP_REQ),
+        KADEMLIA_HELLO_REQ_DEPRECATED | KADEMLIA2_HELLO_REQ => Some(KADEMLIA2_HELLO_REQ),
+        KADEMLIA2_HELLO_RES => Some(KADEMLIA2_HELLO_RES),
+        KADEMLIA_REQ_DEPRECATED | KADEMLIA2_REQ => Some(KADEMLIA2_REQ),
+        KADEMLIA2_SEARCH_KEY_REQ => Some(KADEMLIA2_SEARCH_KEY_REQ),
+        KADEMLIA2_SEARCH_SOURCE_REQ => Some(KADEMLIA2_SEARCH_SOURCE_REQ),
+        KADEMLIA2_PUBLISH_KEY_REQ => Some(KADEMLIA2_PUBLISH_KEY_REQ),
+        KADEMLIA2_PUBLISH_SOURCE_REQ => Some(KADEMLIA2_PUBLISH_SOURCE_REQ),
+        KADEMLIA2_PING => Some(KADEMLIA2_PING),
+        _ => None,
+    }
+}
+
+fn track_outgoing_request(svc: &mut KadService, dest_b64: &str, opcode: u8, now: Instant) {
+    let Some(request_opcode) = canonical_request_opcode(opcode) else {
+        return;
+    };
+    cleanup_tracked_out_requests(svc, now);
+    svc.tracked_out_requests.push(TrackedOutRequest {
+        dest_b64: dest_b64.to_string(),
+        request_opcode,
+        inserted: now,
+    });
+}
+
+fn cleanup_tracked_out_requests(svc: &mut KadService, now: Instant) {
+    svc.tracked_out_requests
+        .retain(|t| now.saturating_duration_since(t.inserted) <= TRACKED_OUT_REQUEST_TTL);
+}
+
+fn consume_tracked_out_request(
+    svc: &mut KadService,
+    from_dest_b64: &str,
+    response_opcode: u8,
+    response_payload_len: usize,
+    now: Instant,
+) -> bool {
+    cleanup_tracked_out_requests(svc, now);
+    let expected: &[u8] = match response_opcode {
+        KADEMLIA2_BOOTSTRAP_RES => &[KADEMLIA2_BOOTSTRAP_REQ],
+        KADEMLIA2_HELLO_RES => &[KADEMLIA2_HELLO_REQ],
+        KADEMLIA2_HELLO_RES_ACK => &[KADEMLIA2_HELLO_RES],
+        KADEMLIA_RES_DEPRECATED | KADEMLIA2_RES => &[KADEMLIA2_REQ],
+        KADEMLIA2_SEARCH_RES => &[KADEMLIA2_SEARCH_KEY_REQ, KADEMLIA2_SEARCH_SOURCE_REQ],
+        KADEMLIA2_PONG => &[KADEMLIA2_PING],
+        KADEMLIA2_PUBLISH_RES => {
+            if response_payload_len == 17 {
+                &[KADEMLIA2_PUBLISH_KEY_REQ]
+            } else {
+                &[KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_PUBLISH_KEY_REQ]
+            }
+        }
+        _ => return true,
+    };
+
+    let Some(pos) = svc
+        .tracked_out_requests
+        .iter()
+        .position(|t| t.dest_b64 == from_dest_b64 && expected.contains(&t.request_opcode))
+    else {
+        return false;
+    };
+    svc.tracked_out_requests.remove(pos);
+    true
+}
+
+fn inbound_request_limit_per_minute(opcode: u8) -> Option<(u8, u32)> {
+    let canonical = canonical_request_opcode(opcode)?;
+    let limit = match canonical {
+        KADEMLIA2_BOOTSTRAP_REQ => 2,
+        KADEMLIA2_HELLO_REQ => 3,
+        KADEMLIA2_REQ => 30,
+        KADEMLIA2_SEARCH_KEY_REQ | KADEMLIA2_SEARCH_SOURCE_REQ => 30,
+        KADEMLIA2_PUBLISH_KEY_REQ | KADEMLIA2_PUBLISH_SOURCE_REQ => 30,
+        KADEMLIA2_PING => 2,
+        _ => return None,
+    };
+    Some((canonical, limit))
+}
+
+fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now: Instant) -> bool {
+    let Some((canonical_opcode, limit_per_minute)) = inbound_request_limit_per_minute(opcode)
+    else {
+        return true;
+    };
+
+    if now.saturating_duration_since(svc.tracked_in_last_cleanup) >= TRACKED_IN_CLEANUP_EVERY {
+        svc.tracked_in_requests.retain(|_, op_map| {
+            op_map.retain(|_, c| {
+                now.saturating_duration_since(c.first_added) <= TRACKED_IN_ENTRY_TTL
+            });
+            !op_map.is_empty()
+        });
+        svc.tracked_in_last_cleanup = now;
+    }
+
+    let per_dest = svc.tracked_in_requests.entry(from_hash).or_default();
+    let counter = per_dest
+        .entry(canonical_opcode)
+        .or_insert(TrackedInCounter {
+            first_added: now,
+            count: 0,
+            warned: false,
+        });
+
+    if now.saturating_duration_since(counter.first_added) >= Duration::from_secs(60) {
+        counter.first_added = now;
+        counter.count = 0;
+        counter.warned = false;
+    }
+
+    counter.count = counter.count.saturating_add(1);
+    if counter.count > limit_per_minute {
+        if !counter.warned {
+            tracing::debug!(
+                from_hash,
+                opcode = format_args!("0x{canonical_opcode:02x}"),
+                count = counter.count,
+                limit_per_minute,
+                "dropping inbound KAD request due to flood limit"
+            );
+            counter.warned = true;
+        }
+        return false;
+    }
+
+    true
+}
+
 async fn send_kad2_packet(
+    svc: &mut KadService,
     sock: &mut SamKadSocket,
     node: &ImuleNode,
     crypto: KadServiceCrypto,
@@ -1807,6 +2032,7 @@ async fn send_kad2_packet(
     };
 
     sock.send_to(&dest, &out).await?;
+    track_outgoing_request(svc, &dest, opcode, Instant::now());
     Ok(())
 }
 
@@ -1962,7 +2188,7 @@ async fn send_kad2_req(
     // KadID (used to discard packets not intended for this node). If we put our own KadID here,
     // peers will silently ignore the request and we'll never get `KADEMLIA2_RES`.
     let req_payload = encode_kad2_req(requested_contacts, target, target_kad_id, crypto.my_kad_id);
-    send_kad2_packet(sock, peer, crypto, KADEMLIA2_REQ, &req_payload).await?;
+    send_kad2_packet(svc, sock, peer, crypto, KADEMLIA2_REQ, &req_payload).await?;
 
     svc.stats_window.sent_reqs += 1;
     svc.pending_reqs.insert(
@@ -2006,6 +2232,7 @@ async fn send_hello_batch(
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
         } else {
+            track_outgoing_request(svc, &dest, KADEMLIA2_HELLO_REQ, now);
             tracing::trace!(to = %dest, "sent KAD2 HELLO_REQ (service)");
             svc.stats_window.sent_hellos += 1;
             svc.routing.mark_hello_sent_by_dest(&dest, now);
@@ -2065,6 +2292,7 @@ async fn debug_probe_peer(
     let hello_payload = encode_kad2_hello_req(1, crypto.my_kad_id, &crypto.my_dest);
     let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_payload);
     sock.send_to(dest_b64, &hello_plain).await?;
+    track_outgoing_request(svc, dest_b64, KADEMLIA2_HELLO_REQ, now);
     svc.stats_window.sent_hellos += 1;
     svc.routing.mark_hello_sent_by_dest(dest_b64, now);
 
@@ -2097,6 +2325,7 @@ async fn debug_probe_peer(
 
     let search_payload = encode_kad2_search_key_req(keyword, 0);
     if let Err(err) = send_kad2_packet(
+        svc,
         sock,
         &peer,
         crypto,
@@ -2117,6 +2346,7 @@ async fn debug_probe_peer(
     let publish_payload =
         encode_kad2_publish_key_req(keyword, &[(file, filename, file_size, file_type)]);
     if let Err(err) = send_kad2_packet(
+        svc,
         sock,
         &peer,
         crypto,
@@ -2201,6 +2431,7 @@ async fn send_bootstrap_batch(
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 BOOTSTRAP_REQ (service)");
         } else {
+            track_outgoing_request(svc, &dest, KADEMLIA2_BOOTSTRAP_REQ, now);
             svc.stats_window.sent_bootstrap_reqs += 1;
             tracing::info!(
                 to = %crate::i2p::b64::short(&dest),
@@ -2397,6 +2628,7 @@ fn drop_all_keywords(svc: &mut KadService) -> KeywordDropCount {
 
 async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
     let now = Instant::now();
+    cleanup_tracked_out_requests(svc, now);
 
     // Expire pending queries and mark failures.
     let mut expired = Vec::new();
@@ -3161,6 +3393,18 @@ async fn handle_inbound(
         }
     };
 
+    if !inbound_request_allowed(svc, from_hash, pkt.opcode, now) {
+        return Ok(());
+    }
+    if !consume_tracked_out_request(svc, &from_dest_b64, pkt.opcode, pkt.payload.len(), now) {
+        tracing::trace!(
+            from = %crate::i2p::b64::short(&from_dest_b64),
+            opcode = format_args!("0x{:02x}", pkt.opcode),
+            "dropping unrequested KAD response"
+        );
+        return Ok(());
+    }
+
     match pkt.opcode {
         KADEMLIA_HELLO_REQ_DEPRECATED => {
             // Reply with our Kad1 contact details, iMule-style:
@@ -3175,6 +3419,33 @@ async fn handle_inbound(
 
             let res = KadPacket::encode(KADEMLIA_HELLO_RES_DEPRECATED, &payload);
             let _ = sock.send_to(&from_dest_b64, &res).await;
+        }
+
+        KADEMLIA2_BOOTSTRAP_REQ => {
+            svc.routing.mark_seen_by_dest(&from_dest_b64, now);
+            let contacts = svc.routing.closest_to(crypto.my_kad_id, 20, from_hash);
+            let kad2_contacts = contacts
+                .into_iter()
+                .map(|n| crate::kad::wire::Kad2Contact {
+                    kad_version: n.kad_version,
+                    node_id: KadId(n.client_id),
+                    udp_dest: n.udp_dest,
+                })
+                .collect::<Vec<_>>();
+            let payload =
+                encode_kad2_bootstrap_res(crypto.my_kad_id, 8, &crypto.my_dest, &kad2_contacts);
+            let res_plain = KadPacket::encode(KADEMLIA2_BOOTSTRAP_RES, &payload);
+            let sender_verify_key = udp_crypto::udp_verify_key(crypto.udp_key_secret, from_hash);
+            let out = if decrypted.was_obfuscated && decrypted.sender_verify_key != 0 {
+                udp_crypto::encrypt_kad_packet_with_receiver_key(
+                    &res_plain,
+                    decrypted.sender_verify_key,
+                    sender_verify_key,
+                )?
+            } else {
+                res_plain
+            };
+            let _ = sock.send_to(&from_dest_b64, &out).await;
         }
 
         KADEMLIA2_BOOTSTRAP_RES => {
@@ -3321,7 +3592,9 @@ async fn handle_inbound(
                 res_plain
             };
 
-            let _ = sock.send_to(&from_dest_b64, &out).await;
+            if sock.send_to(&from_dest_b64, &out).await.is_ok() {
+                track_outgoing_request(svc, &from_dest_b64, KADEMLIA2_HELLO_RES, now);
+            }
         }
 
         KADEMLIA2_HELLO_RES => {
