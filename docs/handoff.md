@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Implemented frontend session-cookie auth for UI routes and SSE:
+  - Added `POST /api/v1/session` (bearer-protected) to issue `rm_session` HTTP-only cookie.
+  - Added in-memory session store in API state and cookie validation helpers.
+  - Updated auth middleware policy:
+    - `/api/v1/*` stays bearer-token protected (except `/api/v1/health` and `/api/v1/dev/auth`).
+    - `/api/v1/events` now requires valid session cookie (no token query fallback).
+    - All frontend routes (`/`, `/index.html`, `/ui/*`, fallback paths) require valid session cookie; unauthenticated access redirects to `/auth`.
+  - Added `/auth` bootstrap page to establish session:
+    - Calls `/api/v1/dev/auth` (loopback-only), then `POST /api/v1/session` with bearer token, then redirects to `/index.html`.
+  - Updated frontend SSE client to use `/api/v1/events` without `?token=...`.
+  - Updated auth-related tests:
+    - API bearer exempt-path assertions
+    - frontend exempt-path assertions
+    - session-cookie parsing
+  - Updated docs (`docs/TODO.md`, `docs/UI_DESIGN.md`, `docs/architecture.md`, `docs/api_curl.md`) to reflect session-cookie UI/SSE auth and bearer API auth.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Replaced SSE query-token auth with cookie-based frontend session auth and enforced cookie gating on all UI routes.
 - Implemented API-backed settings read/update and wired settings UI:
   - Added `GET /api/v1/settings` and `PATCH /api/v1/settings` in `src/api/mod.rs`.
   - API now keeps a shared runtime `Config` in API state and persists valid PATCH updates to `config.toml`.
@@ -250,6 +267,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Auth split for v1 local UI:
+  - Keep bearer token as the API auth mechanism for `/api/v1/*`.
+  - Use a separate HTTP-only session cookie for browser page/asset loads and SSE.
+  - Remove SSE token query parameter usage from frontend.
 - Settings API scope for v1: expose/update a focused config subset (`general`, `sam`, `api`) and require restart for full effect.
 - Keep `docs/TODO.md` UI checkboxes aligned to implementation truth, using `[x]` for done and `[/]` for partial completion where design intent is not fully met.
 - UI entrypoint canonical URL is `/index.html`; `/` is a redirect alias.
@@ -302,6 +323,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Add session lifecycle endpoints and UX (`POST /api/v1/session/logout`, session-expired handling in UI).
+- Add session persistence/eviction policy (TTL + periodic cleanup) instead of in-memory unbounded set.
+- Add integration tests for middleware behavior:
+  - unauthenticated UI path redirects to `/auth`
+  - authenticated UI path succeeds
+  - `/api/v1/events` rejects bearer-only and accepts valid session cookie
 - Add an explicit integration test for `PATCH /api/v1/settings` through the full router (not just handler-level tests), including persistence failure behavior.
 - Consider adding runtime-apply behavior for selected settings that do not require restart (and return per-field `restart_required` metadata).
 - Prioritize remaining UI gaps from `docs/TODO.md`/`docs/UI_DESIGN.md`:

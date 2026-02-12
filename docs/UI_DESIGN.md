@@ -202,8 +202,9 @@ Main:
 - Implemented: shell/sidebar pages, search form, search thread list, search details, node status page, logs page, settings page, theme selector.
 - Implemented: API-backed settings read/update via `GET/PATCH /api/v1/settings` with persistence to `config.toml`.
 - Implemented: UI files embedded in binary and served by Rust API.
+- Implemented: frontend session-cookie auth for UI routes and SSE (`/api/v1/events`) without token query params.
 - Partial: statistics charting (Chart.js bundled, chart views not yet implemented).
-- Open: token handling for SSE without query parameter exposure.
+- Open: frontend session lifecycle controls (logout/session expiry UX) and stronger session hardening for remote/headless mode.
 
 ## Implementation Notes
 

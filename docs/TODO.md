@@ -47,9 +47,9 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
   - [x] base.css - UI styling, set up themes using CSS variables
   - [/] Rule for CSS - always use variables, never literals, using `em` inside components and `px` for borders/hairlines
   - [ ] Perhaps SVGs or images for logo/icons - not decided
-  - [ ] All static files (`.html`, `.js`, `.css` etc.) should be embedded into the application, and should be served via http over the same port on the api, protected by the bearer token
+  - [/] All static files (`.html`, `.js`, `.css` etc.) should be embedded into the application, and should be served via http over the same port on the api, protected by frontend session auth
 - [/] Routes: API is served from `/api/` base route, UI is served from `/` (folder: `/ui/<page>.html`) -> (`/ui/index.html`, `/ui/statistics.html`, `/ui/settings.html`, `/ui/search.html`, etc.)
-- [ ] Bearer token should never be exposed in the UI (HTML, query params etc.), bootstrapping javascript should get it and store it in `sessionStorage` for usage in subsequent API requests (question: how to handle SSE endpoints??)
+- [x] Bearer token should never be exposed in the UI (HTML, query params etc.), bootstrapping javascript should get it and store it in `sessionStorage` for usage in subsequent API requests (SSE now uses session-cookie auth, no token query param)
 - [ ] UI should leverage
   - [x] Start page / overview
   - [x] Search interface: File search by keywords

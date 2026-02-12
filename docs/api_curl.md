@@ -24,6 +24,18 @@ JSON=(-H "Content-Type: application/json")
 curl -sS "$BASE_URL/api/v1/dev/auth" | jq .
 ```
 
+## Create Frontend Session Cookie
+
+```bash
+curl -i -sS -X POST "${AUTH[@]}" "$BASE_URL/api/v1/session"
+```
+
+For subsequent commands that require session auth (SSE/UI), use:
+
+```bash
+COOKIE=(--cookie "rm_session=<session-id>")
+```
+
 ## Health
 
 ```bash
@@ -85,7 +97,7 @@ curl -sS -X DELETE "${AUTH[@]}" \
 ## Live Events (SSE)
 
 ```bash
-curl -N -sS "${AUTH[@]}" "$BASE_URL/api/v1/events"
+curl -N -sS "${COOKIE[@]}" "$BASE_URL/api/v1/events"
 ```
 
 ## KAD: Search Sources For FileID

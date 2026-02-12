@@ -1,10 +1,10 @@
 use axum::{
     Json, Router,
     extract::{ConnectInfo, OriginalUri, Path, Query, State},
-    http::{HeaderMap, HeaderValue, Method, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     middleware,
     response::{
-        Redirect,
+        IntoResponse, Redirect,
         sse::{Event, Sse},
     },
     routing::{get, post},
@@ -12,7 +12,7 @@ use axum::{
 use futures_util::Stream;
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, net::SocketAddr, sync::Arc};
+use std::{collections::HashSet, convert::Infallible, net::SocketAddr, sync::Arc};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::BroadcastStream;
 use tracing_subscriber::EnvFilter;
@@ -39,6 +39,7 @@ pub struct ApiState {
     status_events_tx: broadcast::Sender<KadServiceStatus>,
     kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
     config: Arc<tokio::sync::Mutex<Config>>,
+    sessions: Arc<tokio::sync::Mutex<HashSet<String>>>,
 }
 
 pub fn new_channels() -> (
@@ -70,12 +71,14 @@ pub async fn serve(
         status_events_tx,
         kad_cmd_tx,
         config: Arc::new(tokio::sync::Mutex::new(app_config)),
+        sessions: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
     };
 
     // Canonical API surface.
     let v1 = Router::new()
         .route("/health", get(health))
         .route("/dev/auth", get(dev_auth))
+        .route("/session", post(create_session))
         .route("/status", get(status))
         .route("/events", get(events))
         .route("/settings", get(settings_get).patch(settings_patch))
@@ -103,6 +106,7 @@ pub async fn serve(
 
     let app = Router::new()
         .route("/", get(root_index_redirect))
+        .route("/auth", get(ui_auth))
         .route("/index.html", get(ui_index))
         .route("/ui", get(ui_index))
         .route("/ui/", get(ui_index))
@@ -904,6 +908,11 @@ struct DevAuthResponse {
     token: String,
 }
 
+#[derive(Debug, Serialize)]
+struct SessionResponse {
+    ok: bool,
+}
+
 async fn dev_auth(
     State(state): State<ApiState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -915,6 +924,20 @@ async fn dev_auth(
     Ok(Json(DevAuthResponse {
         token: state.token.clone(),
     }))
+}
+
+async fn create_session(State(state): State<ApiState>) -> Result<impl IntoResponse, StatusCode> {
+    let session_id = generate_session_id()?;
+    let cookie = build_session_cookie(&session_id);
+    {
+        let mut sessions = state.sessions.lock().await;
+        sessions.insert(session_id);
+    }
+
+    Ok((
+        [(header::SET_COOKIE, cookie)],
+        Json(SessionResponse { ok: true }),
+    ))
 }
 
 async fn status(State(state): State<ApiState>) -> Result<Json<KadServiceStatus>, StatusCode> {
@@ -931,6 +954,46 @@ async fn events(
     let initial = (*state.status_rx.borrow()).clone();
     let stream = status_sse_stream(initial, BroadcastStream::new(rx));
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
+}
+
+async fn ui_auth() -> impl IntoResponse {
+    const AUTH_HTML: &str = r#"<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>rust-mule::auth</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <main>
+      <h1>rust-mule UI authentication</h1>
+      <p id="status">Establishing local session...</p>
+    </main>
+    <script>
+      (async () => {
+        const status = document.getElementById('status');
+        try {
+          const authResp = await fetch('/api/v1/dev/auth');
+          if (!authResp.ok) throw new Error('dev auth failed');
+          const authData = await authResp.json();
+          const sessResp = await fetch('/api/v1/session', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authData.token}` }
+          });
+          if (!sessResp.ok) throw new Error('session create failed');
+          window.location.replace('/index.html');
+        } catch (err) {
+          status.textContent = `Auth failed: ${String(err)}`;
+        }
+      })();
+    </script>
+  </body>
+</html>"#;
+
+    (
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        AUTH_HTML,
+    )
 }
 
 fn status_sse_stream(
@@ -959,23 +1022,34 @@ async fn auth_mw(
         return Ok(next.run(req).await);
     }
 
-    // Allow health checks without auth (useful for local dev).
-    if is_auth_exempt_path(req.uri().path()) {
+    let path = req.uri().path();
+    if is_frontend_exempt_path(path) {
         return Ok(next.run(req).await);
     }
 
-    if req.uri().path() == "/api/v1/events"
-        && let Some(token) = query_token(req.uri())
-        && token == state.token
-    {
+    if path == "/api/v1/events" {
+        if has_valid_session(req.headers(), &state).await {
+            return Ok(next.run(req).await);
+        }
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    if path.starts_with("/api/") {
+        if is_api_bearer_exempt_path(path) {
+            return Ok(next.run(req).await);
+        }
+        let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
+        if provided != state.token {
+            return Err(StatusCode::FORBIDDEN);
+        }
         return Ok(next.run(req).await);
     }
 
-    let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
-    if provided != state.token {
-        return Err(StatusCode::FORBIDDEN);
+    if has_valid_session(req.headers(), &state).await {
+        return Ok(next.run(req).await);
     }
-    Ok(next.run(req).await)
+
+    Ok(Redirect::to("/auth").into_response())
 }
 
 fn bearer_token(headers: &HeaderMap) -> Option<String> {
@@ -991,19 +1065,44 @@ fn is_loopback_addr(addr: &SocketAddr) -> bool {
     addr.ip().is_loopback()
 }
 
-fn is_auth_exempt_path(path: &str) -> bool {
-    !path.starts_with("/api/") || matches!(path, "/api/v1/health" | "/api/v1/dev/auth")
+fn is_api_bearer_exempt_path(path: &str) -> bool {
+    matches!(path, "/api/v1/health" | "/api/v1/dev/auth")
 }
 
-fn query_token(uri: &axum::http::Uri) -> Option<&str> {
-    let query = uri.query()?;
-    for pair in query.split('&') {
-        let (k, v) = pair.split_once('=')?;
-        if k == "token" {
-            return Some(v);
+fn is_frontend_exempt_path(path: &str) -> bool {
+    path == "/auth"
+}
+
+fn session_cookie(headers: &HeaderMap) -> Option<String> {
+    let raw = headers.get(header::COOKIE)?.to_str().ok()?;
+    for part in raw.split(';') {
+        let token = part.trim();
+        if let Some((k, v)) = token.split_once('=')
+            && k == "rm_session"
+            && !v.is_empty()
+        {
+            return Some(v.to_string());
         }
     }
     None
+}
+
+async fn has_valid_session(headers: &HeaderMap, state: &ApiState) -> bool {
+    let Some(session_id) = session_cookie(headers) else {
+        return false;
+    };
+    let sessions = state.sessions.lock().await;
+    sessions.contains(&session_id)
+}
+
+fn build_session_cookie(session_id: &str) -> String {
+    format!("rm_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800")
+}
+
+fn generate_session_id() -> Result<String, StatusCode> {
+    let mut bytes = [0_u8; 32];
+    getrandom::getrandom(&mut bytes).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 async fn cors_mw(
@@ -1174,6 +1273,7 @@ mod tests {
             status_events_tx,
             kad_cmd_tx,
             config: Arc::new(tokio::sync::Mutex::new(Config::default())),
+            sessions: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
         }
     }
 
@@ -1189,20 +1289,28 @@ mod tests {
     }
 
     #[test]
-    fn auth_exempt_paths_include_only_v1_health_and_dev_auth() {
-        assert!(is_auth_exempt_path("/api/v1/health"));
-        assert!(is_auth_exempt_path("/api/v1/dev/auth"));
-        assert!(is_auth_exempt_path("/"));
-        assert!(is_auth_exempt_path("/ui"));
-        assert!(is_auth_exempt_path("/ui/assets/js/app.js"));
-        assert!(is_auth_exempt_path("/nonexisting.php"));
-        assert!(!is_auth_exempt_path("/api/v1/status"));
+    fn api_bearer_exempt_paths_include_only_health_and_dev_auth() {
+        assert!(is_api_bearer_exempt_path("/api/v1/health"));
+        assert!(is_api_bearer_exempt_path("/api/v1/dev/auth"));
+        assert!(!is_api_bearer_exempt_path("/api/v1/status"));
+        assert!(!is_api_bearer_exempt_path("/api/v1/session"));
     }
 
     #[test]
-    fn extracts_query_token() {
-        let uri: axum::http::Uri = "/api/v1/events?token=abc123&x=1".parse().unwrap();
-        assert_eq!(query_token(&uri), Some("abc123"));
+    fn frontend_exempt_paths_include_only_auth_page() {
+        assert!(is_frontend_exempt_path("/auth"));
+        assert!(!is_frontend_exempt_path("/"));
+        assert!(!is_frontend_exempt_path("/ui"));
+    }
+
+    #[test]
+    fn parses_session_cookie() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("a=1; rm_session=session123; x=y"),
+        );
+        assert_eq!(session_cookie(&headers).as_deref(), Some("session123"));
     }
 
     #[test]

@@ -24,7 +24,7 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 
 3. **GUI**
    - Initial skeleton is wired and served by the backend at `/` and `/ui/...`.
-   - Current bootstrap flow fetches token via `GET /api/v1/dev/auth` (loopback-only), stores it in `sessionStorage`, then uses:
+   - Current bootstrap flow fetches token via `GET /api/v1/dev/auth` (loopback-only), creates an HTTP-only frontend session via `POST /api/v1/session`, stores the token in `sessionStorage` for API calls, then uses:
      - `GET /api/v1/status` for a snapshot
      - `GET /api/v1/events` for continuous updates
 
@@ -47,6 +47,12 @@ Clients must send:
 
 - `Authorization: Bearer <token>`
 
+Additionally for browser frontend routes:
+
+- UI pages and assets require a valid `rm_session` HTTP-only cookie.
+- Session cookie is created via `POST /api/v1/session` (authenticated with bearer token).
+- `GET /api/v1/events` (SSE) uses session-cookie auth (no token query parameter).
+
 Notes:
 
 - We do **not** print the token to logs. The GUI should read it from `data/api.token`.
@@ -60,6 +66,11 @@ Notes:
   - No auth.
   - Loopback-only.
   - Returns `{ "token": "<bearer token>" }` for local UI bootstrap.
+
+- `POST /api/v1/session`
+  - Bearer auth required.
+  - Issues `Set-Cookie: rm_session=...; HttpOnly; SameSite=Strict; Path=/`.
+  - Used by browser UI bootstrap so frontend routes and SSE can be session-authenticated.
 
 - `GET /api/v1/health`
   - No auth.
@@ -97,7 +108,7 @@ Notes:
   - Response includes updated snapshot and `restart_required=true`.
 
 - `GET /api/v1/events`
-  - Auth required.
+  - Session-cookie auth required.
   - SSE stream of live status updates.
   - Events are sent as:
     - `event: status`
@@ -141,7 +152,8 @@ Example:
 ```bash
 TOKEN="$(cat data/api.token)"
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/status | jq .
-curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/events
+curl -i -sS -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/session
+curl -N  -sS --cookie "rm_session=<session-id>" http://127.0.0.1:17835/api/v1/events
 
 # File/source actions (hex is 16 bytes / 32 hex chars).
 curl -sS -H "Authorization: Bearer $TOKEN" \

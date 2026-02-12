@@ -93,14 +93,7 @@ export async function apiPatch(path, body) {
 }
 
 export function openStatusEventStream(onStatus, onError) {
-  const token = getToken();
-  if (!token) {
-    throw new Error('cannot open events stream without token');
-  }
-
-  const es = new EventSource(
-    `${API_BASE}/events?token=${encodeURIComponent(token)}`,
-  );
+  const es = new EventSource(`${API_BASE}/events`);
   es.addEventListener('status', (event) => {
     try {
       onStatus(JSON.parse(event.data));
