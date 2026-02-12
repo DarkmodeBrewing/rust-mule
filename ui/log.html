@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="dark">
+
 <head>
     <meta charset="utf-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>rust-mule::overview</title>
+    <title>rust-mule::log</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/layout.css">
     <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/typography.css">
@@ -14,7 +15,8 @@
     <script defer src="/ui/assets/js/alpine.min.js"></script>
     <script type="module" src="/ui/assets/js/app.js"></script>
 </head>
-<body x-data="indexApp()" x-init="init()">
+
+<body x-data="appLogs()" x-init="init()">
     <section class="container shell">
         <aside class="card sidebar">
             <h2>rust-mule</h2>
@@ -51,73 +53,56 @@
                     </li>
                 </template>
             </ul>
-
-            <div class="mt-4">
-                <button class="btn btn-primary" type="button">+ New Search</button>
-            </div>
         </aside>
 
         <main class="main-scroll grid gap-4">
             <div class="card">
                 <div class="flex gap-3 flex-wrap">
-                    <h1>Search Overview: linux iso</h1>
-                    <span class="badge state-running">running</span>
+                    <h1>Logs</h1>
                     <span class="badge" x-text="connected ? 'sse: connected' : 'sse: disconnected'"></span>
-                    <span class="badge" x-text="token ? 'token: ready' : 'token: missing'"></span>
-                    <button class="btn ml-auto" @click="refreshStatus()">Refresh</button>
-                    <button class="btn" type="button">Stop</button>
-                    <button class="btn" type="button">Export</button>
-                    <button class="btn btn-danger" type="button">Delete</button>
+                    <button class="btn ml-auto" type="button" @click="refreshStatus()" x-bind:disabled="loading">Snapshot</button>
+                    <button class="btn" type="button" @click="startEvents()" x-bind:disabled="loading">Reconnect</button>
                 </div>
                 <p class="mt-3" x-show="error" x-text="error"></p>
             </div>
 
-            <div class="grid grid-3" x-show="status">
+            <div class="grid grid-3">
                 <div class="card">
                     <div class="kpi" x-text="status?.routing ?? 0"></div>
-                    <span class="label">Peers Contacted</span>
+                    <span class="label">Routing Nodes</span>
                 </div>
                 <div class="card">
                     <div class="kpi" x-text="status?.live ?? 0"></div>
-                    <span class="label">Responses</span>
+                    <span class="label">Live Nodes</span>
                 </div>
                 <div class="card">
                     <div class="kpi" x-text="status?.live_10m ?? 0"></div>
-                    <span class="label">Hits Found (10m)</span>
+                    <span class="label">Live Nodes (10m)</span>
                 </div>
             </div>
 
             <div class="card">
-                <h2>Progress</h2>
-                <p>Minimal v1 progress view (counters + timeline hooks).</p>
-                <div class="badge mt-3">requests: <span x-text="status?.recv_req ?? 0"></span></div>
-                <div class="badge mt-3">responses: <span x-text="status?.recv_res ?? 0"></span></div>
+                <h2>Event Log</h2>
+                <div class="log mt-3">
+                    <template x-if="logEntries.length === 0">
+                        <p>No events yet.</p>
+                    </template>
+                    <template x-for="entry in logEntries" :key="entry.ts + entry.summary">
+                        <div class="mt-3">
+                            <div class="badge" x-text="entry.ts"></div>
+                            <div class="mt-3" x-text="entry.summary"></div>
+                            <pre class="log mt-3" x-show="entry.payload" x-text="entry.payload"></pre>
+                        </div>
+                    </template>
+                </div>
             </div>
 
             <div class="card">
-                <h2>Results</h2>
-                <table class="table mt-3">
-                    <thead>
-                        <tr>
-                            <th>File</th>
-                            <th>Size</th>
-                            <th>Sources</th>
-                            <th>Confidence</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td colspan="4">Result list wiring is next; layout ready.</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="card">
-                <h2>Activity / Logs</h2>
+                <h2>Current Status Payload</h2>
                 <pre class="log" x-text="prettyStatus"></pre>
             </div>
         </main>
     </section>
 </body>
+
 </html>

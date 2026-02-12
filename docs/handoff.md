@@ -8,6 +8,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Added `ui/log.html` with the shared shell and a dedicated Logs view.
+- Implemented `appLogs()` Alpine controller in `ui/assets/js/app.js`:
+  - Bootstraps token and loads search threads.
+  - Fetches status snapshots from `GET /api/v1/status`.
+  - Subscribes to `GET /api/v1/events` SSE and appends rolling log entries with timestamps.
+  - Keeps an in-memory log buffer capped at 200 entries.
+- Updated shell navigation links in UI pages so "Logs" points to `/ui/log`.
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after logs page/controller implementation (`cargo test` passed; existing clippy warnings unchanged).
 - Ran Prettier on `ui/assets/js/app.js` and `ui/assets/js/helpers.js` using `ui/.prettierrc` rules; verified with `prettier --check`.
 - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after JS formatting pass (`cargo test` passed; existing clippy warnings unchanged).
 - Added `ui/node_stats.html` with the same shell structure as other UI pages.
@@ -138,6 +146,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Use SSE-backed status updates as the first log timeline source in UI (`appLogs`), with snapshot polling available via manual refresh.
 - Use `ui/.prettierrc` as the canonical formatter config for UI JS files (`ui/assets/js/*`).
 - Define node UI state as:
   - `active`: `last_inbound_secs_ago <= 600`
@@ -182,6 +191,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Add search-history/thread state in the UI (persisted list of submitted keyword jobs and selection behavior).
 - Add API/frontend support for completed (no longer active) search history so `search_details` remains available after a job leaves `keyword_jobs`.
 - Consider making node-state thresholds (`active/live` age windows) configurable in UI settings or API response metadata.
+- Add richer log event typing/filtering once non-status event types are exposed from the API.
 - Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
 - Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -205,6 +215,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Add `ui/log.html` and `appLogs()` (status snapshot + SSE-backed rolling log view), and route sidebar "Logs" links to `/ui/log`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Format `ui/assets/js/app.js` and `ui/assets/js/helpers.js` with `ui/.prettierrc`; verify with `prettier --check`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `ui/node_stats.html` with shell + node status table/KPIs using `/api/v1/status` and `/api/v1/kad/peers`; implement `appNodeStats()`; point shell nav "Nodes / Routing" to `/ui/node_stats`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `/api/v1/searches` and `/api/v1/searches/:search_id` for active keyword jobs; wire search-thread sidebars to API; add `ui/search_details.html` that loads details via `searchId` query param; update API docs; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
