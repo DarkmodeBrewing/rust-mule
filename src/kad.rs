@@ -43,11 +43,11 @@ impl KadId {
             bail!("KadId hex must be 32 chars (got {})", hex.len());
         }
         let mut out = [0u8; 16];
-        for i in 0..16 {
+        for (i, slot) in out.iter_mut().enumerate() {
             let j = i * 2;
             let byte = u8::from_str_radix(&hex[j..j + 2], 16)
                 .map_err(|e| anyhow::anyhow!("Invalid KadId hex at byte {i}: {e}"))?;
-            out[i] = byte;
+            *slot = byte;
         }
         Ok(Self(out))
     }

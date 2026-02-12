@@ -408,7 +408,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     kad_sock = create_kad_socket(&config, &mut sam, &kad_session_id, &keys).await?;
                     continue;
                 }
-                Err(err) => return Err(err.into()),
+                Err(err) => return Err(err),
             }
         }
     }

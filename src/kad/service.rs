@@ -540,6 +540,7 @@ impl KadService {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_service(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
@@ -1070,10 +1071,10 @@ fn build_routing_summary(svc: &KadService, now: Instant) -> RoutingSummary {
         } else {
             unverified += 1;
         }
-        if let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id)) {
-            if idx < bucket_counts.len() {
-                bucket_counts[idx] += 1;
-            }
+        if let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id))
+            && idx < bucket_counts.len()
+        {
+            bucket_counts[idx] += 1;
         }
         last_seen_ages.push(now.saturating_duration_since(st.last_seen).as_secs());
         if let Some(t) = st.last_inbound {
@@ -1329,6 +1330,7 @@ async fn start_keyword_job_search(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn start_keyword_job_publish(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
@@ -1808,19 +1810,19 @@ async fn crawl_once(
         peers.push(c.clone());
     }
 
-    if !have_cold {
-        if let Some(cold) = candidates.iter().find(|c| {
+    if !have_cold
+        && let Some(cold) = candidates.iter().find(|c| {
             let id = KadId(c.client_id);
             svc.routing
                 .get_by_id(id)
                 .and_then(|st| st.last_inbound)
                 .is_none()
-        }) {
-            if !peers.is_empty() {
-                peers.pop();
-            }
-            peers.push(cold.clone());
+        })
+    {
+        if !peers.is_empty() {
+            peers.pop();
         }
+        peers.push(cold.clone());
     }
 
     let requested_contacts = cfg.req_contacts.clamp(1, 31);
@@ -1933,6 +1935,7 @@ async fn send_hello_batch(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn debug_probe_peer(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
@@ -2423,15 +2426,20 @@ fn tick_refresh(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
 
     let mut bucket_counts = vec![0usize; svc.routing.bucket_count()];
     for st in svc.routing.snapshot_states() {
-        if let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id)) {
-            if idx < bucket_counts.len() {
-                bucket_counts[idx] += 1;
-            }
+        if let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id))
+            && idx < bucket_counts.len()
+        {
+            bucket_counts[idx] += 1;
         }
     }
 
     let mut stale_buckets = Vec::new();
-    for i in 0..svc.routing.bucket_count() {
+    for (i, count) in bucket_counts
+        .iter()
+        .copied()
+        .enumerate()
+        .take(svc.routing.bucket_count())
+    {
         let last_activity = svc.routing.bucket_last_activity(i);
         let idle_secs = last_activity
             .map(|t| now.saturating_duration_since(t).as_secs())
@@ -2441,7 +2449,7 @@ fn tick_refresh(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
             .map(|t| now.saturating_duration_since(t).as_secs())
             .unwrap_or(u64::MAX / 2);
         if idle_secs >= cfg.refresh_interval_secs && refresh_age >= cfg.refresh_interval_secs / 2 {
-            stale_buckets.push((i, idle_secs, bucket_counts[i]));
+            stale_buckets.push((i, idle_secs, count));
         }
     }
 
@@ -2528,10 +2536,10 @@ async fn tick_lookups(
 ) -> Result<()> {
     let now = Instant::now();
 
-    if svc.active_lookup.is_none() {
-        if let Some(next) = svc.lookup_queue.pop_front() {
-            svc.active_lookup = Some(next);
-        }
+    if svc.active_lookup.is_none()
+        && let Some(next) = svc.lookup_queue.pop_front()
+    {
+        svc.active_lookup = Some(next);
     }
 
     let Some(mut task) = svc.active_lookup.take() else {
@@ -2685,10 +2693,10 @@ fn handle_lookup_response(
         task.last_progress = now;
     }
     for id in contacts {
-        if !task.known.contains_key(id) {
-            if let Some(st) = svc.routing.get_by_id(*id) {
-                task.known.insert(*id, st.node.clone());
-            }
+        if !task.known.contains_key(id)
+            && let Some(st) = svc.routing.get_by_id(*id)
+        {
+            task.known.insert(*id, st.node.clone());
         }
     }
 }

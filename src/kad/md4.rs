@@ -58,7 +58,7 @@ pub fn digest(input: &[u8]) -> [u8; 16] {
 
     // MD4 padding: 0x80, then zeros, then 64-bit length (little-endian) in bits.
     let bit_len = (input.len() as u64) * 8;
-    let mut msg = Vec::<u8>::with_capacity(((input.len() + 9 + 63) / 64) * 64);
+    let mut msg = Vec::<u8>::with_capacity((input.len() + 9).div_ceil(64) * 64);
     msg.extend_from_slice(input);
     msg.push(0x80);
     while (msg.len() % 64) != 56 {

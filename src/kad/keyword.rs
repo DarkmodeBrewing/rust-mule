@@ -35,7 +35,7 @@ fn push_word(out: &mut Vec<String>, cur: &mut String) {
     }
 
     let w = w.to_lowercase();
-    if w.as_bytes().len() >= 3 {
+    if w.len() >= 3 {
         // iMule removes duplicates by default. We mimic that for stability.
         if !out.iter().any(|x| x == &w) {
             out.push(w);

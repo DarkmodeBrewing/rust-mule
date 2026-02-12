@@ -441,7 +441,7 @@ mod tests {
     }
 
     fn hex_to_bytes(s: &str) -> Vec<u8> {
-        assert!(s.len() % 2 == 0);
+        assert!(s.len().is_multiple_of(2));
         let mut out = Vec::with_capacity(s.len() / 2);
         for i in (0..s.len()).step_by(2) {
             out.push(u8::from_str_radix(&s[i..i + 2], 16).unwrap());

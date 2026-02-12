@@ -546,7 +546,7 @@ pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2Publish
         fn read_i2p_dest(&mut self) -> Option<[u8; I2P_DEST_LEN]> {
             let s = self.b.get(self.i..self.i + I2P_DEST_LEN)?;
             self.i += I2P_DEST_LEN;
-            Some(s.try_into().ok()?)
+            s.try_into().ok()
         }
 
         fn read_taglist_search_info_lenient(&mut self) -> Option<TaglistSearchInfo> {
@@ -617,7 +617,7 @@ pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2Publish
                         }
                     }
                     TAGTYPE_UINT64 => {
-                        let v = self.read_u64_le()? as u64;
+                        let v = self.read_u64_le()?;
                         match id {
                             Some(TAG_FILESIZE) => out.file_size = Some(v),
                             Some(TAG_PUBLISHINFO) => out.publish_info = Some(v as u32),
@@ -659,7 +659,7 @@ pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2Publish
                     }
                     TAGTYPE_BOOLARRAY => {
                         let bits = self.read_u16_le()? as usize;
-                        self.skip((bits + 7) / 8)?;
+                        self.skip(bits.div_ceil(8))?;
                     }
                     TAGTYPE_BLOB => {
                         let len = self.read_u32_le()? as usize;
@@ -1205,7 +1205,7 @@ impl<'a> Reader<'a> {
                 }
                 TAGTYPE_BOOLARRAY => {
                     let bits = self.read_u16_le()? as usize;
-                    self.skip((bits + 7) / 8)?;
+                    self.skip(bits.div_ceil(8))?;
                 }
                 TAGTYPE_BLOB => {
                     let len = self.read_u32_le()? as usize;
@@ -1357,7 +1357,7 @@ impl<'a> Reader<'a> {
                 TAGTYPE_BOOLARRAY => {
                     // TAGTYPE_BOOLARRAY: <u16 bitCount><bytes...>
                     let bits = self.read_u16_le()? as usize;
-                    self.skip((bits + 7) / 8)?;
+                    self.skip(bits.div_ceil(8))?;
                 }
                 TAGTYPE_BLOB => {
                     let len = self.read_u32_le()? as usize;

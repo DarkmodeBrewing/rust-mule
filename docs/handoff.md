@@ -8,6 +8,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed clippy+formatting improvement batch on `feature/clippy-format-pass`.
+  - Addressed all active `cargo clippy --all-targets --all-features` warnings across app/KAD/utility modules.
+  - Applied idiomatic fixes (`div_ceil`, iterator/enumerate loops, collapsed `if let` chains, unnecessary casts/question-marks/conversions, lock-file open options).
+  - Added targeted `#[allow(clippy::too_many_arguments)]` on orchestration-heavy KAD service functions where signature reduction would be invasive for this pass.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 56 tests).
+- Decisions: Keep high-arity KAD orchestration signatures for now and explicitly annotate them; prioritize behavior-preserving lint cleanup over structural refactors in this iteration.
+- Next steps: If desired, follow up with a dedicated refactor pass to reduce `too_many_arguments` allowances via context structs.
+- Change log: Repository now passes clippy cleanly under current lint set, with formatting normalized.
+
 - Status: Implemented UI auto-open and headless toggle flow (initial UI milestone #1):
   - Added `general.auto_open_ui` (default `true`) to runtime config/settings.
   - Startup now conditionally auto-opens `http://localhost:<port>/index.html` in default browser.
