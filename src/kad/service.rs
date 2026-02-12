@@ -1828,12 +1828,16 @@ async fn send_bootstrap_batch(
             0
         };
 
-        let out = udp_crypto::encrypt_kad_packet(
-            &plain,
-            target_kad_id,
-            receiver_verify_key,
-            sender_verify_key,
-        )?;
+        let out = if p.kad_version >= 6 {
+            udp_crypto::encrypt_kad_packet(
+                &plain,
+                target_kad_id,
+                receiver_verify_key,
+                sender_verify_key,
+            )?
+        } else {
+            plain.clone()
+        };
 
         if let Err(err) = sock.send_to(&dest, &out).await {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 BOOTSTRAP_REQ (service)");
@@ -1841,6 +1845,8 @@ async fn send_bootstrap_batch(
             svc.stats_window.sent_bootstrap_reqs += 1;
             tracing::info!(
                 to = %crate::i2p::b64::short(&dest),
+                kad_version = p.kad_version,
+                encrypted = p.kad_version >= 6,
                 "sent periodic KAD2 BOOTSTRAP_REQ (refresh)"
             );
             svc.routing.mark_bootstrap_sent_by_dest(&dest, now);
