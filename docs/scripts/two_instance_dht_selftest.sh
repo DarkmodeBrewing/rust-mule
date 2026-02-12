@@ -47,6 +47,7 @@ Options:
   --pause-secs N           Default: 20
   --debug-lookup           Trigger one /debug/lookup_once per instance (default: off)
   --peers-snapshot MODE    one of: each|first|none. Default: each
+  --routing-snapshot MODE  one of: each|first|end|none. Default: each
 EOF
 }
 
@@ -74,6 +75,7 @@ POLL_INTERVAL_SECS="10"
 PAUSE_SECS="20"
 DEBUG_LOOKUP="0"
 PEERS_SNAPSHOT="each"
+ROUTING_SNAPSHOT="each"
 
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
 OUT_FILE="tmp/two_instance_dht_selftest_$(date +%Y%m%d_%H%M%S).log"
@@ -359,14 +361,33 @@ peers_snapshot() {
   PEERS_SNAPSHOT_DONE="1"
 }
 
+routing_should_snapshot() {
+  local mode="$1"
+  case "$mode" in
+    none) return 1 ;;
+    first)
+      if [[ -n "${ROUTING_SNAPSHOT_DONE:-}" ]]; then
+        return 1
+      fi
+      ;;
+    end) return 1 ;;
+  esac
+  return 0
+}
+
 routing_summary_snapshot() {
   local name="$1"
   local base_url="$2"
   local token_file="$3"
 
+  if ! routing_should_snapshot "$ROUTING_SNAPSHOT"; then
+    return 0
+  fi
+
   log "Routing summary $name ($base_url)"
   bash docs/scripts/debug_routing_summary.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
+  ROUTING_SNAPSHOT_DONE="1"
 }
 
 routing_buckets_snapshot() {
@@ -374,9 +395,14 @@ routing_buckets_snapshot() {
   local base_url="$2"
   local token_file="$3"
 
+  if ! routing_should_snapshot "$ROUTING_SNAPSHOT"; then
+    return 0
+  fi
+
   log "Routing buckets $name ($base_url)"
   bash docs/scripts/debug_routing_buckets.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
+  ROUTING_SNAPSHOT_DONE="1"
 }
 
 debug_lookup_once() {
@@ -421,6 +447,7 @@ while [[ $# -gt 0 ]]; do
     --pause-secs) PAUSE_SECS="$2"; shift 2 ;;
     --debug-lookup) DEBUG_LOOKUP="1"; shift 1 ;;
     --peers-snapshot) PEERS_SNAPSHOT="$2"; shift 2 ;;
+    --routing-snapshot) ROUTING_SNAPSHOT="$2"; shift 2 ;;
 
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $1" >&2; usage; exit 2 ;;
@@ -436,6 +463,7 @@ log "B_BASE_URL=$B_BASE_URL B_TOKEN_FILE=$B_TOKEN_FILE"
 log "ROUNDS=$ROUNDS WAIT_PUBLISH_SECS=$WAIT_PUBLISH_SECS WAIT_SEARCH_SECS=$WAIT_SEARCH_SECS PAUSE_SECS=$PAUSE_SECS"
 log "WAIT_SOURCES_SECS=$WAIT_SOURCES_SECS"
 log "POLL_INTERVAL_SECS=$POLL_INTERVAL_SECS PEERS_SNAPSHOT=$PEERS_SNAPSHOT"
+log "ROUTING_SNAPSHOT=$ROUTING_SNAPSHOT"
 log "WARMUP_LIVE=$WARMUP_LIVE WARMUP_TIMEOUT_SECS=$WARMUP_TIMEOUT_SECS WARMUP_CHECK_SECS=$WARMUP_CHECK_SECS WARMUP_STABLE_SAMPLES=$WARMUP_STABLE_SAMPLES"
 log "DEBUG_LOOKUP=$DEBUG_LOOKUP"
 
@@ -582,5 +610,20 @@ for ((i=1; i<=ROUNDS; i++)); do
   log "Pausing ${PAUSE_SECS}s..."
   sleep "$PAUSE_SECS"
 done
+
+if [[ "$ROUTING_SNAPSHOT" == "end" ]]; then
+  log "Final routing summary A ($A_BASE_URL)"
+  bash docs/scripts/debug_routing_summary.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  append_blank_line
+  log "Final routing summary B ($B_BASE_URL)"
+  bash docs/scripts/debug_routing_summary.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  append_blank_line
+  log "Final routing buckets A ($A_BASE_URL)"
+  bash docs/scripts/debug_routing_buckets.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  append_blank_line
+  log "Final routing buckets B ($B_BASE_URL)"
+  bash docs/scripts/debug_routing_buckets.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  append_blank_line
+fi
 
 log "Done."

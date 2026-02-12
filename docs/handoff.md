@@ -6,11 +6,22 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
+## Status (2026-02-12)
+
+- Long-haul two-instance run (25 rounds) confirmed network-origin keyword hits on both instances:
+  - A received non-empty `SEARCH_RES` at 2026-02-11 19:41:41.
+  - B received non-empty `SEARCH_RES` at 2026-02-11 19:50:02.
+- Routing snapshot at end of run: total_nodes=157, verified=135, buckets_empty=121, bucket_fill_max=80, last_seen_max≈35060s (~9.7h), last_inbound_max≈29819s (~8.3h). Routing still not growing (`new_nodes=0`).
+- Observed SAM `SESSION STATUS RESULT=I2P_ERROR MESSAGE="PONG timeout"` on both instances at 2026-02-12 06:49:20; service auto-recreated SAM session.
+- Source publish/search remained empty in the script output.
+
 ## Status (2026-02-11)
 
 - Updated `docs/scripts/two_instance_dht_selftest.sh` to poll keyword results (early exit on `origin=network`), add configurable poll interval, and allow peer snapshot frequency control.
 - Increased default `wait-search-secs` to 45s in the script (I2P cadence).
 - Updated `tmp/test_script_command.txt` with new flags for polling and peer snapshot mode.
+- Added routing snapshot controls to `docs/scripts/two_instance_dht_selftest.sh` (each|first|end|none) and end-of-run routing summary/buckets when `--routing-snapshot end` is set.
+- Updated `tmp/test_script_command.txt` to use `--routing-snapshot end` and `--peers-snapshot none` for the next long run.
 
 ## Status (2026-02-10)
 
@@ -81,6 +92,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 ## Change Log
 
 - 2026-02-11: Tune two-instance selftest script with polling + peer snapshot controls; update `tmp/test_script_command.txt` to use new flags.
+- 2026-02-11: Add routing snapshot controls and end-of-run routing dumps for the two-instance selftest; update `tmp/test_script_command.txt`.
+- 2026-02-12: Long-haul run confirmed network-origin keyword hits; routing table still flat; SAM session recreated after PONG timeout on both instances.
 - 2026-02-10: Two-instance DHT selftest (5 rounds) showed only local keyword hits; no cross-instance results, no publish-key acks, empty search responses; routing stayed flat (quiet network).
 - 2026-02-10: Add `origin` field to keyword hit API responses (`local` vs `network`).
 - 2026-02-10: Add `/kad/peers` API endpoint and new inbound request counters in `/status`; slightly increase keyword job cadence/batch size.
