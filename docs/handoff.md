@@ -8,6 +8,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Implemented API CORS hardening for `/api/v1`:
+  - Allow only loopback origins (`localhost`, `127.0.0.1`, and loopback IPs).
+  - Allow only `Authorization` and `Content-Type` request headers.
+  - Handle `OPTIONS` preflight without bearer auth.
+  - Added unit tests for origin allow/deny behavior.
+- Fixed CORS origin parsing for bracketed IPv6 loopback (`http://[::1]:...`) and re-ran validation (`cargo fmt`, `cargo clippy --all-targets --all-features`, `cargo test`).
 - API contract tightened for development-only workflow:
   - Removed temporary unversioned API route aliases; API is now `/api/v1/...` only.
   - Removed `api.enabled` compatibility field from config parsing.
@@ -68,6 +74,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Restrict browser CORS access to loopback origins for local-control-plane safety.
 - Use strict `/api/v1` routes only; no legacy unversioned aliases are kept.
 - Implement loopback-only dev auth as `GET /api/v1/dev/auth` (no auth header required).
 - Make API mandatory (always enabled) and remove `api.enabled` compatibility handling from code.
@@ -91,8 +98,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
-- Implement API CORS restrictions for loopback origins as listed in `docs/TODO.md`.
+- Add integration tests for API auth/CORS behavior (preflight + protected endpoint access patterns).
 - Decide the next implementation target after docs normalization (API versioning/dev-auth/API always-on were identified as open choices).
+- Start UI bootstrap flow to fetch token from `GET /api/v1/dev/auth` and store it in `sessionStorage`.
 - Consider adding a debug toggle to disable local injection during tests.
 - Consider clearing per-keyword job `sent_to_*` sets on new API commands to allow re-tries to the same peers.
 - Consider a small UI view over `/kad/peers` to spot real inbound activity quickly.
@@ -114,6 +122,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Add loopback-only CORS middleware for `/api/v1` with explicit preflight handling and origin validation tests (`src/api/mod.rs`).
+- 2026-02-12: Fix CORS IPv6 loopback origin parsing (`[::1]`) and rerun fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Remove temporary unversioned API aliases and enforce `/api/v1` only (`src/api/mod.rs`).
 - 2026-02-12: Remove `api.enabled` compatibility handling from config/app code (`src/config.rs`, `src/app.rs`).
 - 2026-02-12: Run `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after strict v1-only API cleanup (tests pass; existing clippy warnings unchanged).

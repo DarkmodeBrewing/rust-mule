@@ -1,7 +1,7 @@
 use axum::{
     Json, Router,
     extract::{ConnectInfo, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, StatusCode},
     middleware,
     response::sse::{Event, Sse},
     routing::{get, post},
@@ -87,6 +87,7 @@ pub async fn serve(
     let app = Router::new()
         .nest("/api/v1", v1)
         .with_state(state.clone())
+        .layer(middleware::from_fn(cors_mw))
         .layer(middleware::from_fn_with_state(state, auth_mw));
 
     tracing::info!(addr = %addr, "api server listening");
@@ -596,6 +597,11 @@ async fn auth_mw(
     req: axum::http::Request<axum::body::Body>,
     next: middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
+    // CORS preflight should not require bearer auth.
+    if req.method() == Method::OPTIONS {
+        return Ok(next.run(req).await);
+    }
+
     // Allow health checks without auth (useful for local dev).
     if is_auth_exempt_path(req.uri().path()) {
         return Ok(next.run(req).await);
@@ -625,6 +631,72 @@ fn is_auth_exempt_path(path: &str) -> bool {
     matches!(path, "/api/v1/health" | "/api/v1/dev/auth")
 }
 
+async fn cors_mw(
+    req: axum::http::Request<axum::body::Body>,
+    next: middleware::Next,
+) -> Result<axum::response::Response, StatusCode> {
+    let origin = req.headers().get(axum::http::header::ORIGIN).cloned();
+
+    if let Some(origin) = origin {
+        if !is_allowed_origin(&origin) {
+            return Err(StatusCode::FORBIDDEN);
+        }
+
+        if req.method() == Method::OPTIONS {
+            let mut resp = axum::response::Response::new(axum::body::Body::empty());
+            *resp.status_mut() = StatusCode::NO_CONTENT;
+            apply_cors_headers(resp.headers_mut(), &origin);
+            return Ok(resp);
+        }
+
+        let mut resp = next.run(req).await;
+        apply_cors_headers(resp.headers_mut(), &origin);
+        return Ok(resp);
+    }
+
+    Ok(next.run(req).await)
+}
+
+fn apply_cors_headers(headers: &mut HeaderMap, origin: &HeaderValue) {
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        origin.clone(),
+    );
+    headers.insert(axum::http::header::VARY, HeaderValue::from_static("Origin"));
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    headers.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("Authorization, Content-Type"),
+    );
+}
+
+fn is_allowed_origin(origin: &HeaderValue) -> bool {
+    let Ok(origin) = origin.to_str() else {
+        return false;
+    };
+
+    let Ok(uri) = origin.parse::<axum::http::Uri>() else {
+        return false;
+    };
+
+    let Some(host) = uri.host() else {
+        return false;
+    };
+
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    host.parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -648,5 +720,29 @@ mod tests {
         assert!(!is_auth_exempt_path("/health"));
         assert!(!is_auth_exempt_path("/dev/auth"));
         assert!(!is_auth_exempt_path("/api/v1/status"));
+    }
+
+    #[test]
+    fn allows_loopback_origins_for_cors() {
+        assert!(is_allowed_origin(&HeaderValue::from_static(
+            "http://localhost:3000"
+        )));
+        assert!(is_allowed_origin(&HeaderValue::from_static(
+            "http://127.0.0.1:17835"
+        )));
+        assert!(is_allowed_origin(&HeaderValue::from_static(
+            "http://[::1]:5173"
+        )));
+    }
+
+    #[test]
+    fn rejects_non_loopback_origins_for_cors() {
+        assert!(!is_allowed_origin(&HeaderValue::from_static(
+            "http://192.168.1.10:3000"
+        )));
+        assert!(!is_allowed_origin(&HeaderValue::from_static(
+            "https://example.com"
+        )));
+        assert!(!is_allowed_origin(&HeaderValue::from_static("null")));
     }
 }
