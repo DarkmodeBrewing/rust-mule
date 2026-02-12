@@ -1055,6 +1055,7 @@ async fn start_keyword_job_search(
     job.created_at = now;
     job.next_lookup_at = now;
     job.next_search_at = now;
+    job.sent_to_search.clear();
 
     // Kick off immediately (lookup + first action batch).
     progress_keyword_job(svc, sock, crypto, cfg, keyword, now).await?;
@@ -1098,6 +1099,7 @@ async fn start_keyword_job_publish(
     job.next_lookup_at = now;
     job.next_publish_at = now;
     job.got_publish_ack = false;
+    job.sent_to_publish.clear();
 
     progress_keyword_job(svc, sock, crypto, cfg, keyword, now).await?;
     Ok(())
