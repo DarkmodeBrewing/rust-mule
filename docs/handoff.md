@@ -11,6 +11,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Implemented API CORS hardening for `/api/v1`:
   - Allow only loopback origins (`localhost`, `127.0.0.1`, and loopback IPs).
   - Allow only `Authorization` and `Content-Type` request headers.
+  - Allow methods `GET`, `POST`, `PUT`, `PATCH`, `OPTIONS`.
   - Handle `OPTIONS` preflight without bearer auth.
   - Added unit tests for origin allow/deny behavior.
 - Fixed CORS origin parsing for bracketed IPv6 loopback (`http://[::1]:...`) and re-ran validation (`cargo fmt`, `cargo clippy --all-targets --all-features`, `cargo test`).
@@ -124,6 +125,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 - 2026-02-12: Add loopback-only CORS middleware for `/api/v1` with explicit preflight handling and origin validation tests (`src/api/mod.rs`).
 - 2026-02-12: Fix CORS IPv6 loopback origin parsing (`[::1]`) and rerun fmt/clippy/test (tests pass; existing clippy warnings unchanged).
+- 2026-02-12: Extend `Access-Control-Allow-Methods` to include `PUT` and `PATCH`; add regression test (`src/api/mod.rs`).
 - 2026-02-12: Remove temporary unversioned API aliases and enforce `/api/v1` only (`src/api/mod.rs`).
 - 2026-02-12: Remove `api.enabled` compatibility handling from config/app code (`src/config.rs`, `src/app.rs`).
 - 2026-02-12: Run `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after strict v1-only API cleanup (tests pass; existing clippy warnings unchanged).

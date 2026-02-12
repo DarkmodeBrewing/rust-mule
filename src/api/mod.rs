@@ -665,7 +665,7 @@ fn apply_cors_headers(headers: &mut HeaderMap, origin: &HeaderValue) {
     headers.insert(axum::http::header::VARY, HeaderValue::from_static("Origin"));
     headers.insert(
         axum::http::header::ACCESS_CONTROL_ALLOW_METHODS,
-        HeaderValue::from_static("GET, POST, OPTIONS"),
+        HeaderValue::from_static("GET, POST, PUT, PATCH, OPTIONS"),
     );
     headers.insert(
         axum::http::header::ACCESS_CONTROL_ALLOW_HEADERS,
@@ -744,5 +744,20 @@ mod tests {
             "https://example.com"
         )));
         assert!(!is_allowed_origin(&HeaderValue::from_static("null")));
+    }
+
+    #[test]
+    fn cors_allow_methods_includes_put_and_patch() {
+        let mut headers = HeaderMap::new();
+        let origin = HeaderValue::from_static("http://localhost:3000");
+        apply_cors_headers(&mut headers, &origin);
+
+        let methods = headers
+            .get(axum::http::header::ACCESS_CONTROL_ALLOW_METHODS)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        assert!(methods.contains("PUT"));
+        assert!(methods.contains("PATCH"));
     }
 }
