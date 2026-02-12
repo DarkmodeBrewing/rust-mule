@@ -15,6 +15,29 @@ function stateClass(state) {
   return "state-idle";
 }
 
+function nodeState(peer) {
+  const inbound = peer?.last_inbound_secs_ago;
+  const seen = peer?.last_seen_secs_ago;
+  if (typeof inbound === "number" && inbound <= 600) {
+    return "active";
+  }
+  if (typeof seen === "number" && seen <= 600) {
+    return "live";
+  }
+  return "idle";
+}
+
+function nodeStateClass(peer) {
+  const state = nodeState(peer);
+  if (state === "active") {
+    return "state-running";
+  }
+  if (state === "live") {
+    return "state-done";
+  }
+  return "state-idle";
+}
+
 async function loadSearchThreads(ctx) {
   const data = await apiGet("/searches");
   ctx.searchThreads = Array.isArray(data?.searches) ? data.searches : [];
@@ -236,6 +259,83 @@ window.appSearchDetails = function appSearchDetails() {
         return;
       }
       this.details = await apiGet(`/searches/${this.searchId}`);
+    },
+  };
+};
+
+window.appNodeStats = function appNodeStats() {
+  return {
+    loading: false,
+    error: "",
+    status: null,
+    peers: [],
+    searchThreads: [],
+
+    threadStateClass(state) {
+      return stateClass(state);
+    },
+
+    nodeState(peer) {
+      return nodeState(peer);
+    },
+
+    nodeStateClass(peer) {
+      return nodeStateClass(peer);
+    },
+
+    get totalNodes() {
+      return this.peers.length;
+    },
+
+    get liveNodes() {
+      return this.peers.filter((p) => this.nodeState(p) !== "idle").length;
+    },
+
+    get activeNodes() {
+      return this.peers.filter((p) => this.nodeState(p) === "active").length;
+    },
+
+    async init() {
+      this.loading = true;
+      this.error = "";
+      try {
+        await bootstrapToken();
+        await this.refreshThreads();
+        await this.refresh();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async refreshThreads() {
+      await loadSearchThreads(this);
+    },
+
+    async refresh() {
+      try {
+        this.error = "";
+        const [statusResp, peersResp] = await Promise.all([
+          apiGet("/status"),
+          apiGet("/kad/peers"),
+        ]);
+        this.status = statusResp;
+        const rawPeers = Array.isArray(peersResp?.peers) ? peersResp.peers : [];
+        this.peers = rawPeers
+          .slice()
+          .sort((a, b) => {
+            const sa = this.nodeState(a);
+            const sb = this.nodeState(b);
+            const rank = { active: 0, live: 1, idle: 2 };
+            if (rank[sa] !== rank[sb]) {
+              return rank[sa] - rank[sb];
+            }
+            return (a.last_seen_secs_ago ?? Number.MAX_SAFE_INTEGER) - (b.last_seen_secs_ago ?? Number.MAX_SAFE_INTEGER);
+          });
+      } catch (err) {
+        this.error = String(err?.message || err);
+      }
     },
   };
 };

@@ -8,6 +8,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Added `ui/node_stats.html` with the same shell structure as other UI pages.
+- Implemented node status view for live/active visibility:
+  - Loads `/api/v1/status` and `/api/v1/kad/peers`.
+  - Displays total/live/active node KPIs.
+  - Displays node table with per-node state badge (`active`, `live`, `idle`) plus Kad ID/version/ages/failures.
+- Added frontend `appNodeStats()` in `ui/assets/js/app.js`:
+  - Sorts nodes by activity state then recency.
+  - Reuses API-backed search threads in the sidebar.
+- Updated shell navigation links across pages to point "Nodes / Routing" to `/ui/node_stats`.
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after node stats page implementation (`cargo test` passed; existing clippy warnings unchanged).
 - Added API-backed keyword search thread endpoints:
   - `GET /api/v1/searches` returns active keyword-search jobs from KAD `keyword_jobs`.
   - `GET /api/v1/searches/:search_id` returns one active search plus its current hits.
@@ -126,6 +136,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Define node UI state as:
+  - `active`: `last_inbound_secs_ago <= 600`
+  - `live`: `last_seen_secs_ago <= 600`
+  - `idle`: otherwise
 - Treat active keyword-search jobs in KAD service (`keyword_jobs`) as the canonical backend source for UI "search threads".
 - Use keyword ID hex as `search_id` for details routing in v1 (`/ui/search_details?searchId=<keyword_id_hex>` and `/api/v1/searches/:search_id`).
 - Keep search UI v1 focused on real keyword-search queue + cached-hit retrieval rather than adding placeholder-only controls.
@@ -164,6 +178,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Replace static index sidebar/result placeholders with real search data once `/api/searches` endpoints are implemented.
 - Add search-history/thread state in the UI (persisted list of submitted keyword jobs and selection behavior).
 - Add API/frontend support for completed (no longer active) search history so `search_details` remains available after a job leaves `keyword_jobs`.
+- Consider making node-state thresholds (`active/live` age windows) configurable in UI settings or API response metadata.
 - Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
 - Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -187,6 +202,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Add `ui/node_stats.html` with shell + node status table/KPIs using `/api/v1/status` and `/api/v1/kad/peers`; implement `appNodeStats()`; point shell nav "Nodes / Routing" to `/ui/node_stats`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `/api/v1/searches` and `/api/v1/searches/:search_id` for active keyword jobs; wire search-thread sidebars to API; add `ui/search_details.html` that loads details via `searchId` query param; update API docs; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Replicate shell in `ui/search.html`; implement first keyword search form wired to `/api/v1/kad/search_keyword` + `/api/v1/kad/keyword_results/:keyword_id_hex`; add reusable form CSS classes/tokens and `apiPost()` helper; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Remove inline styles from `ui/index.html`; move reusable shell/search layout rules to `ui/assets/css/base.css`; define layout/state CSS vars in `ui/assets/css/layout.css`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
