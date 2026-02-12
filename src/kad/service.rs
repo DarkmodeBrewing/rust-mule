@@ -26,11 +26,105 @@ use crate::{
     },
     nodes::imule::ImuleNode,
 };
-use anyhow::Result;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
+
+pub type Result<T> = std::result::Result<T, KadServiceError>;
+
+#[derive(Debug)]
+pub enum KadServiceError {
+    Sam(crate::i2p::sam::SamError),
+    Wire(crate::kad::wire::WireError),
+    Crypto(crate::kad::udp_crypto::UdpCryptoError),
+    Kad(crate::kad::KadError),
+    Nodes(crate::nodes::imule::ImuleNodesError),
+    Io(std::io::Error),
+    Timeout(tokio::time::error::Elapsed),
+    Recv(tokio::sync::oneshot::error::RecvError),
+    InvalidState(String),
+}
+
+impl std::fmt::Display for KadServiceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sam(source) => write!(f, "{source}"),
+            Self::Wire(source) => write!(f, "{source}"),
+            Self::Crypto(source) => write!(f, "{source}"),
+            Self::Kad(source) => write!(f, "{source}"),
+            Self::Nodes(source) => write!(f, "{source}"),
+            Self::Io(source) => write!(f, "{source}"),
+            Self::Timeout(source) => write!(f, "{source}"),
+            Self::Recv(source) => write!(f, "{source}"),
+            Self::InvalidState(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for KadServiceError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sam(source) => Some(source),
+            Self::Wire(source) => Some(source),
+            Self::Crypto(source) => Some(source),
+            Self::Kad(source) => Some(source),
+            Self::Nodes(source) => Some(source),
+            Self::Io(source) => Some(source),
+            Self::Timeout(source) => Some(source),
+            Self::Recv(source) => Some(source),
+            Self::InvalidState(_) => None,
+        }
+    }
+}
+
+impl From<crate::i2p::sam::SamError> for KadServiceError {
+    fn from(value: crate::i2p::sam::SamError) -> Self {
+        Self::Sam(value)
+    }
+}
+
+impl From<crate::kad::wire::WireError> for KadServiceError {
+    fn from(value: crate::kad::wire::WireError) -> Self {
+        Self::Wire(value)
+    }
+}
+
+impl From<crate::kad::udp_crypto::UdpCryptoError> for KadServiceError {
+    fn from(value: crate::kad::udp_crypto::UdpCryptoError) -> Self {
+        Self::Crypto(value)
+    }
+}
+
+impl From<crate::kad::KadError> for KadServiceError {
+    fn from(value: crate::kad::KadError) -> Self {
+        Self::Kad(value)
+    }
+}
+
+impl From<crate::nodes::imule::ImuleNodesError> for KadServiceError {
+    fn from(value: crate::nodes::imule::ImuleNodesError) -> Self {
+        Self::Nodes(value)
+    }
+}
+
+impl From<std::io::Error> for KadServiceError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+
+impl From<tokio::time::error::Elapsed> for KadServiceError {
+    fn from(value: tokio::time::error::Elapsed) -> Self {
+        Self::Timeout(value)
+    }
+}
+
+impl From<tokio::sync::oneshot::error::RecvError> for KadServiceError {
+    fn from(value: tokio::sync::oneshot::error::RecvError) -> Self {
+        Self::Recv(value)
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct KadServiceCrypto {

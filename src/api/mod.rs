@@ -41,6 +41,35 @@ static UI_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/ui");
 const SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 const SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
+pub type ApiResult<T> = std::result::Result<T, ApiError>;
+
+#[derive(Debug)]
+pub enum ApiError {
+    Config(crate::config::ConfigError),
+    Bind(std::io::Error),
+    Serve(std::io::Error),
+}
+
+impl std::fmt::Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Config(source) => write!(f, "{source}"),
+            Self::Bind(source) => write!(f, "failed to bind API listener: {source}"),
+            Self::Serve(source) => write!(f, "API server failed: {source}"),
+        }
+    }
+}
+
+impl std::error::Error for ApiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Config(source) => Some(source),
+            Self::Bind(source) => Some(source),
+            Self::Serve(source) => Some(source),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ApiState {
     token: Arc<tokio::sync::RwLock<String>>,
@@ -69,8 +98,8 @@ pub async fn serve(
     status_rx: watch::Receiver<Option<KadServiceStatus>>,
     status_events_tx: broadcast::Sender<KadServiceStatus>,
     kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
-) -> anyhow::Result<()> {
-    let bind_ip = parse_api_bind_host(&cfg.host)?;
+) -> ApiResult<()> {
+    let bind_ip = parse_api_bind_host(&cfg.host).map_err(ApiError::Config)?;
     let addr = SocketAddr::new(bind_ip, cfg.port);
 
     let state = ApiState {
@@ -97,12 +126,15 @@ pub async fn serve(
     });
 
     tracing::info!(addr = %addr, "api server listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .map_err(ApiError::Bind)?;
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .await?;
+    .await
+    .map_err(ApiError::Serve)?;
     Ok(())
 }
 

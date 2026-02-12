@@ -3,7 +3,6 @@ use crate::{
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamError, SamKadSocket, SamKeys},
     single_instance::SingleInstanceLock,
 };
-use anyhow::Context;
 use std::collections::BTreeMap;
 use std::{
     net::{IpAddr, Ipv4Addr},
@@ -13,7 +12,161 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{Duration, Instant};
 
-pub async fn run(config: Config) -> anyhow::Result<()> {
+pub type AppResult<T> = std::result::Result<T, AppError>;
+
+#[derive(Debug)]
+pub enum AppError {
+    Config(crate::config::ConfigError),
+    SingleInstance(crate::single_instance::SingleInstanceError),
+    Kad(crate::kad::KadError),
+    UdpKey(crate::kad::udp_key::UdpKeyError),
+    Sam(crate::i2p::sam::SamError),
+    SamKeys(crate::i2p::sam::keys::SamKeysError),
+    B64(crate::i2p::b64::B64Error),
+    Token(crate::api::token::TokenError),
+    Api(crate::api::ApiError),
+    Nodes(crate::nodes::imule::ImuleNodesError),
+    Bootstrap(crate::kad::bootstrap::BootstrapError),
+    KadService(crate::kad::service::KadServiceError),
+    Http(crate::i2p::http::HttpError),
+    Io(std::io::Error),
+    AddrParse(std::net::AddrParseError),
+    ParseInt(std::num::ParseIntError),
+    BrowserOpenFailed,
+    InvalidState(String),
+}
+
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Config(source) => write!(f, "{source}"),
+            Self::SingleInstance(source) => write!(f, "{source}"),
+            Self::Kad(source) => write!(f, "{source}"),
+            Self::UdpKey(source) => write!(f, "{source}"),
+            Self::Sam(source) => write!(f, "{source}"),
+            Self::SamKeys(source) => write!(f, "{source}"),
+            Self::B64(source) => write!(f, "{source}"),
+            Self::Token(source) => write!(f, "{source}"),
+            Self::Api(source) => write!(f, "{source}"),
+            Self::Nodes(source) => write!(f, "{source}"),
+            Self::Bootstrap(source) => write!(f, "{source}"),
+            Self::KadService(source) => write!(f, "{source}"),
+            Self::Http(source) => write!(f, "{source}"),
+            Self::Io(source) => write!(f, "{source}"),
+            Self::AddrParse(source) => write!(f, "{source}"),
+            Self::ParseInt(source) => write!(f, "{source}"),
+            Self::BrowserOpenFailed => write!(f, "browser open command failed"),
+            Self::InvalidState(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for AppError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Config(source) => Some(source),
+            Self::SingleInstance(source) => Some(source),
+            Self::Kad(source) => Some(source),
+            Self::UdpKey(source) => Some(source),
+            Self::Sam(source) => Some(source),
+            Self::SamKeys(source) => Some(source),
+            Self::B64(source) => Some(source),
+            Self::Token(source) => Some(source),
+            Self::Api(source) => Some(source),
+            Self::Nodes(source) => Some(source),
+            Self::Bootstrap(source) => Some(source),
+            Self::KadService(source) => Some(source),
+            Self::Http(source) => Some(source),
+            Self::Io(source) => Some(source),
+            Self::AddrParse(source) => Some(source),
+            Self::ParseInt(source) => Some(source),
+            Self::BrowserOpenFailed | Self::InvalidState(_) => None,
+        }
+    }
+}
+
+impl From<crate::config::ConfigError> for AppError {
+    fn from(value: crate::config::ConfigError) -> Self {
+        Self::Config(value)
+    }
+}
+impl From<crate::single_instance::SingleInstanceError> for AppError {
+    fn from(value: crate::single_instance::SingleInstanceError) -> Self {
+        Self::SingleInstance(value)
+    }
+}
+impl From<crate::kad::KadError> for AppError {
+    fn from(value: crate::kad::KadError) -> Self {
+        Self::Kad(value)
+    }
+}
+impl From<crate::kad::udp_key::UdpKeyError> for AppError {
+    fn from(value: crate::kad::udp_key::UdpKeyError) -> Self {
+        Self::UdpKey(value)
+    }
+}
+impl From<crate::i2p::sam::SamError> for AppError {
+    fn from(value: crate::i2p::sam::SamError) -> Self {
+        Self::Sam(value)
+    }
+}
+impl From<crate::i2p::sam::keys::SamKeysError> for AppError {
+    fn from(value: crate::i2p::sam::keys::SamKeysError) -> Self {
+        Self::SamKeys(value)
+    }
+}
+impl From<crate::i2p::b64::B64Error> for AppError {
+    fn from(value: crate::i2p::b64::B64Error) -> Self {
+        Self::B64(value)
+    }
+}
+impl From<crate::api::token::TokenError> for AppError {
+    fn from(value: crate::api::token::TokenError) -> Self {
+        Self::Token(value)
+    }
+}
+impl From<crate::api::ApiError> for AppError {
+    fn from(value: crate::api::ApiError) -> Self {
+        Self::Api(value)
+    }
+}
+impl From<crate::nodes::imule::ImuleNodesError> for AppError {
+    fn from(value: crate::nodes::imule::ImuleNodesError) -> Self {
+        Self::Nodes(value)
+    }
+}
+impl From<crate::kad::bootstrap::BootstrapError> for AppError {
+    fn from(value: crate::kad::bootstrap::BootstrapError) -> Self {
+        Self::Bootstrap(value)
+    }
+}
+impl From<crate::kad::service::KadServiceError> for AppError {
+    fn from(value: crate::kad::service::KadServiceError) -> Self {
+        Self::KadService(value)
+    }
+}
+impl From<crate::i2p::http::HttpError> for AppError {
+    fn from(value: crate::i2p::http::HttpError) -> Self {
+        Self::Http(value)
+    }
+}
+impl From<std::io::Error> for AppError {
+    fn from(value: std::io::Error) -> Self {
+        Self::Io(value)
+    }
+}
+impl From<std::net::AddrParseError> for AppError {
+    fn from(value: std::net::AddrParseError) -> Self {
+        Self::AddrParse(value)
+    }
+}
+impl From<std::num::ParseIntError> for AppError {
+    fn from(value: std::num::ParseIntError) -> Self {
+        Self::ParseInt(value)
+    }
+}
+
+pub async fn run(config: Config) -> AppResult<()> {
     tracing::info!(
         event = "app_start",
         log = %config.general.log_level,
@@ -24,8 +177,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     // Prevent starting two instances with the same `data/` directory (and thus the same
     // `data/sam.keys`), which causes the router to reject sessions with "duplicate destination".
     let lock_path = Path::new(&config.general.data_dir).join("rust-mule.lock");
-    let _instance_lock = SingleInstanceLock::acquire(&lock_path)
-        .with_context(|| format!("failed to acquire instance lock {}", lock_path.display()))?;
+    let _instance_lock = SingleInstanceLock::acquire(&lock_path)?;
     tracing::info!(
         event = "instance_lock_acquired",
         path = %lock_path.display(),
@@ -109,14 +261,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         "SAM keys ready"
     );
 
-    let my_dest_bytes = crate::i2p::b64::decode(&keys.pub_key)
-        .context("failed to decode SAM PUB key as I2P base64")?;
+    let my_dest_bytes = crate::i2p::b64::decode(&keys.pub_key)?;
     if my_dest_bytes.len() != crate::kad::wire::I2P_DEST_LEN {
-        anyhow::bail!(
+        return Err(AppError::InvalidState(format!(
             "decoded SAM PUB key has wrong length: {} bytes (expected {})",
             my_dest_bytes.len(),
             crate::kad::wire::I2P_DEST_LEN
-        );
+        )));
     }
     let my_dest_hash: u32 = u32::from_le_bytes(my_dest_bytes[0..4].try_into().unwrap());
     let my_dest: [u8; crate::kad::wire::I2P_DEST_LEN] = my_dest_bytes.try_into().unwrap();
@@ -137,9 +288,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     //
     // This is always on and requires a bearer token stored under `data/`.
     let token_path = data_dir.join("api.token");
-    let token = crate::api::token::load_or_create_token(&token_path)
-        .await
-        .context("failed to load/create api.token")?;
+    let token = crate::api::token::load_or_create_token(&token_path).await?;
     tracing::info!(path = %token_path.display(), "api token ready");
 
     let (stx, etx) = crate::api::new_channels();
@@ -418,7 +567,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                     kad_sock = create_kad_socket(&config, &mut sam, &kad_session_id, &keys).await?;
                     continue;
                 }
-                Err(err) => return Err(err),
+                Err(err) => return Err(AppError::KadService(err)),
             }
         }
     }
@@ -493,7 +642,7 @@ async fn http_get_status(port: u16, path: &str) -> Option<u16> {
     parts.next()?.parse::<u16>().ok()
 }
 
-async fn open_url_in_default_browser(url: &str) -> anyhow::Result<()> {
+async fn open_url_in_default_browser(url: &str) -> AppResult<()> {
     #[cfg(target_os = "windows")]
     let status = tokio::process::Command::new("cmd")
         .arg("/C")
@@ -515,7 +664,9 @@ async fn open_url_in_default_browser(url: &str) -> anyhow::Result<()> {
         .status()
         .await?;
 
-    anyhow::ensure!(status.success(), "browser open command failed");
+    if !status.success() {
+        return Err(AppError::BrowserOpenFailed);
+    }
     Ok(())
 }
 
@@ -525,11 +676,13 @@ async fn try_download_nodes2_dat(
     sam_port: u16,
     base_session_name: &str,
     _priv_key: &str,
-) -> anyhow::Result<Vec<crate::nodes::imule::ImuleNode>> {
+) -> AppResult<Vec<crate::nodes::imule::ImuleNode>> {
     let url = "http://www.imule.i2p/nodes2.dat";
     let (host, port, path) = parse_http_url(url)?;
     if port != 80 {
-        anyhow::bail!("only port 80 is supported for now (got {port})");
+        return Err(AppError::InvalidState(format!(
+            "only port 80 is supported for now (got {port})"
+        )));
     }
 
     // Resolve eepsite hostname to destination.
@@ -545,7 +698,7 @@ async fn try_download_nodes2_dat(
             );
             sam.naming_lookup(alt).await?
         }
-        Err(err) => return Err(err.into()),
+        Err(err) => return Err(AppError::Sam(err)),
     };
 
     // Ensure a STREAM session exists for outgoing HTTP.
@@ -565,14 +718,15 @@ async fn try_download_nodes2_dat(
     )
     .await?;
 
-    let stream = crate::i2p::sam::SamStream::connect(sam_host, sam_port, &stream_id, &dest)
-        .await
-        .context("failed to STREAM CONNECT to nodes2.dat eepsite")?;
+    let stream = crate::i2p::sam::SamStream::connect(sam_host, sam_port, &stream_id, &dest).await?;
     let resp =
         crate::i2p::http::http_get_bytes(stream, host, path, Duration::from_secs(60)).await?;
 
     if resp.status != 200 {
-        anyhow::bail!("nodes2.dat download returned HTTP {}", resp.status);
+        return Err(AppError::InvalidState(format!(
+            "nodes2.dat download returned HTTP {}",
+            resp.status
+        )));
     }
 
     // Persist to data/nodes.dat for reproducible future runs.
@@ -582,18 +736,17 @@ async fn try_download_nodes2_dat(
     tokio::fs::write(&tmp, &resp.body).await?;
     tokio::fs::rename(&tmp, &out).await?;
 
-    let nodes = crate::nodes::imule::parse_nodes_dat(&resp.body)
-        .context("downloaded nodes2.dat was not a valid nodes.dat")?;
+    let nodes = crate::nodes::imule::parse_nodes_dat(&resp.body)?;
 
     tracing::info!(url, path = %out.display(), count = nodes.len(), "downloaded fresh nodes.dat over I2P");
     let _ = sam.session_destroy(&stream_id).await;
     Ok(nodes)
 }
 
-fn parse_http_url(url: &str) -> anyhow::Result<(&str, u16, &str)> {
-    let url = url
-        .strip_prefix("http://")
-        .ok_or_else(|| anyhow::anyhow!("only http:// URLs are supported (got '{url}')"))?;
+fn parse_http_url(url: &str) -> AppResult<(&str, u16, &str)> {
+    let url = url.strip_prefix("http://").ok_or_else(|| {
+        AppError::InvalidState(format!("only http:// URLs are supported (got '{url}')"))
+    })?;
 
     let (host_port, path) = match url.find('/') {
         Some(i) => (&url[..i], &url[i..]),
@@ -642,7 +795,7 @@ async fn create_kad_socket(
     sam: &mut SamClient,
     kad_session_id: &str,
     keys: &SamKeys,
-) -> anyhow::Result<SamKadSocket> {
+) -> AppResult<SamKadSocket> {
     Ok(match config.sam.datagram_transport {
         SamDatagramTransport::Tcp => {
             let mut dg = SamDatagramTcp::connect(&config.sam.host, config.sam.port)
@@ -696,11 +849,11 @@ async fn create_kad_socket(
                             tokio::time::sleep(backoff).await;
                             backoff = std::cmp::min(backoff * 2, Duration::from_secs(60));
                         } else {
-                            return Err(err.into());
+                            return Err(AppError::Sam(err));
                         }
 
                         if attempt >= 8 {
-                            return Err(err.into());
+                            return Err(AppError::Sam(err));
                         }
                         continue;
                     }
@@ -797,11 +950,11 @@ async fn create_kad_socket(
                             tokio::time::sleep(backoff).await;
                             backoff = std::cmp::min(backoff * 2, Duration::from_secs(60));
                         } else {
-                            return Err(err.into());
+                            return Err(AppError::Sam(err));
                         }
 
                         if attempt >= 8 {
-                            return Err(err.into());
+                            return Err(AppError::Sam(err));
                         }
                         continue;
                     }
@@ -820,27 +973,24 @@ async fn create_kad_socket(
     })
 }
 
-fn is_recoverable_sam_kad_error(err: &anyhow::Error) -> bool {
+fn is_recoverable_sam_kad_error(err: &crate::kad::service::KadServiceError) -> bool {
     // We treat SAM socket loss / framing desync as recoverable: re-create the session and keep
     // the Kad service running.
     //
     // Prefer typed SAM errors when available, but keep a defensive string fallback since
     // not every path has been migrated yet.
-    for cause in err.chain() {
-        if let Some(sam) = cause.downcast_ref::<SamError>() {
-            return matches!(
-                sam,
-                SamError::Closed
-                    | SamError::Timeout { .. }
-                    | SamError::Io { .. }
-                    | SamError::BadFrame { .. }
-                    | SamError::FramingDesync { .. }
-            );
-        }
+    if let crate::kad::service::KadServiceError::Sam(sam) = err {
+        return matches!(
+            sam,
+            SamError::Closed
+                | SamError::Timeout { .. }
+                | SamError::Io { .. }
+                | SamError::BadFrame { .. }
+                | SamError::FramingDesync { .. }
+        );
     }
 
-    let msg = err.to_string();
-    msg.contains("SAM closed the connection") || msg.contains("SAM framing out of sync")
+    false
 }
 
 async fn ensure_nodes_seed_files(initseed: &Path, fallback: &Path) {

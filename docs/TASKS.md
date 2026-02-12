@@ -2,22 +2,18 @@
 
 ## Current Priority
 
-1. Complete typed-error migration for boundary/runtime layers.
+1. KAD search/publish reliability pass (network-level verification).
 
 Scope:
-- `src/app.rs`
-- `src/main.rs`
-- `src/api/mod.rs` (internal helpers; keep HTTP boundary ergonomics)
-- `src/single_instance.rs`
-- high-churn paths in `src/kad/service.rs`
+- verify ACK behavior and retry/backoff tuning against live peers
+- validate `search_sources` and keyword search/publish success rates over longer runs
+- tighten metrics/logging around request->response conversion and timeout causes
 
 Why this is next:
-- Subsystem modules now expose typed errors; remaining `anyhow` hotspots are orchestration paths.
-- Finishing this gives consistent error provenance across runtime/control-plane behavior.
-- It will also make API/logging error mapping cleaner and safer.
+- typed-error migration is now complete across runtime and subsystem modules
+- remaining delivery risk is network behavior (timeouts, retries, peer variance), not error typing
 
 Definition of done:
-- Replace internal `anyhow` usage in the listed files with typed error enums + `Result` aliases.
-- Preserve existing runtime behavior and HTTP responses.
-- Add/update tests where behavior mapping changes.
-- `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` pass.
+- measurable improvement in successful search/publish round-trips over baseline
+- clear counters/log events for ACKs, retries, and timeout buckets
+- `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` pass

@@ -67,7 +67,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 - [x] Clean up trace logging / file logging, want a more clean `INFO` log, hide `verbosity` behind `DEBUG` flag
   - [x] Never log keys or unredacted hashes
 - [x] Do a `clippy` round on the complete repo
-- [ ] Complete typed-error migration for boundary/runtime layers (`src/app.rs`, `src/main.rs`, `src/api/mod.rs`, `src/single_instance.rs`, selected `src/kad/service.rs` paths)
+- [x] Complete typed-error migration for boundary/runtime layers (`src/app.rs`, `src/main.rs`, `src/api/mod.rs`, `src/single_instance.rs`, `src/kad/service.rs`, bin utilities)
 - [ ] Memory pressure logging using `jmalloc`, and memory management
 - [ ] Memory pressure logs size of routing table, lookups etc. to have
 - [x] API should be mandatory, i.e. no config toggle to load the API, only port number should be configurable (since the API is the control plane)

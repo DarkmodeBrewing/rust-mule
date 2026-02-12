@@ -5,8 +5,8 @@ use std::time::Duration;
 ///
 /// Pattern:
 /// - Lower-level SAM modules return `SamError` (typed).
-/// - Higher-level code may wrap it into `anyhow::Error`, preserving the type for
-///   `downcast_ref::<SamError>()` (used for reconnect/retry decisions).
+/// - Higher-level code should preserve `SamError` variants so reconnect/retry decisions can match
+///   on the typed error directly.
 #[derive(Debug)]
 pub enum SamError {
     /// The SAM TCP connection was closed by the remote side.

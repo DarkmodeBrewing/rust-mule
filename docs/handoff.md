@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed typed-error migration pass across remaining runtime/boundary modules on `main`:
+  - Converted to typed errors:
+    - `src/app.rs` (`AppError`)
+    - `src/main.rs` (`MainError`, `ConfigValidationError`)
+    - `src/api/mod.rs` serve path (`ApiError`)
+    - `src/single_instance.rs` (`SingleInstanceError`)
+    - `src/kad/service.rs` (`KadServiceError`)
+    - bin utilities: `src/bin/imule_nodes_inspect.rs`, `src/bin/sam_dgram_selftest.rs`
+  - Removed remaining runtime `anyhow` usage from `src/` implementation paths.
+  - Updated `docs/TODO.md` to mark typed-error migration as done and refreshed `docs/TASKS.md` with next priority.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 60 tests).
+- Decisions: Keep typed errors explicit per subsystem/boundary and preserve existing HTTP/runtime behavior by mapping at boundaries rather than changing response semantics.
+- Next steps: Focus on KAD search/publish reliability and ACK/timeout observability (`docs/TASKS.md` current priority).
+- Change log: End-to-end code paths now use typed error enums instead of `anyhow`, including app orchestration and utility binaries.
+
 - Status: Documentation sync/normalization pass completed on `main`:
   - Updated `README.md` API/UI auth flow to reflect current behavior:
     - `/api/v1/session` issues `rm_session` cookie.
