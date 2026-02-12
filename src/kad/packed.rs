@@ -1,22 +1,47 @@
-use anyhow::{Result, bail};
+pub type Result<T> = std::result::Result<T, InflateError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InflateError {
+    msg: String,
+}
+
+impl InflateError {
+    fn new(msg: impl Into<String>) -> Self {
+        Self { msg: msg.into() }
+    }
+}
+
+impl std::fmt::Display for InflateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl std::error::Error for InflateError {}
+
+macro_rules! inflate_bail {
+    ($($arg:tt)*) => {
+        return Err(InflateError::new(format!($($arg)*)))
+    };
+}
 
 pub fn inflate_zlib(src: &[u8], max_out: usize) -> Result<Vec<u8>> {
     if src.len() < 2 + 4 {
-        bail!("zlib stream too small: {} bytes", src.len());
+        inflate_bail!("zlib stream too small: {} bytes", src.len());
     }
 
     let cmf = src[0];
     let flg = src[1];
     let cm = cmf & 0x0F;
     if cm != 8 {
-        bail!("unsupported zlib compression method CM={cm}, expected 8 (deflate)");
+        inflate_bail!("unsupported zlib compression method CM={cm}, expected 8 (deflate)");
     }
     let check = (u16::from(cmf) << 8) | u16::from(flg);
     if check % 31 != 0 {
-        bail!("bad zlib header check bits");
+        inflate_bail!("bad zlib header check bits");
     }
     if (flg & 0x20) != 0 {
-        bail!("zlib preset dictionary (FDICT) is not supported");
+        inflate_bail!("zlib preset dictionary (FDICT) is not supported");
     }
 
     let mut br = BitReader::new(&src[2..]);
@@ -37,7 +62,7 @@ pub fn inflate_zlib(src: &[u8], max_out: usize) -> Result<Vec<u8>> {
                 let (litlen, dist) = decode_dynamic_tables(&mut br)?;
                 decode_compressed_block(&mut br, &mut out, &litlen, &dist, max_out)?;
             }
-            _ => bail!("invalid deflate block type"),
+            _ => inflate_bail!("invalid deflate block type"),
         }
 
         if bfinal == 1 {
@@ -54,7 +79,7 @@ pub fn inflate_zlib(src: &[u8], max_out: usize) -> Result<Vec<u8>> {
     let expected = u32::from_be_bytes([a0, a1, a2, a3]);
     let got = adler32(&out);
     if expected != got {
-        bail!("adler32 mismatch: expected={expected:08x} got={got:08x}");
+        inflate_bail!("adler32 mismatch: expected={expected:08x} got={got:08x}");
     }
 
     Ok(out)
@@ -65,12 +90,12 @@ fn decode_stored_block(br: &mut BitReader<'_>, out: &mut Vec<u8>, max_out: usize
     let len = br.read_bits(16)? as u16;
     let nlen = br.read_bits(16)? as u16;
     if len ^ nlen != 0xFFFF {
-        bail!("stored block LEN/NLEN mismatch");
+        inflate_bail!("stored block LEN/NLEN mismatch");
     }
 
     let len = len as usize;
     if out.len().saturating_add(len) > max_out {
-        bail!("inflate output exceeds max_out");
+        inflate_bail!("inflate output exceeds max_out");
     }
 
     for _ in 0..len {
@@ -91,7 +116,7 @@ fn decode_compressed_block(
         match sym {
             0..=255 => {
                 if out.len() + 1 > max_out {
-                    bail!("inflate output exceeds max_out");
+                    inflate_bail!("inflate output exceeds max_out");
                 }
                 out.push(sym as u8);
             }
@@ -116,7 +141,7 @@ fn decode_compressed_block(
 
                 copy_from_history(out, distance, length, max_out)?;
             }
-            _ => bail!("invalid literal/length symbol {sym}"),
+            _ => inflate_bail!("invalid literal/length symbol {sym}"),
         }
     }
     Ok(())
@@ -147,7 +172,7 @@ fn decode_dynamic_tables(br: &mut BitReader<'_>) -> Result<(HuffmanTable, Huffma
             0..=15 => lengths.push(sym as u8),
             16 => {
                 if lengths.is_empty() {
-                    bail!("repeat previous length with no previous");
+                    inflate_bail!("repeat previous length with no previous");
                 }
                 let repeat = br.read_bits(2)? as usize + 3;
                 let prev = *lengths.last().unwrap();
@@ -163,7 +188,7 @@ fn decode_dynamic_tables(br: &mut BitReader<'_>) -> Result<(HuffmanTable, Huffma
                 let repeat = br.read_bits(7)? as usize + 11;
                 lengths.extend(std::iter::repeat_n(0, repeat));
             }
-            _ => bail!("invalid code-length symbol {sym}"),
+            _ => inflate_bail!("invalid code-length symbol {sym}"),
         }
     }
     lengths.truncate(total);
@@ -180,17 +205,17 @@ fn copy_from_history(
     max_out: usize,
 ) -> Result<()> {
     if distance == 0 {
-        bail!("distance cannot be zero");
+        inflate_bail!("distance cannot be zero");
     }
     if distance > out.len() {
-        bail!(
+        inflate_bail!(
             "distance beyond output history (distance={}, out={})",
             distance,
             out.len()
         );
     }
     if out.len().saturating_add(length) > max_out {
-        bail!("inflate output exceeds max_out");
+        inflate_bail!("inflate output exceeds max_out");
     }
 
     let start = out.len() - distance;
@@ -212,7 +237,7 @@ fn length_code(sym: u16) -> Result<(usize, u32)> {
     ];
 
     if !(257..=285).contains(&sym) {
-        bail!("invalid length symbol {sym}");
+        inflate_bail!("invalid length symbol {sym}");
     }
     let i = (sym - 257) as usize;
     Ok((BASE[i], EXTRA[i]))
@@ -230,7 +255,7 @@ fn distance_code(sym: u16) -> Result<(usize, u32)> {
 
     let i = sym as usize;
     if i >= BASE.len() {
-        bail!("invalid distance symbol {sym}");
+        inflate_bail!("invalid distance symbol {sym}");
     }
     Ok((BASE[i], EXTRA[i]))
 }
@@ -268,7 +293,7 @@ impl<'a> BitReader<'a> {
             let byte = *self
                 .b
                 .get(self.pos)
-                .ok_or_else(|| anyhow::anyhow!("unexpected EOF"))?;
+                .ok_or_else(|| InflateError::new("unexpected EOF"))?;
             self.pos += 1;
             self.bitbuf |= (byte as u64) << self.bitcnt;
             self.bitcnt += 8;
@@ -331,7 +356,7 @@ impl HuffmanTable {
             });
         }
         if max_len > 15 {
-            bail!("huffman code length too large: {max_len}");
+            inflate_bail!("huffman code length too large: {max_len}");
         }
 
         let max_bits = max_len;
@@ -354,7 +379,7 @@ impl HuffmanTable {
             next_code[bits] = code;
         }
         if (u32::from(next_code[15]) + u32::from(bl_count[15])) > (1u32 << 15) {
-            bail!("oversubscribed huffman tree");
+            inflate_bail!("oversubscribed huffman tree");
         }
 
         for (sym, &len) in code_lengths.iter().enumerate() {
@@ -382,7 +407,7 @@ impl HuffmanTable {
         let idx = br.peek_bits(self.max_bits)? as usize;
         let e = self.entries[idx];
         if e.bits == 0 {
-            bail!("invalid huffman code");
+            inflate_bail!("invalid huffman code");
         }
         br.drop_bits(e.bits as u32)?;
         Ok(e.sym as u32)

@@ -1,7 +1,61 @@
-use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::{Duration, timeout};
+
+pub type Result<T> = std::result::Result<T, HttpError>;
+
+#[derive(Debug)]
+pub enum HttpError {
+    WriteTimedOut,
+    FlushTimedOut,
+    ReadTimedOut,
+    Io(std::io::Error),
+    InvalidHeaderUtf8(std::str::Utf8Error),
+    InvalidResponse(String),
+    InvalidStatusCode {
+        status_line: String,
+        source: std::num::ParseIntError,
+    },
+    BadChunkSizeLineUtf8(std::str::Utf8Error),
+    BadChunkSize {
+        value: String,
+        source: std::num::ParseIntError,
+    },
+}
+
+impl std::fmt::Display for HttpError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::WriteTimedOut => write!(f, "HTTP write timed out"),
+            Self::FlushTimedOut => write!(f, "HTTP flush timed out"),
+            Self::ReadTimedOut => write!(f, "HTTP read timed out"),
+            Self::Io(_) => write!(f, "HTTP I/O failed"),
+            Self::InvalidHeaderUtf8(_) => write!(f, "HTTP headers were not valid UTF-8"),
+            Self::InvalidResponse(msg) => write!(f, "{msg}"),
+            Self::InvalidStatusCode { status_line, .. } => {
+                write!(f, "bad HTTP status code in: {status_line}")
+            }
+            Self::BadChunkSizeLineUtf8(_) => write!(f, "bad chunk size line utf8"),
+            Self::BadChunkSize { value, .. } => write!(f, "bad chunk size: {value}"),
+        }
+    }
+}
+
+impl std::error::Error for HttpError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(source) => Some(source),
+            Self::InvalidHeaderUtf8(source) => Some(source),
+            Self::InvalidStatusCode { source, .. } => Some(source),
+            Self::BadChunkSizeLineUtf8(source) => Some(source),
+            Self::BadChunkSize { source, .. } => Some(source),
+            Self::WriteTimedOut
+            | Self::FlushTimedOut
+            | Self::ReadTimedOut
+            | Self::InvalidResponse(_) => None,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct HttpResponse {
@@ -24,37 +78,43 @@ pub async fn http_get_bytes(
 
     timeout(io_timeout, async { stream.write_all(req.as_bytes()).await })
         .await
-        .context("HTTP write timed out")??;
+        .map_err(|_| HttpError::WriteTimedOut)?
+        .map_err(HttpError::Io)?;
 
     timeout(io_timeout, async { stream.flush().await })
         .await
-        .context("HTTP flush timed out")??;
+        .map_err(|_| HttpError::FlushTimedOut)?
+        .map_err(HttpError::Io)?;
 
     let mut buf = Vec::new();
     timeout(io_timeout, async { stream.read_to_end(&mut buf).await })
         .await
-        .context("HTTP read timed out")??;
+        .map_err(|_| HttpError::ReadTimedOut)?
+        .map_err(HttpError::Io)?;
 
     parse_http_response(&buf)
 }
 
 fn parse_http_response(raw: &[u8]) -> Result<HttpResponse> {
     let (head, body) = split_http(raw)?;
-    let head_str = std::str::from_utf8(head).context("HTTP headers were not valid UTF-8")?;
+    let head_str = std::str::from_utf8(head).map_err(HttpError::InvalidHeaderUtf8)?;
     let mut lines = head_str.split("\r\n");
 
     let status_line = lines
         .next()
-        .ok_or_else(|| anyhow::anyhow!("missing HTTP status line"))?;
+        .ok_or_else(|| HttpError::InvalidResponse("missing HTTP status line".to_string()))?;
     let mut parts = status_line.split_whitespace();
-    let _http = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("bad HTTP status line: {status_line}"))?;
+    let _http = parts.next().ok_or_else(|| {
+        HttpError::InvalidResponse(format!("bad HTTP status line: {status_line}"))
+    })?;
     let status: u16 = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("bad HTTP status line: {status_line}"))?
+        .ok_or_else(|| HttpError::InvalidResponse(format!("bad HTTP status line: {status_line}")))?
         .parse()
-        .with_context(|| format!("bad HTTP status code in: {status_line}"))?;
+        .map_err(|source| HttpError::InvalidStatusCode {
+            status_line: status_line.to_string(),
+            source,
+        })?;
 
     let mut headers = HashMap::<String, String>::new();
     for line in lines {
@@ -63,7 +123,7 @@ fn parse_http_response(raw: &[u8]) -> Result<HttpResponse> {
         }
         let (k, v) = line
             .split_once(':')
-            .ok_or_else(|| anyhow::anyhow!("bad HTTP header line: {line}"))?;
+            .ok_or_else(|| HttpError::InvalidResponse(format!("bad HTTP header line: {line}")))?;
         headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
     }
 
@@ -94,19 +154,25 @@ fn split_http(raw: &[u8]) -> Result<(&[u8], &[u8])> {
     if let Some(i) = twoway_find(raw, b"\n\n") {
         return Ok((&raw[..i], &raw[i + 2..]));
     }
-    bail!("HTTP response missing header delimiter");
+    Err(HttpError::InvalidResponse(
+        "HTTP response missing header delimiter".to_string(),
+    ))
 }
 
 fn decode_chunked(mut b: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     loop {
-        let line_end = twoway_find(b, b"\r\n")
-            .ok_or_else(|| anyhow::anyhow!("bad chunked encoding: missing CRLF after size"))?;
+        let line_end = twoway_find(b, b"\r\n").ok_or_else(|| {
+            HttpError::InvalidResponse("bad chunked encoding: missing CRLF after size".to_string())
+        })?;
         let line = &b[..line_end];
-        let line_str = std::str::from_utf8(line).context("bad chunk size line utf8")?;
+        let line_str = std::str::from_utf8(line).map_err(HttpError::BadChunkSizeLineUtf8)?;
         let size_str = line_str.split(';').next().unwrap_or(line_str).trim();
-        let size = usize::from_str_radix(size_str, 16)
-            .with_context(|| format!("bad chunk size: {size_str}"))?;
+        let size =
+            usize::from_str_radix(size_str, 16).map_err(|source| HttpError::BadChunkSize {
+                value: size_str.to_string(),
+                source,
+            })?;
         b = &b[line_end + 2..];
         if size == 0 {
             // Consume trailer headers until CRLF.
@@ -116,7 +182,9 @@ fn decode_chunked(mut b: &[u8]) -> Result<Vec<u8>> {
             break;
         }
         if b.len() < size + 2 {
-            bail!("bad chunked encoding: truncated chunk");
+            return Err(HttpError::InvalidResponse(
+                "bad chunked encoding: truncated chunk".to_string(),
+            ));
         }
         out.extend_from_slice(&b[..size]);
         b = &b[size + 2..]; // skip chunk + CRLF

@@ -1,6 +1,45 @@
 use crate::kad::{KadId, packed};
-use anyhow::{Result, bail};
 use std::collections::BTreeMap;
+
+pub type Result<T> = std::result::Result<T, WireError>;
+
+#[derive(Debug)]
+pub enum WireError {
+    Inflate(packed::InflateError),
+    UnexpectedEof { offset: usize },
+    InvalidFormat(String),
+}
+
+impl std::fmt::Display for WireError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Inflate(source) => write!(f, "{source}"),
+            Self::UnexpectedEof { offset } => write!(f, "unexpected EOF at {offset}"),
+            Self::InvalidFormat(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for WireError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Inflate(source) => Some(source),
+            Self::UnexpectedEof { .. } | Self::InvalidFormat(_) => None,
+        }
+    }
+}
+
+impl From<packed::InflateError> for WireError {
+    fn from(value: packed::InflateError) -> Self {
+        Self::Inflate(value)
+    }
+}
+
+macro_rules! wire_bail {
+    ($($arg:tt)*) => {
+        return Err(WireError::InvalidFormat(format!($($arg)*)))
+    };
+}
 
 pub const OP_KADEMLIAHEADER: u8 = 0x05;
 pub const OP_KADEMLIAPACKEDPROT: u8 = 0x06;
@@ -86,7 +125,7 @@ impl KadPacket {
 
     pub fn decode(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < 2 {
-            bail!("kademlia packet too short: {} bytes", bytes.len());
+            wire_bail!("kademlia packet too short: {} bytes", bytes.len());
         }
         let protocol = bytes[0];
         let opcode = bytes[1];
@@ -105,7 +144,7 @@ impl KadPacket {
                     payload: decompressed,
                 })
             }
-            other => bail!("unknown kademlia protocol byte: 0x{other:02x}"),
+            other => wire_bail!("unknown kademlia protocol byte: 0x{other:02x}"),
         }
     }
 }
@@ -309,7 +348,7 @@ pub fn decode_kad2_req(payload: &[u8]) -> Result<Kad2Req> {
     let mut r = Reader::new(payload);
     let requested_contacts = r.read_u8()? & 0x1F;
     if requested_contacts == 0 {
-        bail!("kademlia2 req requested_contacts=0");
+        wire_bail!("kademlia2 req requested_contacts=0");
     }
     let target = r.read_uint128_emule()?;
     let check = r.read_uint128_emule()?;
@@ -475,7 +514,7 @@ pub struct Kad2PublishKeyReqLenient {
 pub fn decode_kad2_publish_key_keyword_prefix(payload: &[u8]) -> Result<KadId> {
     // Same weird eMule/aMule encoding used everywhere: 4 x u32 le, chunk order preserved.
     if payload.len() < 16 {
-        bail!(
+        wire_bail!(
             "publish-key payload too short for keyword prefix: {} bytes",
             payload.len()
         );
@@ -485,7 +524,7 @@ pub fn decode_kad2_publish_key_keyword_prefix(payload: &[u8]) -> Result<KadId> {
     for w in 0..4 {
         let s = payload
             .get(i..i + 4)
-            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", i))?;
+            .ok_or(WireError::UnexpectedEof { offset: i })?;
         i += 4;
         let le = u32::from_le_bytes(s.try_into().unwrap());
         out[w * 4..w * 4 + 4].copy_from_slice(&le.to_be_bytes());
@@ -692,12 +731,12 @@ pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2Publish
     }
 
     let mut r = R::new(payload);
-    let keyword = r
-        .read_uint128_emule()
-        .ok_or_else(|| anyhow::anyhow!("publish-key payload too short for keyword"))?;
-    let declared_count = r
-        .read_u16_le()
-        .ok_or_else(|| anyhow::anyhow!("publish-key payload too short for count"))?;
+    let keyword = r.read_uint128_emule().ok_or_else(|| {
+        WireError::InvalidFormat("publish-key payload too short for keyword".to_string())
+    })?;
+    let declared_count = r.read_u16_le().ok_or_else(|| {
+        WireError::InvalidFormat("publish-key payload too short for count".to_string())
+    })?;
 
     let mut entries = Vec::new();
     let mut complete = true;
@@ -1015,7 +1054,7 @@ pub fn decode_kad1_req(payload: &[u8]) -> Result<Kad1Req> {
     let mut r = Reader::new(payload);
     let kind = r.read_u8()? & 0x1F;
     if kind == 0 {
-        bail!("kademlia req kind=0");
+        wire_bail!("kademlia req kind=0");
     }
     let target = r.read_uint128_emule()?;
     let check = r.read_uint128_emule()?;
@@ -1058,7 +1097,7 @@ impl<'a> Reader<'a> {
         let v = *self
             .b
             .get(self.i)
-            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+            .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += 1;
         Ok(v)
     }
@@ -1067,7 +1106,7 @@ impl<'a> Reader<'a> {
         let s = self
             .b
             .get(self.i..self.i + 2)
-            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+            .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += 2;
         Ok(u16::from_le_bytes(s.try_into().unwrap()))
     }
@@ -1076,7 +1115,7 @@ impl<'a> Reader<'a> {
         let s = self
             .b
             .get(self.i..self.i + 4)
-            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+            .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += 4;
         Ok(u32::from_le_bytes(s.try_into().unwrap()))
     }
@@ -1085,7 +1124,7 @@ impl<'a> Reader<'a> {
         let s = self
             .b
             .get(self.i..self.i + I2P_DEST_LEN)
-            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+            .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += I2P_DEST_LEN;
         Ok(s.try_into().unwrap())
     }
@@ -1183,7 +1222,7 @@ impl<'a> Reader<'a> {
                     let s = self
                         .b
                         .get(self.i..self.i + len)
-                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                        .ok_or(WireError::UnexpectedEof { offset: self.i })?;
                     self.i += len;
                     let s = String::from_utf8_lossy(s).into_owned();
                     if id == Some(TAG_RUST_MULE_AGENT) {
@@ -1220,14 +1259,14 @@ impl<'a> Reader<'a> {
                     let s = self
                         .b
                         .get(self.i..self.i + len)
-                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                        .ok_or(WireError::UnexpectedEof { offset: self.i })?;
                     self.i += len;
                     let s = String::from_utf8_lossy(s).into_owned();
                     if id == Some(TAG_RUST_MULE_AGENT) {
                         agent = Some(s);
                     }
                 }
-                other => bail!("unknown tag type 0x{other:02x}"),
+                other => wire_bail!("unknown tag type 0x{other:02x}"),
             }
         }
 
@@ -1237,7 +1276,7 @@ impl<'a> Reader<'a> {
     fn skip(&mut self, len: usize) -> Result<()> {
         self.b
             .get(self.i..self.i + len)
-            .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+            .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += len;
         Ok(())
     }
@@ -1335,7 +1374,7 @@ impl<'a> Reader<'a> {
                     let s = self
                         .b
                         .get(self.i..self.i + len)
-                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                        .ok_or(WireError::UnexpectedEof { offset: self.i })?;
                     self.i += len;
                     let s = String::from_utf8_lossy(s).into_owned();
                     match id {
@@ -1372,7 +1411,7 @@ impl<'a> Reader<'a> {
                     let s = self
                         .b
                         .get(self.i..self.i + len)
-                        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at {}", self.i))?;
+                        .ok_or(WireError::UnexpectedEof { offset: self.i })?;
                     self.i += len;
                     let s = String::from_utf8_lossy(s).into_owned();
                     match id {
@@ -1381,7 +1420,7 @@ impl<'a> Reader<'a> {
                         _ => {}
                     }
                 }
-                other => bail!("unknown tag type 0x{other:02x}"),
+                other => wire_bail!("unknown tag type 0x{other:02x}"),
             }
         }
         Ok(out)

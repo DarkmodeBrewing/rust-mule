@@ -8,6 +8,37 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Expanded subsystem-specific typed errors (second batch) on `feature/subsystem-typed-errors`:
+  - Replaced `anyhow` in additional KAD/SAM subsystem modules with typed errors:
+    - `src/kad/wire.rs` (`WireError`)
+    - `src/kad/packed.rs` (`InflateError`)
+    - `src/kad/udp_crypto.rs` (`UdpCryptoError`)
+    - `src/kad/udp_key.rs` (`UdpKeyError`)
+    - `src/kad/bootstrap.rs` (`BootstrapError`)
+    - `src/i2p/sam/keys.rs` (`SamKeysError`)
+    - `src/i2p/sam/kad_socket.rs` now returns `Result<_, SamError>` directly.
+  - Kept app/main/api as the top-level error aggregation boundary.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 60 tests).
+- Decisions: Typed errors were added first in protocol/parsing/crypto and SAM helper modules where error provenance matters most; orchestration layers remain unchanged for now.
+- Next steps: Remaining `anyhow` usage is concentrated in boundary/runtime modules (`src/app.rs`, `src/main.rs`, `src/api/mod.rs`, `src/single_instance.rs`, `src/kad/service.rs`, and bin tools) and can be migrated incrementally if full typed coverage is required.
+- Change log: KAD wire/deflate/UDP-crypto/bootstrap and SAM keys/socket now emit concrete typed errors rather than `anyhow`.
+
+- Status: Implemented subsystem-specific typed errors on `feature/subsystem-typed-errors`:
+  - Replaced internal `anyhow` usage with typed error enums + local `Result` aliases in:
+    - `src/config.rs`
+    - `src/config_io.rs`
+    - `src/api/token.rs`
+    - `src/kad.rs`
+    - `src/kad/keyword.rs`
+    - `src/nodes/imule.rs`
+    - `src/i2p/b64.rs`
+    - `src/i2p/http.rs`
+  - Preserved current app-level behavior by allowing these typed errors to bubble into existing `anyhow` boundaries where applicable.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 60 tests).
+- Decisions: Kept this pass focused on subsystem modules with clear ownership boundaries; app orchestration/error aggregation remains unchanged.
+- Next steps: Continue migrating remaining non-core modules still using `anyhow` (for example selected KAD service/bootstrap internals) if full typed-error coverage is desired.
+- Change log: Subsystem error handling now uses concrete typed errors instead of stringly `anyhow` in the converted modules.
+
 - Status: Completed logging follow-up pass (`feature/logging-followup`):
   - Added throttled-warning suppression counters surfaced as periodic summary logs (`event=throttled_warning_summary`).
   - Broadened log redaction on KAD identifiers in operational/debug paths (`redact_hex`) and shortened destination logging to short base64 forms in additional send-failure paths.

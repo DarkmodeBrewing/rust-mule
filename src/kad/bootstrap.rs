@@ -14,9 +14,58 @@ use crate::{
     kad::{KadId, udp_crypto},
     nodes::imule::ImuleNode,
 };
-use anyhow::{Context, Result};
 use std::{collections::BTreeMap, collections::BTreeSet, time::Duration};
 use tokio::time::{Instant, timeout};
+
+pub type Result<T> = std::result::Result<T, BootstrapError>;
+
+#[derive(Debug)]
+pub enum BootstrapError {
+    Sam(crate::i2p::sam::SamError),
+    Wire(crate::kad::wire::WireError),
+    Crypto(crate::kad::udp_crypto::UdpCryptoError),
+    InvalidState(String),
+}
+
+impl std::fmt::Display for BootstrapError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Sam(source) => write!(f, "{source}"),
+            Self::Wire(source) => write!(f, "{source}"),
+            Self::Crypto(source) => write!(f, "{source}"),
+            Self::InvalidState(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for BootstrapError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Sam(source) => Some(source),
+            Self::Wire(source) => Some(source),
+            Self::Crypto(source) => Some(source),
+            Self::InvalidState(_) => None,
+        }
+    }
+}
+
+impl From<crate::i2p::sam::SamError> for BootstrapError {
+    fn from(value: crate::i2p::sam::SamError) -> Self {
+        Self::Sam(value)
+    }
+}
+
+impl From<crate::kad::wire::WireError> for BootstrapError {
+    fn from(value: crate::kad::wire::WireError) -> Self {
+        Self::Wire(value)
+    }
+}
+
+impl From<crate::kad::udp_crypto::UdpCryptoError> for BootstrapError {
+    fn from(value: crate::kad::udp_crypto::UdpCryptoError) -> Self {
+        Self::Crypto(value)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct BootstrapConfig {
@@ -135,7 +184,9 @@ pub async fn bootstrap(
     });
     initial.truncate(cfg.max_initial);
     if initial.is_empty() {
-        anyhow::bail!("no bootstrap nodes provided");
+        return Err(BootstrapError::InvalidState(
+            "no bootstrap nodes provided".to_string(),
+        ));
     }
 
     let boot_plain = KadPacket::encode(KADEMLIA2_BOOTSTRAP_REQ, &[]);
@@ -168,20 +219,22 @@ pub async fn bootstrap(
                 receiver_verify_key,
                 sender_verify_key,
             )?;
-            sock.send_to(&dest, &boot)
-                .await
-                .with_context(|| "failed to send KAD2 BOOTSTRAP_REQ")?;
+            sock.send_to(&dest, &boot).await.map_err(|e| {
+                BootstrapError::InvalidState(format!("failed to send KAD2 BOOTSTRAP_REQ: {e}"))
+            })?;
         } else {
-            sock.send_to(&dest, &boot_plain)
-                .await
-                .with_context(|| "failed to send KAD2 BOOTSTRAP_REQ (plain)")?;
+            sock.send_to(&dest, &boot_plain).await.map_err(|e| {
+                BootstrapError::InvalidState(format!(
+                    "failed to send KAD2 BOOTSTRAP_REQ (plain): {e}"
+                ))
+            })?;
         }
 
         // Proactively send HELLO_REQ as well to encourage key exchange and being added to routing tables.
         // iMule sends HELLO_REQ unobfuscated with kadVersion=1.
-        sock.send_to(&dest, &hello_plain)
-            .await
-            .with_context(|| "failed to send KAD2 HELLO_REQ (plain)")?;
+        sock.send_to(&dest, &hello_plain).await.map_err(|e| {
+            BootstrapError::InvalidState(format!("failed to send KAD2 HELLO_REQ (plain): {e}"))
+        })?;
     }
 
     let deadline = Instant::now() + cfg.runtime;

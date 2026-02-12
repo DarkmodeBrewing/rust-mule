@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use std::path::Path;
 
 pub mod bootstrap;
 pub mod keyword;
@@ -10,6 +10,73 @@ pub mod udp_crypto;
 pub mod udp_key;
 pub mod wire;
 
+pub type Result<T> = std::result::Result<T, KadError>;
+
+#[derive(Debug)]
+pub enum KadError {
+    Random(String),
+    InvalidHexLength(usize),
+    InvalidHexByte {
+        index: usize,
+        source: std::num::ParseIntError,
+    },
+    PreferencesTooSmall(usize),
+    Uint128TooSmall(usize),
+    ParsePreferences {
+        path: String,
+        source: Box<KadError>,
+    },
+    CreateDir {
+        path: String,
+        source: std::io::Error,
+    },
+    Write {
+        path: String,
+        source: std::io::Error,
+    },
+    Rename {
+        from: String,
+        to: String,
+        source: std::io::Error,
+    },
+}
+
+impl std::fmt::Display for KadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Random(msg) => write!(f, "failed to generate random KadId: {msg}"),
+            Self::InvalidHexLength(len) => write!(f, "KadId hex must be 32 chars (got {len})"),
+            Self::InvalidHexByte { index, .. } => write!(f, "Invalid KadId hex at byte {index}"),
+            Self::PreferencesTooSmall(len) => {
+                write!(f, "preferencesKad.dat too small: {len} bytes")
+            }
+            Self::Uint128TooSmall(len) => write!(f, "uint128 buffer too small: {len} bytes"),
+            Self::ParsePreferences { path, .. } => {
+                write!(f, "failed to parse {}", path)
+            }
+            Self::CreateDir { path, .. } => write!(f, "failed creating directory {path}"),
+            Self::Write { path, .. } => write!(f, "failed to write {path}"),
+            Self::Rename { from, to, .. } => write!(f, "failed to rename {from} -> {to}"),
+        }
+    }
+}
+
+impl std::error::Error for KadError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidHexByte { source, .. } => Some(source),
+            Self::ParsePreferences { source, .. } => Some(source),
+            Self::CreateDir { source, .. } => Some(source),
+            Self::Write { source, .. } => Some(source),
+            Self::Rename { source, .. } => Some(source),
+            Self::Random(_)
+            | Self::InvalidHexLength(_)
+            | Self::PreferencesTooSmall(_)
+            | Self::Uint128TooSmall(_) => None,
+        }
+    }
+}
+
 /// 128-bit Kademlia node ID (aMule/iMule: "ClientID").
 ///
 /// Storage convention: big-endian bytes for display and interop.
@@ -19,8 +86,7 @@ pub struct KadId(pub [u8; 16]);
 impl KadId {
     pub fn random() -> Result<Self> {
         let mut b = [0u8; 16];
-        getrandom::getrandom(&mut b)
-            .map_err(|e| anyhow::anyhow!("failed to generate random KadId: {e}"))?;
+        getrandom::getrandom(&mut b).map_err(|e| KadError::Random(e.to_string()))?;
         Ok(Self(b))
     }
 
@@ -40,13 +106,13 @@ impl KadId {
     pub fn from_hex(hex: &str) -> Result<Self> {
         let hex = hex.trim();
         if hex.len() != 32 {
-            bail!("KadId hex must be 32 chars (got {})", hex.len());
+            return Err(KadError::InvalidHexLength(hex.len()));
         }
         let mut out = [0u8; 16];
         for (i, slot) in out.iter_mut().enumerate() {
             let j = i * 2;
             let byte = u8::from_str_radix(&hex[j..j + 2], 16)
-                .map_err(|e| anyhow::anyhow!("Invalid KadId hex at byte {i}: {e}"))?;
+                .map_err(|source| KadError::InvalidHexByte { index: i, source })?;
             *slot = byte;
         }
         Ok(Self(out))
@@ -85,7 +151,7 @@ impl PreferencesKad {
 
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         if bytes.len() < 2 + 16 {
-            bail!("preferencesKad.dat too small: {} bytes", bytes.len());
+            return Err(KadError::PreferencesTooSmall(bytes.len()));
         }
 
         // bytes[0..2] is deprecated/unused; keep for forward compatibility.
@@ -109,10 +175,13 @@ impl PreferencesKad {
     }
 }
 
-pub async fn load_or_create_preferences_kad(path: &std::path::Path) -> Result<PreferencesKad> {
+pub async fn load_or_create_preferences_kad(path: &Path) -> Result<PreferencesKad> {
     if let Ok(bytes) = tokio::fs::read(path).await {
-        let mut prefs = PreferencesKad::parse(&bytes)
-            .with_context(|| format!("failed to parse {}", path.display()))?;
+        let mut prefs =
+            PreferencesKad::parse(&bytes).map_err(|source| KadError::ParsePreferences {
+                path: path.display().to_string(),
+                source: Box::new(source),
+            })?;
         if prefs.kad_id.is_zero() {
             prefs.kad_id = KadId::random()?;
         }
@@ -124,23 +193,33 @@ pub async fn load_or_create_preferences_kad(path: &std::path::Path) -> Result<Pr
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .with_context(|| format!("failed creating directory {}", parent.display()))?;
+            .map_err(|source| KadError::CreateDir {
+                path: parent.display().to_string(),
+                source,
+            })?;
     }
 
     let tmp = path.with_extension("tmp");
     tokio::fs::write(&tmp, prefs.to_bytes())
         .await
-        .with_context(|| format!("failed to write {}", tmp.display()))?;
+        .map_err(|source| KadError::Write {
+            path: tmp.display().to_string(),
+            source,
+        })?;
     tokio::fs::rename(&tmp, path)
         .await
-        .with_context(|| format!("failed to rename {} -> {}", tmp.display(), path.display()))?;
+        .map_err(|source| KadError::Rename {
+            from: tmp.display().to_string(),
+            to: path.display().to_string(),
+            source,
+        })?;
 
     Ok(prefs)
 }
 
 fn parse_uint128_emule(buf: &[u8]) -> Result<KadId> {
     if buf.len() < 16 {
-        bail!("uint128 buffer too small: {} bytes", buf.len());
+        return Err(KadError::Uint128TooSmall(buf.len()));
     }
     let mut id = [0u8; 16];
     for i in 0..4 {

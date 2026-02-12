@@ -1,6 +1,22 @@
 use crate::kad::KadId;
 use crate::kad::md4;
-use anyhow::Result;
+
+pub type Result<T> = std::result::Result<T, KeywordError>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeywordError {
+    NoValidWords,
+}
+
+impl std::fmt::Display for KeywordError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoValidWords => write!(f, "query yielded no valid keyword words"),
+        }
+    }
+}
+
+impl std::error::Error for KeywordError {}
 
 // iMule `SearchManager.h::GetInvalidKeywordChars()`
 const INVALID_KEYWORD_CHARS: &str = " ()[]{}<>,._-!?:;\\/\"";
@@ -54,10 +70,7 @@ pub fn keyword_hash(word: &str) -> KadId {
 /// iMule uses the first extracted word as the target.
 pub fn query_to_keyword_id(query: &str) -> Result<(String, KadId)> {
     let ws = words(query);
-    let first = ws
-        .into_iter()
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("query yielded no valid keyword words"))?;
+    let first = ws.into_iter().next().ok_or(KeywordError::NoValidWords)?;
     let id = keyword_hash(&first);
     Ok((first, id))
 }

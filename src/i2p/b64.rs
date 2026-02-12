@@ -7,6 +7,25 @@ use std::fmt;
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-~";
 
+pub type Result<T> = std::result::Result<T, B64Error>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum B64Error {
+    InvalidLength(usize),
+    InvalidCharacter(u8),
+}
+
+impl std::fmt::Display for B64Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidLength(len) => write!(f, "invalid base64 length: {len}"),
+            Self::InvalidCharacter(b) => write!(f, "invalid base64 character: 0x{b:02x}"),
+        }
+    }
+}
+
+impl std::error::Error for B64Error {}
+
 /// Short, human-friendly formatter for very long I2P base64 destination strings.
 ///
 /// This is meant for logs: it keeps the beginning/end (useful for correlation) without
@@ -85,7 +104,7 @@ pub fn encode(input: &[u8]) -> String {
     out
 }
 
-pub fn decode(input: &str) -> anyhow::Result<Vec<u8>> {
+pub fn decode(input: &str) -> Result<Vec<u8>> {
     let mut rev = [0u8; 256];
     rev.fill(0xFF);
     for (i, &b) in ALPHABET.iter().enumerate() {
@@ -101,7 +120,7 @@ pub fn decode(input: &str) -> anyhow::Result<Vec<u8>> {
     }
 
     if cleaned.len() % 4 != 0 {
-        anyhow::bail!("invalid base64 length: {}", cleaned.len());
+        return Err(B64Error::InvalidLength(cleaned.len()));
     }
 
     let mut out = Vec::with_capacity((cleaned.len() / 4) * 3);
@@ -137,13 +156,13 @@ pub fn decode(input: &str) -> anyhow::Result<Vec<u8>> {
     Ok(out)
 }
 
-fn decode_char(rev: &[u8; 256], b: u8) -> anyhow::Result<u8> {
+fn decode_char(rev: &[u8; 256], b: u8) -> Result<u8> {
     if b == b'=' {
         return Ok(0);
     }
     let v = rev[b as usize];
     if v == 0xFF {
-        anyhow::bail!("invalid base64 character: 0x{b:02x}");
+        return Err(B64Error::InvalidCharacter(b));
     }
     Ok(v)
 }
