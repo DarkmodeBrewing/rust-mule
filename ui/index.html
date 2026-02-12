@@ -31,27 +31,25 @@
 
             <h3 class="mt-4">Search Threads</h3>
             <ul class="search-list mt-3">
-                <li class="search-item">
-                    <div class="flex gap-3">
-                        <strong>linux iso</strong>
-                        <span class="badge state-running">running</span>
-                    </div>
-                    <small>hits: 12 · peers: 41</small>
-                </li>
-                <li class="search-item">
-                    <div class="flex gap-3">
-                        <strong>rust book</strong>
-                        <span class="badge state-idle">idle</span>
-                    </div>
-                    <small>hits: 0 · peers: 0</small>
-                </li>
-                <li class="search-item">
-                    <div class="flex gap-3">
-                        <strong>debian image</strong>
-                        <span class="badge state-done">complete</span>
-                    </div>
-                    <small>hits: 5 · peers: 19</small>
-                </li>
+                <template x-if="searchThreads.length === 0">
+                    <li class="search-item">
+                        <small>No active keyword searches yet.</small>
+                    </li>
+                </template>
+                <template x-for="thread in searchThreads" :key="thread.search_id_hex">
+                    <li class="search-item">
+                        <div class="flex gap-3 flex-wrap">
+                            <a x-bind:href="'/ui/search_details?searchId=' + thread.search_id_hex">
+                                <strong x-text="thread.search_id_hex"></strong>
+                            </a>
+                            <span class="badge" x-bind:class="threadStateClass(thread.state)" x-text="thread.state"></span>
+                        </div>
+                        <small>
+                            hits: <span x-text="thread.hits"></span>
+                            · age: <span x-text="thread.created_secs_ago"></span>s
+                        </small>
+                    </li>
+                </template>
             </ul>
 
             <div class="mt-4">

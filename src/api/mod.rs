@@ -17,8 +17,8 @@ use crate::{
     kad::{
         KadId, keyword,
         service::{
-            KadKeywordHit, KadPeerInfo, KadServiceCommand, KadServiceStatus, KadSourceEntry,
-            RoutingBucketSummary, RoutingNodeSummary, RoutingSummary,
+            KadKeywordHit, KadKeywordSearchInfo, KadPeerInfo, KadServiceCommand, KadServiceStatus,
+            KadSourceEntry, RoutingBucketSummary, RoutingNodeSummary, RoutingSummary,
         },
     },
 };
@@ -68,6 +68,8 @@ pub async fn serve(
         .route("/dev/auth", get(dev_auth))
         .route("/status", get(status))
         .route("/events", get(events))
+        .route("/searches", get(searches))
+        .route("/searches/:search_id", get(search_details))
         .route("/kad/peers", get(kad_peers))
         .route("/debug/routing/summary", get(debug_routing_summary))
         .route("/debug/routing/buckets", get(debug_routing_buckets))
@@ -153,6 +155,17 @@ struct KadSourceJson {
 #[derive(Debug, Serialize)]
 struct KadKeywordResultsResponse {
     keyword_id_hex: String,
+    hits: Vec<KadKeywordHitJson>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchListResponse {
+    searches: Vec<KadKeywordSearchInfo>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchDetailsResponse {
+    search: KadKeywordSearchInfo,
     hits: Vec<KadKeywordHitJson>,
 }
 
@@ -294,6 +307,77 @@ async fn kad_keyword_results(
         keyword_id_hex: keyword_id.to_hex_lower(),
         hits,
     }))
+}
+
+async fn searches(State(state): State<ApiState>) -> Result<Json<SearchListResponse>, StatusCode> {
+    let (tx, rx) = tokio::sync::oneshot::channel::<Vec<KadKeywordSearchInfo>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetKeywordSearches { respond_to: tx })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let searches = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(SearchListResponse { searches }))
+}
+
+async fn search_details(
+    State(state): State<ApiState>,
+    axum::extract::Path(search_id): axum::extract::Path<String>,
+) -> Result<Json<SearchDetailsResponse>, StatusCode> {
+    let keyword_id = KadId::from_hex(&search_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let (searches_tx, searches_rx) = tokio::sync::oneshot::channel::<Vec<KadKeywordSearchInfo>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetKeywordSearches {
+            respond_to: searches_tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let searches = tokio::time::timeout(std::time::Duration::from_secs(2), searches_rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let search = searches
+        .into_iter()
+        .find(|s| s.search_id_hex == keyword_id.to_hex_lower())
+        .ok_or(StatusCode::NOT_FOUND)?;
+
+    let (hits_tx, hits_rx) = tokio::sync::oneshot::channel::<Vec<KadKeywordHit>>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetKeywordResults {
+            keyword: keyword_id,
+            respond_to: hits_tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let hits = tokio::time::timeout(std::time::Duration::from_secs(2), hits_rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let hits = hits
+        .into_iter()
+        .map(|h| KadKeywordHitJson {
+            file_id_hex: h.file_id.to_hex_lower(),
+            filename: h.filename,
+            file_size: h.file_size,
+            file_type: h.file_type,
+            publish_info: h.publish_info,
+            origin: h.origin.as_str().to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(SearchDetailsResponse { search, hits }))
 }
 
 async fn kad_peers(State(state): State<ApiState>) -> Result<Json<KadPeersResponse>, StatusCode> {

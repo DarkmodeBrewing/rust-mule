@@ -36,6 +36,21 @@ curl -sS "$BASE_URL/api/v1/health" | jq .
 curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/status" | jq .
 ```
 
+## Active Keyword Searches
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/searches" | jq .
+```
+
+## Active Keyword Search Details
+
+`search_id` is currently the keyword ID hex (16 bytes / 32 hex chars).
+
+```bash
+SEARCH_ID="00112233445566778899aabbccddeeff"
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/searches/$SEARCH_ID" | jq .
+```
+
 ## Live Events (SSE)
 
 ```bash

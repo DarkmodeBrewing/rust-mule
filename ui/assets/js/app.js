@@ -1,5 +1,25 @@
 import { apiGet, apiPost, bootstrapToken, openStatusEventStream } from "./helpers.js";
 
+function parseSearchIdFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("searchId") || "").trim();
+}
+
+function stateClass(state) {
+  if (state === "running") {
+    return "state-running";
+  }
+  if (state === "complete") {
+    return "state-done";
+  }
+  return "state-idle";
+}
+
+async function loadSearchThreads(ctx) {
+  const data = await apiGet("/searches");
+  ctx.searchThreads = Array.isArray(data?.searches) ? data.searches : [];
+}
+
 window.indexApp = function indexApp() {
   return {
     loading: false,
@@ -8,6 +28,11 @@ window.indexApp = function indexApp() {
     token: "",
     status: null,
     sse: null,
+    searchThreads: [],
+
+    threadStateClass(state) {
+      return stateClass(state);
+    },
 
     get prettyStatus() {
       if (!this.status) {
@@ -23,6 +48,7 @@ window.indexApp = function indexApp() {
       try {
         this.token = await bootstrapToken();
         await this.refreshStatus();
+        await this.refreshThreads();
         this.startEvents();
       } catch (err) {
         this.error = String(err?.message || err);
@@ -35,6 +61,14 @@ window.indexApp = function indexApp() {
       try {
         this.error = "";
         this.status = await apiGet("/status");
+      } catch (err) {
+        this.error = String(err?.message || err);
+      }
+    },
+
+    async refreshThreads() {
+      try {
+        await loadSearchThreads(this);
       } catch (err) {
         this.error = String(err?.message || err);
       }
@@ -78,6 +112,11 @@ window.appSearch = function appSearch() {
     keywordIdHex: "",
     searchResponse: null,
     keywordResults: null,
+    searchThreads: [],
+
+    threadStateClass(state) {
+      return stateClass(state);
+    },
 
     get activeKeywordIdHex() {
       return this.searchResponse?.keyword_id_hex || this.keywordIdHex.trim();
@@ -95,6 +134,7 @@ window.appSearch = function appSearch() {
       this.error = "";
       try {
         await bootstrapToken();
+        await this.refreshThreads();
       } catch (err) {
         this.error = String(err?.message || err);
       } finally {
@@ -109,11 +149,16 @@ window.appSearch = function appSearch() {
         const payload = this.buildPayload();
         this.searchResponse = await apiPost("/kad/search_keyword", payload);
         await this.refreshResults();
+        await this.refreshThreads();
       } catch (err) {
         this.error = String(err?.message || err);
       } finally {
         this.submitting = false;
       }
+    },
+
+    async refreshThreads() {
+      await loadSearchThreads(this);
     },
 
     async refreshResults() {
@@ -136,6 +181,61 @@ window.appSearch = function appSearch() {
         throw new Error("enter a keyword query or keyword id");
       }
       return { query };
+    },
+  };
+};
+
+window.appSearchDetails = function appSearchDetails() {
+  return {
+    loading: false,
+    error: "",
+    searchId: "",
+    details: null,
+    searchThreads: [],
+
+    threadStateClass(state) {
+      return stateClass(state);
+    },
+
+    get hits() {
+      return this.details?.hits || [];
+    },
+
+    get prettyDetails() {
+      if (!this.details) {
+        return "{}";
+      }
+      return JSON.stringify(this.details, null, 2);
+    },
+
+    async init() {
+      this.loading = true;
+      this.error = "";
+      this.searchId = parseSearchIdFromQuery();
+
+      try {
+        await bootstrapToken();
+        await this.refreshThreads();
+        if (!this.searchId) {
+          throw new Error("missing searchId query parameter");
+        }
+        await this.loadDetails();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async refreshThreads() {
+      await loadSearchThreads(this);
+    },
+
+    async loadDetails() {
+      if (!this.searchId) {
+        return;
+      }
+      this.details = await apiGet(`/searches/${this.searchId}`);
     },
   };
 };

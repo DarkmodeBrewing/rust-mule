@@ -289,6 +289,9 @@ pub enum KadServiceCommand {
         keyword: KadId,
         respond_to: oneshot::Sender<Vec<KadKeywordHit>>,
     },
+    GetKeywordSearches {
+        respond_to: oneshot::Sender<Vec<KadKeywordSearchInfo>>,
+    },
     GetPeers {
         respond_to: oneshot::Sender<Vec<KadPeerInfo>>,
     },
@@ -331,6 +334,18 @@ pub struct KadKeywordHit {
     pub file_type: Option<String>,
     pub publish_info: Option<u32>,
     pub origin: KadKeywordHitOrigin,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KadKeywordSearchInfo {
+    pub search_id_hex: String,
+    pub keyword_id_hex: String,
+    pub state: String,
+    pub created_secs_ago: u64,
+    pub hits: usize,
+    pub want_search: bool,
+    pub publish_enabled: bool,
+    pub got_publish_ack: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -764,6 +779,37 @@ async fn handle_command(
                 })
                 .unwrap_or_default();
             let _ = respond_to.send(hits);
+        }
+        KadServiceCommand::GetKeywordSearches { respond_to } => {
+            let mut searches = svc
+                .keyword_jobs
+                .iter()
+                .map(|(keyword, job)| {
+                    let hits = svc
+                        .keyword_hits_by_keyword
+                        .get(keyword)
+                        .map(|m| m.len())
+                        .unwrap_or(0);
+                    let publish_enabled = job.publish.is_some();
+                    let state = if job.want_search || (publish_enabled && !job.got_publish_ack) {
+                        "running"
+                    } else {
+                        "complete"
+                    };
+                    KadKeywordSearchInfo {
+                        search_id_hex: keyword.to_hex_lower(),
+                        keyword_id_hex: keyword.to_hex_lower(),
+                        state: state.to_string(),
+                        created_secs_ago: now.saturating_duration_since(job.created_at).as_secs(),
+                        hits,
+                        want_search: job.want_search,
+                        publish_enabled,
+                        got_publish_ack: job.got_publish_ack,
+                    }
+                })
+                .collect::<Vec<_>>();
+            searches.sort_by_key(|s| s.created_secs_ago);
+            let _ = respond_to.send(searches);
         }
         KadServiceCommand::GetPeers { respond_to } => {
             let mut states = svc.routing.snapshot_states();

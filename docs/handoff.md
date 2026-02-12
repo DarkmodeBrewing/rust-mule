@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Added API-backed keyword search thread endpoints:
+  - `GET /api/v1/searches` returns active keyword-search jobs from KAD `keyword_jobs`.
+  - `GET /api/v1/searches/:search_id` returns one active search plus its current hits.
+  - `search_id` maps to keyword ID hex for the active job.
+- Implemented dynamic search threads in UI sidebars:
+  - `ui/index.html` and `ui/search.html` now load active search threads from API.
+  - Search thread rows link to `/ui/search_details?searchId=<keyword_id_hex>`.
+- Added `ui/search_details.html` with the same shell:
+  - Reads `searchId` from query params.
+  - Loads `/api/v1/searches/:search_id` and displays search summary + hits table.
+- Extended frontend app wiring:
+  - Added shared search-thread loading and state-badge mapping in `ui/assets/js/app.js`.
+  - Added `appSearchDetails()` controller for search detail page behavior.
+- Updated docs for new API routes (`docs/architecture.md`, `docs/api_curl.md`).
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after search-thread/details implementation (`cargo test` passed; existing clippy warnings unchanged).
 - Replicated the app shell layout in `ui/search.html` (sidebar + main panel) to match the index page structure.
 - Implemented first functional keyword-search form in the search UI:
   - Added query and optional `keyword_id_hex` inputs.
@@ -111,6 +126,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Treat active keyword-search jobs in KAD service (`keyword_jobs`) as the canonical backend source for UI "search threads".
+- Use keyword ID hex as `search_id` for details routing in v1 (`/ui/search_details?searchId=<keyword_id_hex>` and `/api/v1/searches/:search_id`).
 - Keep search UI v1 focused on real keyword-search queue + cached-hit retrieval rather than adding placeholder-only controls.
 - Enforce no inline `<style>` blocks in UI HTML; shared styles must live under `ui/assets/css/`.
 - Keep sizing/spacing/state tokens in `ui/assets/css/layout.css` and consume them from component/layout rules in `ui/assets/css/base.css`.
@@ -146,6 +163,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Expand UI beyond status/search placeholder views (routing table, peers, and publish/search workflow surfaces).
 - Replace static index sidebar/result placeholders with real search data once `/api/searches` endpoints are implemented.
 - Add search-history/thread state in the UI (persisted list of submitted keyword jobs and selection behavior).
+- Add API/frontend support for completed (no longer active) search history so `search_details` remains available after a job leaves `keyword_jobs`.
 - Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
 - Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -169,6 +187,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Add `/api/v1/searches` and `/api/v1/searches/:search_id` for active keyword jobs; wire search-thread sidebars to API; add `ui/search_details.html` that loads details via `searchId` query param; update API docs; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Replicate shell in `ui/search.html`; implement first keyword search form wired to `/api/v1/kad/search_keyword` + `/api/v1/kad/keyword_results/:keyword_id_hex`; add reusable form CSS classes/tokens and `apiPost()` helper; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Remove inline styles from `ui/index.html`; move reusable shell/search layout rules to `ui/assets/css/base.css`; define layout/state CSS vars in `ui/assets/css/layout.css`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Redesign `ui/index.html` into the UI spec shell (sidebar + search-overview main panel), preserving existing Alpine status/token/SSE wiring; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).

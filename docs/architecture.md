@@ -69,6 +69,15 @@ Notes:
   - Auth required.
   - Returns the latest KAD service status snapshot (or `503` until the service has started).
 
+- `GET /api/v1/searches`
+  - Auth required.
+  - Returns currently active keyword-search jobs tracked by the KAD service.
+
+- `GET /api/v1/searches/:search_id`
+  - Auth required.
+  - Returns one active keyword-search job plus its current in-memory hits.
+  - `search_id` is the keyword hash hex used for the search job.
+
 - `GET /api/v1/events`
   - Auth required.
   - SSE stream of live status updates.
