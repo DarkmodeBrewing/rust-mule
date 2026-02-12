@@ -960,6 +960,18 @@ fn content_type_for_path(path: &std::path::Path) -> &'static str {
 mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use tokio::sync::{broadcast, mpsc, watch};
+
+    fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
+        let (_status_tx, status_rx) = watch::channel(None);
+        let (status_events_tx, _status_events_rx) = broadcast::channel(16);
+        ApiState {
+            token: "test-token".to_string(),
+            status_rx,
+            status_events_tx,
+            kad_cmd_tx,
+        }
+    }
 
     #[test]
     fn detects_loopback_addresses() {
@@ -1034,5 +1046,71 @@ mod tests {
 
         assert!(methods.contains("PUT"));
         assert!(methods.contains("PATCH"));
+    }
+
+    #[tokio::test]
+    async fn search_stop_dispatches_service_command() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let state = test_state(tx);
+        let search_id = "00112233445566778899aabbccddeeff".to_string();
+
+        let expected = KadId::from_hex(&search_id).unwrap();
+
+        let waiter = tokio::spawn(async move {
+            let cmd = rx.recv().await.expect("expected command");
+            match cmd {
+                KadServiceCommand::StopKeywordSearch {
+                    keyword,
+                    respond_to,
+                } => {
+                    assert_eq!(keyword, expected);
+                    let _ = respond_to.send(true);
+                }
+                other => panic!("unexpected command: {other:?}"),
+            }
+        });
+
+        let resp = search_stop(State(state), axum::extract::Path(search_id))
+            .await
+            .expect("search_stop should succeed");
+        assert!(resp.0.stopped);
+        waiter.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn search_delete_dispatches_with_default_purge_true() {
+        let (tx, mut rx) = mpsc::channel(1);
+        let state = test_state(tx);
+        let search_id = "00112233445566778899aabbccddeeff".to_string();
+        let expected = KadId::from_hex(&search_id).unwrap();
+
+        let waiter = tokio::spawn(async move {
+            let cmd = rx.recv().await.expect("expected command");
+            match cmd {
+                KadServiceCommand::DeleteKeywordSearch {
+                    keyword,
+                    purge_results,
+                    respond_to,
+                } => {
+                    assert_eq!(keyword, expected);
+                    assert!(purge_results);
+                    let _ = respond_to.send(true);
+                }
+                other => panic!("unexpected command: {other:?}"),
+            }
+        });
+
+        let resp = search_delete(
+            State(state),
+            axum::extract::Path(search_id),
+            Query(SearchDeleteQuery {
+                purge_results: true,
+            }),
+        )
+        .await
+        .expect("search_delete should succeed");
+        assert!(resp.0.deleted);
+        assert!(resp.0.purged_results);
+        waiter.await.unwrap();
     }
 }

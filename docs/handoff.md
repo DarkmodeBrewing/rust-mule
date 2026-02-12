@@ -8,6 +8,13 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Performed API sanity audit against current UI helpers/controllers:
+  - Confirmed all active Alpine controller API calls are backed by `/api/v1` endpoints.
+  - Confirmed stop/delete UI controls now use real API handlers (`/searches/:id/stop`, `DELETE /searches/:id`).
+- Added API handler-level tests for search control endpoints in `src/api/mod.rs`:
+  - `search_stop_dispatches_service_command`
+  - `search_delete_dispatches_with_default_purge_true`
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after API sanity/test additions (`cargo test` passed; existing clippy warnings unchanged).
 - Completed API-backing coverage for Alpine UI controls/helpers by implementing missing search control endpoints:
   - Added `POST /api/v1/searches/:search_id/stop`.
   - Added `DELETE /api/v1/searches/:search_id` with `purge_results` (default `true`).
@@ -166,6 +173,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Treat `docs/architecture.md` + `docs/api_curl.md` as the implementation-aligned API references for current `/api/v1`; `docs/API_DESIGN.md` remains broader future-state design.
 - Search stop/delete are now first-class `/api/v1` controls instead of UI-local placeholders.
 - `DELETE /api/v1/searches/:search_id` defaults to purging cached keyword results for that search (`purge_results=true`) to keep UI state consistent after delete.
 - Use current active search thread (query-selected or first available) as the source for overview title/state.
@@ -215,7 +223,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Add API/frontend support for completed (no longer active) search history so `search_details` remains available after a job leaves `keyword_jobs`.
 - Consider making node-state thresholds (`active/live` age windows) configurable in UI settings or API response metadata.
 - Add richer log event typing/filtering once non-status event types are exposed from the API.
-- Add API integration tests for `/api/v1/searches/:search_id/stop` and `DELETE /api/v1/searches/:search_id` behavior paths.
+- Decide which `docs/API_DESIGN.md` endpoints should be promoted into the near-term implementation backlog vs kept as long-term design.
 - Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
 - Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -239,6 +247,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: API sanity check-run completed; add endpoint-level API tests for `/api/v1/searches/:search_id/stop` and `DELETE /api/v1/searches/:search_id` dispatch behavior (`src/api/mod.rs`); run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Implement missing `/api/v1` backing for UI search controls: add stop/delete search endpoints + service commands/logic + tests; wire UI stop/delete to API and add `apiDelete()` helper; update API docs; run Prettier + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Implement UI consistency fixes 1..4: add `ui/settings.html` + `appSettings()`, wire settings/new-search/actions, and make overview header/state thread-driven; run Prettier (`ui/assets/js/app.js`) + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `ui/log.html` and `appLogs()` (status snapshot + SSE-backed rolling log view), and route sidebar "Logs" links to `/ui/log`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
