@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, bail};
 
 pub mod bootstrap;
+pub mod keyword;
+pub mod md4;
 pub mod packed;
 pub mod routing;
 pub mod service;
@@ -33,6 +35,21 @@ impl KadId {
             let _ = write!(&mut s, "{:02x}", b);
         }
         s
+    }
+
+    pub fn from_hex(hex: &str) -> Result<Self> {
+        let hex = hex.trim();
+        if hex.len() != 32 {
+            bail!("KadId hex must be 32 chars (got {})", hex.len());
+        }
+        let mut out = [0u8; 16];
+        for i in 0..16 {
+            let j = i * 2;
+            let byte = u8::from_str_radix(&hex[j..j + 2], 16)
+                .map_err(|e| anyhow::anyhow!("Invalid KadId hex at byte {i}: {e}"))?;
+            out[i] = byte;
+        }
+        Ok(Self(out))
     }
 
     /// iMule/eMule "crypt value" format: four little-endian u32 chunks, in big-endian chunk order.

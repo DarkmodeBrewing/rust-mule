@@ -1,6 +1,7 @@
 use crate::{
     config::{Config, SamDatagramTransport},
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamError, SamKadSocket, SamKeys},
+    single_instance::SingleInstanceLock,
 };
 use anyhow::Context;
 use std::collections::BTreeMap;
@@ -8,7 +9,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
 };
-use tokio::sync::{broadcast, watch};
+use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::Duration;
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
@@ -17,6 +18,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         data_dir = %config.general.data_dir,
         "starting app"
     );
+
+    // Prevent starting two instances with the same `data/` directory (and thus the same
+    // `data/sam.keys`), which causes the router to reject sessions with "duplicate destination".
+    let lock_path = Path::new(&config.general.data_dir).join("rust-mule.lock");
+    let _instance_lock = SingleInstanceLock::acquire(&lock_path)
+        .with_context(|| format!("failed to acquire instance lock {}", lock_path.display()))?;
+    tracing::info!(path = %lock_path.display(), "instance lock acquired");
 
     // Load or create aMule/iMule-compatible KadID.
     let prefs_path =
@@ -115,6 +123,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     let data_dir = Path::new(&config.general.data_dir);
 
+    // Command channel used by the (future) GUI/API to instruct the Kad service (search/publish/etc).
+    let (kad_cmd_tx, kad_cmd_rx) = mpsc::channel(128);
+
     // Optional local HTTP API (REST + SSE) for the future GUI.
     //
     // We keep this off by default and require a bearer token stored under `data/`.
@@ -133,8 +144,11 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         let srx = stx.subscribe();
         let api_cfg = config.api.clone();
         let etx_for_server = etx.clone();
+        let cmd_tx_for_server = kad_cmd_tx.clone();
         tokio::spawn(async move {
-            if let Err(err) = crate::api::serve(&api_cfg, token, srx, etx_for_server).await {
+            if let Err(err) =
+                crate::api::serve(&api_cfg, token, srx, etx_for_server, cmd_tx_for_server).await
+            {
                 tracing::error!(error = %err, "api server stopped");
             }
         });
@@ -297,7 +311,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     }
 
     if config.kad.service_enabled {
-        let mut svc = crate::kad::service::KadService::new(kad_prefs.kad_id);
+        let mut svc = crate::kad::service::KadService::new(kad_prefs.kad_id, kad_cmd_rx);
         let crypto = crate::kad::service::KadServiceCrypto {
             my_kad_id: kad_prefs.kad_id,
             my_dest_hash,
@@ -319,10 +333,33 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             hello_every_secs: config.kad.service_hello_every_secs,
             hello_batch: config.kad.service_hello_batch,
             hello_min_interval_secs: config.kad.service_hello_min_interval_secs,
+            hello_dual_obfuscated: config.kad.service_hello_dual_obfuscated,
             maintenance_every_secs: config.kad.service_maintenance_every_secs,
             status_every_secs: config.kad.service_status_every_secs,
             max_failures: config.kad.service_max_failures,
             evict_age_secs: config.kad.service_evict_age_secs,
+
+            refresh_interval_secs: config.kad.service_refresh_interval_secs,
+            refresh_buckets_per_tick: config.kad.service_refresh_buckets_per_tick,
+            refresh_underpopulated_min_contacts: config
+                .kad
+                .service_refresh_underpopulated_min_contacts,
+            refresh_underpopulated_every_secs: config.kad.service_refresh_underpopulated_every_secs,
+            refresh_underpopulated_buckets_per_tick: config
+                .kad
+                .service_refresh_underpopulated_buckets_per_tick,
+            refresh_underpopulated_alpha: config.kad.service_refresh_underpopulated_alpha,
+
+            keyword_require_interest: config.kad.service_keyword_require_interest,
+            keyword_interest_ttl_secs: config.kad.service_keyword_interest_ttl_secs,
+            keyword_results_ttl_secs: config.kad.service_keyword_results_ttl_secs,
+            keyword_max_keywords: config.kad.service_keyword_max_keywords,
+            keyword_max_total_hits: config.kad.service_keyword_max_total_hits,
+            keyword_max_hits_per_keyword: config.kad.service_keyword_max_hits_per_keyword,
+
+            store_keyword_max_keywords: config.kad.service_store_keyword_max_keywords,
+            store_keyword_max_total_hits: config.kad.service_store_keyword_max_total_hits,
+            store_keyword_evict_age_secs: config.kad.service_store_keyword_evict_age_secs,
         };
 
         let mut seed_once = Some(out_nodes);
@@ -502,32 +539,60 @@ async fn create_kad_socket(
                 .with_timeout(Duration::from_secs(config.sam.control_timeout_secs));
             dg.hello("3.0", "3.3").await?;
 
-            if let Err(err) = dg
-                .session_create_datagram(
-                    kad_session_id,
-                    &keys.priv_key,
-                    ["i2cp.messageReliability=BestEffort"],
-                )
-                .await
-            {
-                let msg = err.to_string();
-                if msg.contains("Session already exists")
-                    || msg.contains("DUPLICATED_ID")
-                    || msg.contains("Duplicate")
-                {
-                    tracing::warn!(
-                        session = %kad_session_id,
-                        "SAM session exists; destroying and retrying"
-                    );
-                    let _ = dg.session_destroy(kad_session_id).await;
-                    dg.session_create_datagram(
+            let mut attempt = 0u32;
+            let mut backoff = Duration::from_secs(1);
+            loop {
+                attempt += 1;
+                let res = dg
+                    .session_create_datagram(
                         kad_session_id,
                         &keys.priv_key,
                         ["i2cp.messageReliability=BestEffort"],
                     )
-                    .await?;
-                } else {
-                    return Err(err.into());
+                    .await;
+
+                match res {
+                    Ok(_) => break,
+                    Err(err) => {
+                        // Recoverable-ish: the session already exists (common after a reconnect).
+                        let is_dup_id = matches!(
+                            &err,
+                            crate::i2p::sam::SamError::ReplyError {
+                                result: Some(r),
+                                ..
+                            } if r == "DUPLICATED_ID"
+                        );
+                        let is_dup_msg = err.to_string().contains("Session already exists")
+                            || err.to_string().contains("Duplicate");
+
+                        if is_dup_id || is_dup_msg {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                "SAM session exists; destroying and retrying"
+                            );
+                            let _ = dg.session_destroy(kad_session_id).await;
+                        } else if err.to_string().contains("duplicate destination")
+                            || err.to_string().contains("Failed to build tunnels")
+                            || err.to_string().contains("Disconnected from router")
+                        {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                attempt,
+                                backoff_secs = backoff.as_secs(),
+                                error = %err,
+                                "SAM session creation failed; retrying after backoff"
+                            );
+                            tokio::time::sleep(backoff).await;
+                            backoff = std::cmp::min(backoff * 2, Duration::from_secs(60));
+                        } else {
+                            return Err(err.into());
+                        }
+
+                        if attempt >= 8 {
+                            return Err(err.into());
+                        }
+                        continue;
+                    }
                 }
             }
 
@@ -574,36 +639,61 @@ async fn create_kad_socket(
             .await?;
 
             // Create SAM datagram session (idempotent-ish).
-            if let Err(err) = sam
-                .session_create_datagram_forward(
-                    kad_session_id,
-                    &keys.priv_key,
-                    dg.forward_port(),
-                    sam_forward_ip,
-                    ["i2cp.messageReliability=BestEffort"],
-                )
-                .await
-            {
-                let msg = err.to_string();
-                if msg.contains("Session already exists")
-                    || msg.contains("DUPLICATED_ID")
-                    || msg.contains("Duplicate")
-                {
-                    tracing::warn!(
-                        session = %kad_session_id,
-                        "SAM session exists; destroying and retrying"
-                    );
-                    let _ = sam.session_destroy(kad_session_id).await;
-                    sam.session_create_datagram_forward(
+            let mut attempt = 0u32;
+            let mut backoff = Duration::from_secs(1);
+            loop {
+                attempt += 1;
+                let res = sam
+                    .session_create_datagram_forward(
                         kad_session_id,
                         &keys.priv_key,
                         dg.forward_port(),
                         sam_forward_ip,
                         ["i2cp.messageReliability=BestEffort"],
                     )
-                    .await?;
-                } else {
-                    return Err(err.into());
+                    .await;
+
+                match res {
+                    Ok(_) => break,
+                    Err(err) => {
+                        let is_dup_id = matches!(
+                            &err,
+                            crate::i2p::sam::SamError::ReplyError {
+                                result: Some(r),
+                                ..
+                            } if r == "DUPLICATED_ID"
+                        );
+                        let is_dup_msg = err.to_string().contains("Session already exists")
+                            || err.to_string().contains("Duplicate");
+
+                        if is_dup_id || is_dup_msg {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                "SAM session exists; destroying and retrying"
+                            );
+                            let _ = sam.session_destroy(kad_session_id).await;
+                        } else if err.to_string().contains("duplicate destination")
+                            || err.to_string().contains("Failed to build tunnels")
+                            || err.to_string().contains("Disconnected from router")
+                        {
+                            tracing::warn!(
+                                session = %kad_session_id,
+                                attempt,
+                                backoff_secs = backoff.as_secs(),
+                                error = %err,
+                                "SAM session creation failed; retrying after backoff"
+                            );
+                            tokio::time::sleep(backoff).await;
+                            backoff = std::cmp::min(backoff * 2, Duration::from_secs(60));
+                        } else {
+                            return Err(err.into());
+                        }
+
+                        if attempt >= 8 {
+                            return Err(err.into());
+                        }
+                        continue;
+                    }
                 }
             }
 

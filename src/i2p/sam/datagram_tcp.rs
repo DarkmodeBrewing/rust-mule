@@ -54,14 +54,36 @@ impl SamDatagramTcp {
     }
 
     pub async fn session_destroy(&mut self, name: &str) -> Result<SamReply, SamError> {
+        // See `SamClient::session_destroy_hint_style` for the rationale: some SAM routers require
+        // STYLE=... on DESTROY.
         let reply = self
             .send_cmd(
                 SamCommand::new("SESSION DESTROY").arg("ID", name),
                 "SESSION",
             )
             .await?;
+        if reply.is_ok() {
+            return Ok(reply);
+        }
+
+        if matches!(reply.message(), Some(msg) if msg.contains("No SESSION STYLE specified")) {
+            let r = self
+                .send_cmd(
+                    SamCommand::new("SESSION DESTROY")
+                        .arg("STYLE", "DATAGRAM")
+                        .arg("ID", name),
+                    "SESSION",
+                )
+                .await?;
+            if r.is_ok() {
+                return Ok(r);
+            }
+            r.require_ok()?;
+            unreachable!("require_ok above always returns Err for non-OK replies");
+        }
+
         reply.require_ok()?;
-        Ok(reply)
+        unreachable!("require_ok above always returns Err for non-OK replies")
     }
 
     pub async fn session_create_datagram(

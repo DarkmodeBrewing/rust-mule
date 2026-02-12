@@ -5,6 +5,9 @@
 - Read handoff.md before doing anything.
 - After each meaningful change (or after tests run), update handoff.md with: status, decisions, next steps, and a change log entry.
 - Keep it short and factual.
+- Please write/update tests where applicable, run `cargo fmt`, run `cargo clippy`, run `cargo test`, and after each iteration commit and push to the remote.
+- Prefer proposing a minimal design or patch first when making non-trivial changes.
+- If assumptions are unclear, ask before coding.
 
 ### Rust-Mule Development Rules
 
@@ -14,11 +17,14 @@
    - ownership & borrowing
    - async/await
    - message enums instead of class hierarchies
+   - Avoid `Arc<Mutex<...>>` unless concurrency requires shared mutation.
+   - Prefer message passing and ownership transfer.
+   - Avoid premature optimization; correctness and clarity first.
 4. Build in layers:
-   a) Transport (UDP sockets, async runtime)
-   b) Message protocol (encode/decode)
-   c) Node identity & routing table
-   d) Bootstrap logic
+   - Transport (UDP sockets, async runtime)
+   - Message protocol (encode/decode)
+   - Node identity & routing table
+   - Bootstrap logic
 5. No global state.
 6. No C++-style singletons.
 7. Every subsystem must be testable in isolation.
@@ -61,6 +67,10 @@ For each:
 - `config.toml` in the repo root is the default configuration file loaded at startup.
 - `data/` holds runtime artifacts (e.g., `data/nodes.dat`, `data/preferencesKad.dat`). `target/` is the Cargo build output.
 - `assets/` holds repo-tracked bootstrapping snapshots used for first-run seeding (e.g., `assets/nodes.initseed.dat`).
+- `assets/` contains repo-tracked, _static_ bootstrap data.
+  - These files are NOT modified at runtime.
+  - They may be embedded at compile time or copied on first run.
+- Runtime-generated or mutable data belongs in `data/` only.
 
 ## Build, Test, and Development Commands
 
@@ -89,3 +99,22 @@ For each:
 
 - `config.toml` is validated on startup; keep `sam.host`, `sam.port`, and `sam.session_name` valid to avoid runtime errors.
 - Avoid committing generated artifacts from `target/` or runtime data in `data/` unless required for reproducibility.
+
+## Definition of Done (before commit)
+
+- `cargo fmt` produces no changes
+- `cargo clippy --all-targets --all-features` has no warnings (or warnings are explicitly justified)
+- `cargo test` passes
+- No public API changes unless explicitly stated
+- `handoff.md` updated with:
+  - current status
+  - decisions made
+  - next steps
+  - brief change log entry
+
+## Architectural Invariants
+
+- Node identity is immutable once created.
+- Routing table mutations must be explicit and testable.
+- Network I/O is isolated from protocol parsing.
+- No module may depend on concrete transport details unless it is in the transport layer.

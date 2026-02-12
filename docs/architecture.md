@@ -70,13 +70,54 @@ Notes:
     - `event: status`
     - `data: <json KadServiceStatus>`
 
+- `POST /kad/search_sources`
+  - Auth required.
+  - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
+  - Enqueues a conservative Kad2 `KADEMLIA2_SEARCH_SOURCE_REQ` against a few closest known peers.
+
+- `GET /kad/sources/:file_id_hex`
+  - Auth required.
+  - Returns sources learned so far for that fileID (in-memory, not yet persisted).
+
+- `POST /kad/publish_source`
+  - Auth required.
+  - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
+  - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_SOURCE_REQ` advertising *this node* as a source.
+
+- `POST /kad/search_keyword`
+  - Auth required.
+  - Body: `{ "query": "some words" }`
+  - Enqueues a conservative Kad2 `KADEMLIA2_SEARCH_KEY_REQ` for an iMule-style keyword hash.
+  - Currently uses the **first extracted keyword word** (iMule behavior).
+
+- `POST /kad/publish_keyword`
+  - Auth required.
+  - Body: `{ "query": "some words", "file_id_hex": "<32 hex chars>", "filename": "...", "file_size": 123, "file_type": "Pro" }`
+  - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_KEY_REQ` publishing keyword->file metadata to the DHT.
+
+- `GET /kad/keyword_results/:keyword_id_hex`
+  - Auth required.
+  - Returns keyword hits learned so far for that keyword hash (in-memory, not yet persisted).
+
+- `GET /kad/peers`
+  - Auth required.
+  - Returns a routing table snapshot (peer IDs, liveness ages, failures, and optional agent string).
+
 Example:
 
 ```bash
 TOKEN="$(cat data/api.token)"
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/status | jq .
 curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/events
+
+# File/source actions (hex is 16 bytes / 32 hex chars).
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"file_id_hex":"00112233445566778899aabbccddeeff","file_size":0}' \
+  http://127.0.0.1:17835/kad/search_sources
 ```
+
+For a maintained collection of `curl` commands, see `docs/api_curl.md`.
 
 ## TLS (Future)
 
@@ -95,3 +136,24 @@ TODOs:
 - Add TLS support (self-signed by default) for remote GUI scenarios.
 - Add finer-grained auth scopes (read-only vs control) if we later expose mutating endpoints
   (downloads/search/publish).
+
+## Data Storage (Future)
+
+Right now runtime state is stored in simple files under `data/` (e.g. `nodes.dat`, `sam.keys`).
+This is intentionally easy to inspect, portable, and matches iMule/aMule conventions where it
+makes sense.
+
+As we add "client features" (search history, file hashes/metadata, downloads, sources, and
+possibly cached publish/search results), it may be worth introducing SQLite:
+
+- Pros: structured queries, indexing, transactions/atomicity, and easier schema evolution.
+- Cons: adds a dependency + migrations, and can complicate “just inspect the state” workflows.
+
+If/when we adopt SQLite, we should keep compatibility files like `data/nodes.dat` alongside it,
+and store higher-level application state (downloads/search/etc.) in the database.
+
+## Caching / Memory (Notes)
+
+- Keyword search hits (discovering `file_id_hex`) are treated as a bounded, TTL’d in-memory cache.
+- File sources are expected to be more “intermittent”; plan is to keep them longer and track `last_seen`,
+  plus bounds/persistence as we implement downloads.

@@ -5,3 +5,4 @@ pub mod config_io;
 pub mod i2p;
 pub mod kad;
 pub mod nodes;
+pub mod single_instance;

@@ -107,6 +107,9 @@ fn default_kad_service_hello_batch() -> usize {
 fn default_kad_service_hello_min_interval_secs() -> u64 {
     900
 }
+fn default_kad_service_hello_dual_obfuscated() -> bool {
+    false
+}
 fn default_kad_service_maintenance_every_secs() -> u64 {
     5
 }
@@ -119,6 +122,59 @@ fn default_kad_service_max_failures() -> u32 {
 fn default_kad_service_evict_age_secs() -> u64 {
     // I2P peers can be very intermittent; avoid aggressive eviction by default.
     24 * 60 * 60
+}
+fn default_kad_service_refresh_interval_secs() -> u64 {
+    45 * 60
+}
+fn default_kad_service_refresh_buckets_per_tick() -> usize {
+    1
+}
+fn default_kad_service_refresh_underpopulated_min_contacts() -> usize {
+    60
+}
+fn default_kad_service_refresh_underpopulated_every_secs() -> u64 {
+    60
+}
+fn default_kad_service_refresh_underpopulated_buckets_per_tick() -> usize {
+    2
+}
+fn default_kad_service_refresh_underpopulated_alpha() -> usize {
+    5
+}
+
+fn default_kad_service_keyword_require_interest() -> bool {
+    // Only keep keyword results for searches we initiated (prevents unsolicited cache growth).
+    true
+}
+fn default_kad_service_keyword_interest_ttl_secs() -> u64 {
+    // Keep keywords "active" for a day after a search or results read.
+    24 * 60 * 60
+}
+fn default_kad_service_keyword_results_ttl_secs() -> u64 {
+    // Keyword results are ephemeral; drop entries we haven't re-seen after a day.
+    24 * 60 * 60
+}
+fn default_kad_service_keyword_max_keywords() -> usize {
+    64
+}
+fn default_kad_service_keyword_max_total_hits() -> usize {
+    50_000
+}
+fn default_kad_service_keyword_max_hits_per_keyword() -> usize {
+    2_000
+}
+
+fn default_kad_service_store_keyword_max_keywords() -> usize {
+    // How many distinct keyword IDs we are willing to store entries for (DHT role).
+    1024
+}
+fn default_kad_service_store_keyword_max_total_hits() -> usize {
+    // Global hard cap for stored keyword->file entries.
+    200_000
+}
+fn default_kad_service_store_keyword_evict_age_secs() -> u64 {
+    // Stored keyword entries are intermittent on I2P; keep them around for a while.
+    14 * 24 * 60 * 60
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -203,11 +259,34 @@ pub struct KadConfig {
     pub service_hello_every_secs: u64,
     pub service_hello_batch: usize,
     pub service_hello_min_interval_secs: u64,
+    /// Optional: send a second obfuscated HELLO_REQ if we already have a receiver key.
+    /// This diverges from iMule's plain-HELLO behavior and is experimental.
+    pub service_hello_dual_obfuscated: bool,
 
     pub service_maintenance_every_secs: u64,
     pub service_status_every_secs: u64,
     pub service_max_failures: u32,
     pub service_evict_age_secs: u64,
+
+    pub service_refresh_interval_secs: u64,
+    pub service_refresh_buckets_per_tick: usize,
+    pub service_refresh_underpopulated_min_contacts: usize,
+    pub service_refresh_underpopulated_every_secs: u64,
+    pub service_refresh_underpopulated_buckets_per_tick: usize,
+    pub service_refresh_underpopulated_alpha: usize,
+
+    // Keyword search result caching (in-memory)
+    pub service_keyword_require_interest: bool,
+    pub service_keyword_interest_ttl_secs: u64,
+    pub service_keyword_results_ttl_secs: u64,
+    pub service_keyword_max_keywords: usize,
+    pub service_keyword_max_total_hits: usize,
+    pub service_keyword_max_hits_per_keyword: usize,
+
+    // DHT keyword storage (when other peers publish keywords to us)
+    pub service_store_keyword_max_keywords: usize,
+    pub service_store_keyword_max_total_hits: usize,
+    pub service_store_keyword_evict_age_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,11 +351,37 @@ impl Default for KadConfig {
             service_hello_every_secs: default_kad_service_hello_every_secs(),
             service_hello_batch: default_kad_service_hello_batch(),
             service_hello_min_interval_secs: default_kad_service_hello_min_interval_secs(),
+            service_hello_dual_obfuscated: default_kad_service_hello_dual_obfuscated(),
 
             service_maintenance_every_secs: default_kad_service_maintenance_every_secs(),
             service_status_every_secs: default_kad_service_status_every_secs(),
             service_max_failures: default_kad_service_max_failures(),
             service_evict_age_secs: default_kad_service_evict_age_secs(),
+
+            service_refresh_interval_secs: default_kad_service_refresh_interval_secs(),
+            service_refresh_buckets_per_tick: default_kad_service_refresh_buckets_per_tick(),
+            service_refresh_underpopulated_min_contacts:
+                default_kad_service_refresh_underpopulated_min_contacts(),
+            service_refresh_underpopulated_every_secs:
+                default_kad_service_refresh_underpopulated_every_secs(),
+            service_refresh_underpopulated_buckets_per_tick:
+                default_kad_service_refresh_underpopulated_buckets_per_tick(),
+            service_refresh_underpopulated_alpha: default_kad_service_refresh_underpopulated_alpha(
+            ),
+
+            service_keyword_require_interest: default_kad_service_keyword_require_interest(),
+            service_keyword_interest_ttl_secs: default_kad_service_keyword_interest_ttl_secs(),
+            service_keyword_results_ttl_secs: default_kad_service_keyword_results_ttl_secs(),
+            service_keyword_max_keywords: default_kad_service_keyword_max_keywords(),
+            service_keyword_max_total_hits: default_kad_service_keyword_max_total_hits(),
+            service_keyword_max_hits_per_keyword: default_kad_service_keyword_max_hits_per_keyword(
+            ),
+
+            service_store_keyword_max_keywords: default_kad_service_store_keyword_max_keywords(),
+            service_store_keyword_max_total_hits: default_kad_service_store_keyword_max_total_hits(
+            ),
+            service_store_keyword_evict_age_secs: default_kad_service_store_keyword_evict_age_secs(
+            ),
         }
     }
 }

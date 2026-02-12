@@ -38,6 +38,78 @@ Logs:
 - Stdout is controlled by `[general].log_level` (or `RUST_LOG`)
 - File logs roll daily under `data/logs/` when `[general].log_to_file=true`
 
+## Build A Linux Release Binary
+
+Build the optimized binary:
+
+```bash
+cargo build --release --locked --bin rust-mule
+ls -lah target/release/rust-mule
+```
+
+Optional (shrinks the binary):
+
+```bash
+strip target/release/rust-mule || true
+```
+
+Packaging helper:
+
+```bash
+docs/scripts/build_linux_release.sh
+```
+
+## Running Two Instances (Same Router)
+
+To run two instances on the same machine/router, you must ensure:
+
+- different `[general].data_dir` (so `sam.keys` + lock file do not clash)
+- different `[sam].session_name` (so SAM session IDs do not clash)
+- different `[api].port` if the API is enabled in both instances
+
+Example layout:
+
+```bash
+mkdir -p run-a run-b
+cp target/release/rust-mule run-a/
+cp target/release/rust-mule run-b/
+```
+
+Create `run-a/config.toml`:
+
+```toml
+[general]
+data_dir = "data"
+
+[sam]
+session_name = "rust-mule-a"
+
+[api]
+enabled = true
+port = 17835
+```
+
+Create `run-b/config.toml`:
+
+```toml
+[general]
+data_dir = "data"
+
+[sam]
+session_name = "rust-mule-b"
+
+[api]
+enabled = true
+port = 17836
+```
+
+Then run each instance from its own directory (so it picks up that directory’s `config.toml`):
+
+```bash
+(cd run-a && ./rust-mule)
+(cd run-b && ./rust-mule)
+```
+
 ## Local HTTP API (For Future GUI)
 
 There is an optional local HTTP API (REST + SSE) intended for a future GUI.
@@ -52,6 +124,16 @@ Quick curl test (after setting `[api].enabled=true`):
 TOKEN="$(cat data/api.token)"
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/status
 curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/events
+
+# Enqueue a Kad2 search for sources of a fileID (16 bytes / 32 hex chars).
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"file_id_hex":"00112233445566778899aabbccddeeff","file_size":0}' \
+  http://127.0.0.1:17835/kad/search_sources
+
+# Read sources discovered so far (in-memory).
+curl -sS -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:17835/kad/sources/00112233445566778899aabbccddeeff | jq .
 ```
 
 ## Data Files

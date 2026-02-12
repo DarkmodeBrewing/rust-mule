@@ -8,8 +8,8 @@ use crate::{
         KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
         TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
         decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_search_source_req,
-        encode_kad1_res, encode_kad2_hello, encode_kad2_publish_res_for_source, encode_kad2_res,
-        encode_kad2_search_res_sources,
+        encode_kad1_res, encode_kad2_hello, encode_kad2_hello_req,
+        encode_kad2_publish_res_for_source, encode_kad2_res, encode_kad2_search_res_sources,
     },
     kad::{KadId, udp_crypto},
     nodes::imule::ImuleNode,
@@ -139,7 +139,7 @@ pub async fn bootstrap(
     }
 
     let boot_plain = KadPacket::encode(KADEMLIA2_BOOTSTRAP_REQ, &[]);
-    let hello_plain_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
+    let hello_plain_payload = encode_kad2_hello_req(1, crypto.my_kad_id, &crypto.my_dest);
     let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_plain_payload);
 
     tracing::info!(
@@ -171,25 +171,17 @@ pub async fn bootstrap(
             sock.send_to(&dest, &boot)
                 .await
                 .with_context(|| "failed to send KAD2 BOOTSTRAP_REQ")?;
-
-            // Proactively send HELLO_REQ as well to encourage key exchange and being added to routing tables.
-            let hello = udp_crypto::encrypt_kad_packet(
-                &hello_plain,
-                target_kad_id,
-                receiver_verify_key,
-                sender_verify_key,
-            )?;
-            sock.send_to(&dest, &hello)
-                .await
-                .with_context(|| "failed to send KAD2 HELLO_REQ")?;
         } else {
             sock.send_to(&dest, &boot_plain)
                 .await
                 .with_context(|| "failed to send KAD2 BOOTSTRAP_REQ (plain)")?;
-            sock.send_to(&dest, &hello_plain)
-                .await
-                .with_context(|| "failed to send KAD2 HELLO_REQ (plain)")?;
         }
+
+        // Proactively send HELLO_REQ as well to encourage key exchange and being added to routing tables.
+        // iMule sends HELLO_REQ unobfuscated with kadVersion=1.
+        sock.send_to(&dest, &hello_plain)
+            .await
+            .with_context(|| "failed to send KAD2 HELLO_REQ (plain)")?;
     }
 
     let deadline = Instant::now() + cfg.runtime;
@@ -375,10 +367,11 @@ pub async fn bootstrap(
                 let mut res_payload = encode_kad2_hello(8, crypto.my_kad_id, &crypto.my_dest);
                 // If we couldn't validate the receiver key, mimic iMule and request an ACK (Kad v8 only).
                 if !valid_receiver_key && hello.kad_version >= 8 {
-                    // TagList: 1 tag: TAG_KADMISCOPTIONS (u8) with bit2 set.
-                    *res_payload
-                        .last_mut()
-                        .expect("encode_kad2_hello always appends a tag count") = 1;
+                    // TagList: add TAG_KADMISCOPTIONS (u8) with bit2 set.
+                    //
+                    // NOTE: `encode_kad2_hello` already includes one tag (our agent).
+                    let tag_count_idx = 1 + 16 + I2P_DEST_LEN;
+                    res_payload[tag_count_idx] = 2;
                     res_payload.push(0x89); // TAGTYPE_UINT8 | 0x80 (numeric)
                     res_payload.push(TAG_KADMISCOPTIONS);
                     res_payload.push(0x04);
