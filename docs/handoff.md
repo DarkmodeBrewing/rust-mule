@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Implemented API bearer token rotation flow:
+  - Added `POST /api/v1/token/rotate` (bearer-protected).
+  - API token is now shared mutable state (`RwLock`) and token file path is stored in API state.
+  - Rotation persists a new token to `data/api.token`, swaps in-memory token, and clears all active frontend sessions.
+  - Added API test `token_rotate_updates_state_file_and_clears_sessions`.
+  - Added settings UI action `Rotate API Token`:
+    - Calls `/api/v1/token/rotate`
+    - Updates `sessionStorage` token
+    - Re-creates frontend session via `POST /api/v1/session`
+  - Added token helper `rotate_token()` in `src/api/token.rs`.
+  - Updated docs (`docs/architecture.md`, `docs/api_curl.md`, `docs/UI_DESIGN.md`) with token rotation behavior and endpoint.
+  - Ran Prettier on changed UI files and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Bearer tokens can now be actively rotated from UI/API with immediate session re-bootstrap and old-session invalidation.
 - Completed next UI/API security+UX batch (in requested order):
   - Session lifecycle hardening:
     - Added `GET /api/v1/session/check` (session-cookie auth).
@@ -312,6 +325,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Token/session security model:
+  - Session TTL bounds cookie compromise window.
+  - Explicit token rotation is available to invalidate old bearer + all active sessions.
+  - UI performs immediate token/session re-bootstrap after rotation to avoid operator disruption.
 - Session auth policy now includes explicit lifecycle endpoints:
   - `session` issue (bearer), `session/check` validate (cookie), `session/logout` revoke (cookie).
   - Session validation performs lazy expiry cleanup; unauthenticated/expired frontend flows redirect to `/auth`.

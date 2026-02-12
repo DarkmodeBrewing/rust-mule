@@ -14,6 +14,19 @@ pub async fn load_or_create_token(path: &Path) -> anyhow::Result<String> {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
 
+    rotate_token(path).await
+}
+
+fn hex_lower(b: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(b.len() * 2);
+    for v in b {
+        let _ = write!(&mut out, "{v:02x}");
+    }
+    out
+}
+
+pub async fn rotate_token(path: &Path) -> anyhow::Result<String> {
     let mut raw = [0u8; 32];
     getrandom(&mut raw).map_err(|e| anyhow::anyhow!("getrandom failed: {e:?}"))?;
     let token = hex_lower(&raw);
@@ -31,13 +44,4 @@ pub async fn load_or_create_token(path: &Path) -> anyhow::Result<String> {
     }
 
     Ok(token)
-}
-
-fn hex_lower(b: &[u8]) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::with_capacity(b.len() * 2);
-    for v in b {
-        let _ = write!(&mut out, "{v:02x}");
-    }
-    out
 }

@@ -4,6 +4,7 @@ import {
   apiPatch,
   apiPost,
   bootstrapToken,
+  setToken,
   openStatusEventStream,
 } from './helpers.js';
 
@@ -1001,6 +1002,29 @@ window.appSettings = function appSettings() {
         // continue with redirect even if backend already considers session invalid
       }
       window.location.replace('/auth');
+    },
+
+    async rotateApiToken() {
+      this.error = '';
+      this.notice = '';
+      try {
+        const resp = await apiPost('/token/rotate', {});
+        const token = resp?.token || '';
+        if (!token) {
+          throw new Error('token rotate response missing token');
+        }
+        setToken(token);
+        const sessionResp = await fetch('/api/v1/session', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!sessionResp.ok) {
+          throw new Error(`session refresh failed: ${sessionResp.status}`);
+        }
+        this.notice = 'API token rotated and session refreshed.';
+      } catch (err) {
+        this.error = String(err?.message || err);
+      }
     },
   };
 };

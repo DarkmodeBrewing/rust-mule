@@ -16,6 +16,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -41,7 +42,8 @@ const SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 
 #[derive(Clone)]
 pub struct ApiState {
-    token: String,
+    token: Arc<tokio::sync::RwLock<String>>,
+    token_path: Arc<PathBuf>,
     status_rx: watch::Receiver<Option<KadServiceStatus>>,
     status_events_tx: broadcast::Sender<KadServiceStatus>,
     kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
@@ -61,6 +63,7 @@ pub fn new_channels() -> (
 pub async fn serve(
     cfg: &ApiConfig,
     app_config: Config,
+    token_path: PathBuf,
     token: String,
     status_rx: watch::Receiver<Option<KadServiceStatus>>,
     status_events_tx: broadcast::Sender<KadServiceStatus>,
@@ -73,7 +76,8 @@ pub async fn serve(
     let addr = SocketAddr::new(bind_ip, cfg.port);
 
     let state = ApiState {
-        token,
+        token: Arc::new(tokio::sync::RwLock::new(token)),
+        token_path: Arc::new(token_path),
         status_rx,
         status_events_tx,
         kad_cmd_tx,
@@ -100,6 +104,7 @@ fn build_app(state: ApiState) -> Router<()> {
     let v1 = Router::new()
         .route("/health", get(health))
         .route("/dev/auth", get(dev_auth))
+        .route("/token/rotate", post(token_rotate))
         .route("/session", post(create_session))
         .route("/session/check", get(session_check))
         .route("/session/logout", post(session_logout))
@@ -922,6 +927,12 @@ struct DevAuthResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct TokenRotateResponse {
+    token: String,
+    sessions_cleared: bool,
+}
+
+#[derive(Debug, Serialize)]
 struct SessionResponse {
     ok: bool,
 }
@@ -935,7 +946,27 @@ async fn dev_auth(
     }
 
     Ok(Json(DevAuthResponse {
-        token: state.token.clone(),
+        token: state.token.read().await.clone(),
+    }))
+}
+
+async fn token_rotate(
+    State(state): State<ApiState>,
+) -> Result<Json<TokenRotateResponse>, StatusCode> {
+    let new_token = crate::api::token::rotate_token(state.token_path.as_path())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    {
+        let mut token = state.token.write().await;
+        *token = new_token.clone();
+    }
+    {
+        let mut sessions = state.sessions.lock().await;
+        sessions.clear();
+    }
+    Ok(Json(TokenRotateResponse {
+        token: new_token,
+        sessions_cleared: true,
     }))
 }
 
@@ -1078,7 +1109,8 @@ async fn auth_mw(
             return Ok(next.run(req).await);
         }
         let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
-        if provided != state.token {
+        let current_token = state.token.read().await.clone();
+        if provided != current_token {
             return Err(StatusCode::FORBIDDEN);
         }
         return Ok(next.run(req).await);
@@ -1330,7 +1362,8 @@ mod tests {
         let (_status_tx, status_rx) = watch::channel(None);
         let (status_events_tx, _status_events_rx) = broadcast::channel(16);
         ApiState {
-            token: "test-token".to_string(),
+            token: Arc::new(tokio::sync::RwLock::new("test-token".to_string())),
+            token_path: Arc::new(PathBuf::from("data/api.token")),
             status_rx,
             status_events_tx,
             kad_cmd_tx,
@@ -1362,6 +1395,7 @@ mod tests {
         assert!(is_api_bearer_exempt_path("/api/v1/dev/auth"));
         assert!(!is_api_bearer_exempt_path("/api/v1/status"));
         assert!(!is_api_bearer_exempt_path("/api/v1/session"));
+        assert!(!is_api_bearer_exempt_path("/api/v1/token/rotate"));
     }
 
     #[test]
@@ -1698,5 +1732,51 @@ mod tests {
             .unwrap();
         let cookie_resp = app.oneshot(cookie_req).await.unwrap();
         assert_eq!(cookie_resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn token_rotate_updates_state_file_and_clears_sessions() {
+        let (tx, _rx) = mpsc::channel(1);
+        let test_dir = std::env::temp_dir().join(format!(
+            "rust_mule_token_rotate_test_{}",
+            std::process::id()
+        ));
+        let _ = tokio::fs::create_dir_all(&test_dir).await;
+        let token_path = test_dir.join("api.token");
+        tokio::fs::write(&token_path, b"old-token")
+            .await
+            .expect("write old token");
+
+        let (_status_tx, status_rx) = watch::channel(None);
+        let (status_events_tx, _status_events_rx) = broadcast::channel(16);
+        let state = ApiState {
+            token: Arc::new(tokio::sync::RwLock::new("old-token".to_string())),
+            token_path: Arc::new(token_path.clone()),
+            status_rx,
+            status_events_tx,
+            kad_cmd_tx: tx,
+            config: Arc::new(tokio::sync::Mutex::new(Config::default())),
+            sessions: Arc::new(tokio::sync::Mutex::new(HashMap::from([(
+                "s1".to_string(),
+                Instant::now() + Duration::from_secs(30),
+            )]))),
+        };
+
+        let resp = token_rotate(State(state.clone()))
+            .await
+            .expect("rotate should succeed");
+        assert!(resp.0.sessions_cleared);
+        assert_ne!(resp.0.token, "old-token");
+
+        let current = state.token.read().await.clone();
+        assert_eq!(current, resp.0.token);
+        let file = tokio::fs::read_to_string(&token_path)
+            .await
+            .expect("read token");
+        assert_eq!(file.trim(), resp.0.token);
+        assert!(state.sessions.lock().await.is_empty());
+
+        let _ = tokio::fs::remove_file(&token_path).await;
+        let _ = tokio::fs::remove_dir(&test_dir).await;
     }
 }

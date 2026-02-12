@@ -36,6 +36,12 @@ For subsequent commands that require session auth (SSE/UI), use:
 COOKIE=(--cookie "rm_session=<session-id>")
 ```
 
+## Rotate API Bearer Token
+
+```bash
+curl -sS -X POST "${AUTH[@]}" "$BASE_URL/api/v1/token/rotate" | jq .
+```
+
 ## Session Check (Cookie Auth)
 
 ```bash

@@ -145,10 +145,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let etx_for_server = etx.clone();
     let cmd_tx_for_server = kad_cmd_tx.clone();
     let api_runtime_config = config.clone();
+    let token_path_for_server = token_path.clone();
     tokio::spawn(async move {
         if let Err(err) = crate::api::serve(
             &api_cfg,
             api_runtime_config,
+            token_path_for_server,
             token,
             srx,
             etx_for_server,
