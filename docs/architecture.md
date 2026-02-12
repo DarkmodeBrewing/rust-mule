@@ -51,6 +51,8 @@ Notes:
 
 - We do **not** print the token to logs. The GUI should read it from `data/api.token`.
 - On Unix we attempt to set file permissions to `0600` best-effort; on Windows we skip this.
+- CORS is restricted to loopback origins only (`localhost`, `127.0.0.1`, and loopback IPs), with
+  `Authorization` and `Content-Type` as the allowed request headers.
 
 ### Endpoints
 
