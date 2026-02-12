@@ -8,6 +8,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Alpine binding best-practice sanity pass completed (second pass):
+  - Re-scanned all `ui/*.html` Alpine bindings and `ui/assets/js/{app,helpers}.js`.
+  - Verified no side-effectful function calls in display bindings (`x-text`, `x-bind`, `x-show`, `x-if`, `x-for`).
+  - Normalized remaining complex inline binding expressions into pure computed getters:
+    - `appSearch.keywordHits` used by `ui/search.html` `x-for`.
+    - `appSearchDetails.searchIdLabel` used by `ui/search_details.html` `x-text`.
+- Decisions: Keep side effects restricted to lifecycle and explicit event handlers (`x-init`, `@click`, `@submit`, SSE callbacks).
+- Next steps: Optional follow-up is extracting repeated status badge text ternaries into computed getters for style consistency only.
+- Change log: Alpine templates now consistently consume normalized state/getters and avoid complex inline display expressions.
+
 - Status: Completed a UI accessibility/usability sweep across all `ui/*.html` pages.
   - Added keyboard skip-link and focus target (`#main-content`) on all pages.
   - Added semantic navigation landmarks and `aria-current` for active routes.

@@ -370,6 +370,11 @@ window.appSearch = function appSearch() {
       return JSON.stringify(this.searchResponse, null, 2);
     },
 
+    get keywordHits() {
+      const hits = this.keywordResults?.hits;
+      return Array.isArray(hits) ? hits : [];
+    },
+
     async init() {
       this.loading = true;
       this.error = '';
@@ -467,6 +472,10 @@ window.appSearchDetails = function appSearchDetails() {
     get detailsStateClass() {
       const state = this.details?.search?.state || 'idle';
       return stateClass(state);
+    },
+
+    get searchIdLabel() {
+      return this.searchId || '(missing)';
     },
 
     async init() {
