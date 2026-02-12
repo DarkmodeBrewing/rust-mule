@@ -143,8 +143,8 @@ Search lifecycle:
 
 ## Live Data & Updates
 
-- GET /api/searches
-- GET /api/searches/:id
+- GET /api/v1/searches
+- GET /api/v1/searches/:id
 - GET /api/v1/events (SSE)
 
 Event types:
@@ -159,9 +159,9 @@ Event types:
 
 ## Navigation Model
 
-- single index.html shell
-- sidebar switches active search
-- URL params: ?search=<id>
+- shared shell replicated across pages (`index`, `search`, `search_details`, `node_stats`, `log`, `settings`)
+- sidebar switches pages and links to active search details
+- URL params: `?searchId=<id>` on `search_details`
 
 ## UI Components
 
@@ -189,12 +189,20 @@ Main:
 
 ## API Contract (v1)
 
-- POST /api/searches
-- GET /api/searches
-- GET /api/searches/:id
-- POST /api/searches/:id/start
-- POST /api/searches/:id/stop
+- GET /api/v1/searches
+- GET /api/v1/searches/:id
+- POST /api/v1/searches/:id/stop
+- DELETE /api/v1/searches/:id
+- POST /api/v1/kad/search_keyword
+- GET /api/v1/kad/keyword_results/:keyword_id_hex
 - GET /api/v1/events
+
+## Implementation Snapshot (2026-02-12)
+
+- Implemented: shell/sidebar pages, search form, search thread list, search details, node status page, logs page, settings page, theme selector.
+- Implemented: UI files embedded in binary and served by Rust API.
+- Partial: statistics charting (Chart.js bundled, chart views not yet implemented).
+- Open: API-backed settings CRUD (`GET/PATCH /api/settings`) and token handling for SSE without query parameter exposure.
 
 ## Implementation Notes
 

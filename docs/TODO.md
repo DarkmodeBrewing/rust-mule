@@ -38,26 +38,26 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 ## UI
 
 - Overview of the design of the UI is documented in `/docs/UI_DESIGN.md`
-- [ ] The UI will consist of static HTML-,CSS-, JS-files with Alpine.JS and Chart.js
+- [x] The UI will consist of static HTML-,CSS-, JS-files with Alpine.JS and Chart.js
 - [x] While bootstrapping the UI, a call to the API's endpoint (`GET:/api/<version>/dev/auth`) to get the bearer token (`/data/api.token`)
-- [ ] Static files (JavaScript files and CSS files) will be included in `./ui/assets/<type>`, but embedded in the binary (`/ui/assets/css/base.css`, `/ui/assets/js/app.js`, `/ui/assets/js/alpine.min.js`, `/ui/assets/js/chart.min.js`, etc.)
-  - [ ] Alpine.JS - used for state, interactive form controls, list and for composing components
+- [x] Static files (JavaScript files and CSS files) will be included in `./ui/assets/<type>`, but embedded in the binary (`/ui/assets/css/base.css`, `/ui/assets/js/app.js`, `/ui/assets/js/alpine.min.js`, `/ui/assets/js/chart.min.js`, etc.)
+  - [x] Alpine.JS - used for state, interactive form controls, list and for composing components
   - [ ] Chart.JS - used for plot charts for statistics and the like
-  - [ ] bootstrap.js - bootstrap initial functions, fetch bearer token, functions for setting theme etc.
-  - [ ] base.css - UI styling, set up themes using CSS variables
-  - [ ] Rule for CSS - always use variables, never literals, using `em` inside components and `px` for borders/hairlines
+  - [x] Bootstrap/init JS exists (`theme-init.js`, `helpers.js`) for startup functions including token bootstrap and theme setup
+  - [x] base.css - UI styling, set up themes using CSS variables
+  - [/] Rule for CSS - always use variables, never literals, using `em` inside components and `px` for borders/hairlines
   - [ ] Perhaps SVGs or images for logo/icons - not decided
   - [ ] All static files (`.html`, `.js`, `.css` etc.) should be embedded into the application, and should be served via http over the same port on the api, protected by the bearer token
-- [ ] Routes: API is served from `/api/` base route, UI is served from `/` (folder: `/ui/<page>.html`) -> (`/ui/index.html`, `/ui/statistics.html`, `/ui/settings.html`, `/ui/search.html`, etc.)
+- [/] Routes: API is served from `/api/` base route, UI is served from `/` (folder: `/ui/<page>.html`) -> (`/ui/index.html`, `/ui/statistics.html`, `/ui/settings.html`, `/ui/search.html`, etc.)
 - [ ] Bearer token should never be exposed in the UI (HTML, query params etc.), bootstrapping javascript should get it and store it in `sessionStorage` for usage in subsequent API requests (question: how to handle SSE endpoints??)
 - [ ] UI should leverage
-  - [ ] Start page / overview
-  - [ ] Search interface: File search by keywords
-  - [ ] Network status (Peers), with statistics (Network throughput, Live / Last seen (peers), streaming events (SSE))
+  - [x] Start page / overview
+  - [x] Search interface: File search by keywords
+  - [x] Network status (Peers), with statistics (Network throughput, Live / Last seen (peers), streaming events (SSE))
   - [ ] Application settings (from config.toml) backed by the API (`PATCH: /api/settings`, `GET: /api/settings`)
-- [ ] Create start/overview page
-- [ ] Create statistics page, use chart.js to draw statistical charts where needed
-- [ ] Create the search form, leveraging Alpine.js
+- [x] Create start/overview page
+- [/] Create statistics page, use chart.js to draw statistical charts where needed
+- [x] Create the search form, leveraging Alpine.js
 - [ ] UI should be auto started in the current platforms default browser
 - [ ] Settings toggle to prevent auto open of UI should exist, to be able to run headless
 - [ ] Auto open must wait for the bootstrap of API and HTTP services, and the `/data/api.token` must exist

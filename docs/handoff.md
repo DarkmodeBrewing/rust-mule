@@ -8,6 +8,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Documentation/UI planning sync pass completed:
+  - Updated `docs/TODO.md` UI checklist statuses to reflect implemented work (embedded assets, Alpine usage, shell pages, search form, overview, network status) and kept unresolved/partial items open (Chart.js usage, protected static UI, SSE token exposure, settings API, auto-open/headless toggle).
+  - Updated `docs/UI_DESIGN.md` to match current routes and contracts:
+    - `/api/v1/...` endpoint namespace in live-data and API contract sections.
+    - Navigation model now reflects shared-shell multi-page UI (`index`, `search`, `search_details`, `node_stats`, `log`, `settings`) and `searchId` query param usage.
+    - Added implementation snapshot with completed, partial, and open items.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Synced UI TODO/design documentation with the actual current implementation and clarified remaining UI backlog.
 - Canonicalized root UI route to explicit index path:
   - `GET /` now redirects to `/index.html`.
   - Added explicit `GET /index.html` route serving embedded `index.html`.
@@ -224,6 +232,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Keep `docs/TODO.md` UI checkboxes aligned to implementation truth, using `[x]` for done and `[/]` for partial completion where design intent is not fully met.
 - UI entrypoint canonical URL is `/index.html`; `/` is a redirect alias.
 - Operator UX: always log a copy-pasteable localhost UI URL at startup.
 - Route-fallback policy: treat unknown non-API, non-asset browser paths as SPA entry points and redirect to `/`; keep unknown `/api/*` and `/ui/assets/*` as 404.
@@ -274,6 +283,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Prioritize remaining UI gaps from `docs/TODO.md`/`docs/UI_DESIGN.md`:
+  - Implement Chart.js-based statistics visualizations.
+  - Remove SSE token exposure via query params (or document accepted tradeoff explicitly).
+  - Decide whether static UI routes should become bearer-protected and implement consistently.
+  - Implement API-backed settings (`GET/PATCH /api/settings`) and wire the settings page.
 - Add an integration test against the full Axum router asserting `GET /nonexisting.php?x=1` returns redirect `Location: /`.
 - Consider adding a `/api/v1/ui/manifest` debug endpoint exposing embedded UI file names/checksums for operational verification.
 - Add a lightweight UI smoke test pass (load each `/ui/*` page and assert Alpine init has no console/runtime errors) to guard future binding regressions.
