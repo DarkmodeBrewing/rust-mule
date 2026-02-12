@@ -29,7 +29,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 ## API
 
 - Overview of API design is located in `/docs/API_DESIGN.md`
-- [ ] API should bind to `127.0.0.1` and `localhost`, not `0.0.0.0`
+- [x] API should bind to `127.0.0.1` and `localhost`, not `0.0.0.0`
 - [x] API `CORS` rules should only accept connections from `127.0.0.1`/`localhost`, and allow headers `Authorization`, `Content-Type` (at least not more headers than required)
 - [x] API should be served from base URL `/api/<version>`
 - [x] API should expose an endpoint for the UI to get the bearer token from `/data/api.token` (`GET:/api/<version>/dev/auth`)

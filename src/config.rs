@@ -407,6 +407,24 @@ impl Default for ApiConfig {
     }
 }
 
+pub fn parse_api_bind_host(host: &str) -> anyhow::Result<std::net::IpAddr> {
+    let host = host.trim();
+    let ip = if host.eq_ignore_ascii_case("localhost") {
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
+    } else {
+        host.parse::<std::net::IpAddr>()
+            .map_err(|e| anyhow::anyhow!("Invalid api.host '{}': {}", host, e))?
+    };
+
+    if !ip.is_loopback() {
+        anyhow::bail!(
+            "Invalid api.host '{}': only loopback hosts are allowed (localhost/127.0.0.1/::1)",
+            host
+        );
+    }
+    Ok(ip)
+}
+
 pub fn init_tracing(config: &Config) {
     // Priority order:
     // 1) RUST_LOG (standard in Rust ecosystem)

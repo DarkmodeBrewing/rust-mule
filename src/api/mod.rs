@@ -25,7 +25,7 @@ use tokio_stream::wrappers::BroadcastStream;
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    config::{ApiConfig, Config},
+    config::{ApiConfig, Config, parse_api_bind_host},
     kad::{
         KadId, keyword,
         service::{
@@ -70,10 +70,7 @@ pub async fn serve(
     status_events_tx: broadcast::Sender<KadServiceStatus>,
     kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
 ) -> anyhow::Result<()> {
-    let bind_ip: std::net::IpAddr = cfg
-        .host
-        .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid api.host '{}': {e}", cfg.host))?;
+    let bind_ip = parse_api_bind_host(&cfg.host)?;
     let addr = SocketAddr::new(bind_ip, cfg.port);
 
     let state = ApiState {
@@ -401,10 +398,7 @@ fn validate_settings(cfg: &Config) -> Result<(), StatusCode> {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    cfg.api
-        .host
-        .parse::<std::net::IpAddr>()
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    parse_api_bind_host(&cfg.api.host).map_err(|_| StatusCode::BAD_REQUEST)?;
     if !(1..=65535).contains(&cfg.api.port) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -1407,6 +1401,15 @@ mod tests {
     }
 
     #[test]
+    fn parse_api_bind_host_accepts_only_loopback() {
+        assert!(parse_api_bind_host("localhost").is_ok());
+        assert!(parse_api_bind_host("127.0.0.1").is_ok());
+        assert!(parse_api_bind_host("::1").is_ok());
+        assert!(parse_api_bind_host("0.0.0.0").is_err());
+        assert!(parse_api_bind_host("10.0.0.1").is_err());
+    }
+
+    #[test]
     fn api_bearer_exempt_paths_include_only_health_and_dev_auth() {
         assert!(is_api_bearer_exempt_path("/api/v1/health"));
         assert!(is_api_bearer_exempt_path("/api/v1/dev/auth"));
@@ -1691,6 +1694,25 @@ mod tests {
         )
         .await;
         assert!(matches!(resp, Err(StatusCode::BAD_REQUEST)));
+
+        let (tx, _rx) = mpsc::channel(1);
+        let state = test_state(tx);
+        let resp_non_loopback_api_host = settings_patch(
+            State(state),
+            Json(SettingsPatchRequest {
+                general: None,
+                sam: None,
+                api: Some(SettingsPatchApi {
+                    host: Some("0.0.0.0".to_string()),
+                    port: None,
+                }),
+            }),
+        )
+        .await;
+        assert!(matches!(
+            resp_non_loopback_api_host,
+            Err(StatusCode::BAD_REQUEST)
+        ));
     }
 
     #[tokio::test]

@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed API bind policy hardening (`feature/api-bind-loopback-policy`):
+  - Enforced loopback-only API bind host handling via shared config helper (`parse_api_bind_host`).
+  - Accepted hosts: `localhost`, `127.0.0.1`, `::1`.
+  - Rejected non-loopback binds (e.g. `0.0.0.0`, LAN/WAN IPs) in:
+    - startup config validation (`src/main.rs`)
+    - API server bind resolution (`src/api/mod.rs`)
+    - settings API validation (`PATCH /api/v1/settings`)
+  - Added tests:
+    - `parse_api_bind_host_accepts_only_loopback`
+    - extended settings patch rejection coverage for non-loopback `api.host`.
+  - Updated `docs/TODO.md` to mark the API bind requirement as completed.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 57 tests).
+- Decisions: Keep a strict local-control-plane model by default; do not allow wildcard/non-loopback API binds without a future explicit remote-mode design.
+- Next steps: If remote/headless control is later required, introduce an explicit opt-in mode with TLS/auth hardening rather than loosening default bind policy.
+- Change log: API host handling is now consistently loopback-only across startup, runtime serve, and settings updates.
+
 - Status: Completed logging hardening / INFO-vs-DEBUG pass on `feature/log-hardening`.
   - Added shared logging utilities (`src/logging.rs`) for redaction helpers and warning throttling.
   - Removed noisy boot marker and moved raw SAM HELLO reply logging to `DEBUG`.

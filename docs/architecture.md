@@ -36,6 +36,7 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 
 - `[api].host` (default `127.0.0.1`)
 - `[api].port` (default `17835`)
+- `api.host` is validated as loopback-only (`localhost`, `127.0.0.1`, `::1`).
 
 ### Auth / Token
 
