@@ -620,6 +620,69 @@ pub async fn run_service(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::nodes::imule::ImuleNode;
+    use tokio::sync::mpsc;
+
+    fn make_node(id_byte: u8, kad_version: u8) -> ImuleNode {
+        let mut client_id = [0u8; 16];
+        client_id[15] = id_byte;
+        let mut udp_dest = [0u8; 387];
+        udp_dest[0] = id_byte;
+        ImuleNode {
+            kad_version,
+            client_id,
+            udp_dest,
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified: true,
+        }
+    }
+
+    #[test]
+    fn closest_peers_with_fallback_keeps_distance_order() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let now = Instant::now();
+
+        let nodes = vec![
+            make_node(1, 3),
+            make_node(2, 3),
+            make_node(3, 3),
+            make_node(4, 3),
+        ];
+        for n in nodes {
+            let _ = svc.routing_mut().upsert(n, now);
+        }
+
+        let target = KadId([0u8; 16]);
+        let peers = closest_peers_with_fallback(&svc, target, 2, 3, 0);
+        let ids: Vec<u8> = peers.iter().map(|p| p.client_id[15]).collect();
+
+        assert_eq!(ids, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn closest_peers_with_fallback_filters_kad_version() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let now = Instant::now();
+
+        let nodes = vec![make_node(1, 2), make_node(2, 3), make_node(3, 4)];
+        for n in nodes {
+            let _ = svc.routing_mut().upsert(n, now);
+        }
+
+        let target = KadId([0u8; 16]);
+        let peers = closest_peers_with_fallback(&svc, target, 2, 3, 0);
+        let ids: Vec<u8> = peers.iter().map(|p| p.client_id[15]).collect();
+
+        assert_eq!(ids, vec![2, 3]);
+    }
+}
+
 async fn handle_command(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
@@ -958,7 +1021,7 @@ async fn send_search_sources(
     }
 
     let now = Instant::now();
-    let peers = closest_peers_live_first(svc, file, 8, 3, 0, Duration::from_secs(10 * 60));
+    let peers = closest_peers_with_fallback(svc, file, 8, 3, 0);
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 search source only for version >= 3.
@@ -997,7 +1060,7 @@ async fn send_publish_source(
     }
 
     let now = Instant::now();
-    let peers = closest_peers_live_first(svc, file, 6, 4, 0, Duration::from_secs(10 * 60));
+    let peers = closest_peers_with_fallback(svc, file, 6, 4, 0);
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 publish source only for version >= 4.
@@ -1182,7 +1245,7 @@ async fn progress_keyword_job(
         return Ok(());
     }
 
-    let peers = closest_peers_live_first(svc, keyword, 32, 3, 0, Duration::from_secs(10 * 60));
+    let peers = closest_peers_with_fallback(svc, keyword, 32, 3, 0);
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
 
     if job.want_search && now >= job.next_search_at {
@@ -1290,40 +1353,16 @@ fn closest_peers_by_distance(
     peers
 }
 
-fn closest_peers_live_first(
+fn closest_peers_with_fallback(
     svc: &KadService,
     target: KadId,
     max: usize,
     min_kad_version: u8,
     exclude_dest_hash: u32,
-    live_window: Duration,
 ) -> Vec<ImuleNode> {
-    let now = Instant::now();
     let mut peers = svc.routing.closest_to(target, max * 4, exclude_dest_hash);
-    let mut live = Vec::new();
-    let mut cold = Vec::new();
     peers.retain(|p| p.kad_version >= min_kad_version);
-    if peers.len() > max {
-        peers.truncate(max);
-    }
-    for p in peers.drain(..) {
-        if p.kad_version < min_kad_version {
-            continue;
-        }
-        let id = KadId(p.client_id);
-        let is_live = svc
-            .routing
-            .get_by_id(id)
-            .and_then(|st| st.last_inbound)
-            .is_some_and(|t| now.saturating_duration_since(t) <= live_window);
-        if is_live {
-            live.push(p);
-        } else {
-            cold.push(p);
-        }
-    }
-    live.extend(cold);
-    live
+    peers
 }
 
 async fn maybe_send_hello_to_peer(
