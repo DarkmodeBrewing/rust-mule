@@ -335,7 +335,7 @@ pub async fn bootstrap(
                     }
                 };
 
-                tracing::info!(
+                tracing::debug!(
                     from = %crate::i2p::b64::short(&recv.from_destination),
                     kad_version = hello.kad_version,
                     valid_receiver_key,
@@ -417,7 +417,7 @@ pub async fn bootstrap(
                         );
                     }
                 } else {
-                    tracing::info!(
+                    tracing::debug!(
                         to = %crate::i2p::b64::short(&recv.from_destination),
                         "sent KAD2 HELLO_RES"
                     );
@@ -440,7 +440,7 @@ pub async fn bootstrap(
 
                 let misc = hello.tags.get(&TAG_KADMISCOPTIONS).copied().unwrap_or(0) as u8;
                 let wants_ack = (misc & 0x04) != 0;
-                tracing::info!(
+                tracing::debug!(
                     from = %crate::i2p::b64::short(&recv.from_destination),
                     kad_version = hello.kad_version,
                     valid_receiver_key,
@@ -516,7 +516,7 @@ pub async fn bootstrap(
                             }
                         } else {
                             hello2_ack_sent += 1;
-                            tracing::info!(
+                            tracing::debug!(
                                 to = %crate::i2p::b64::short(&recv.from_destination),
                                 "sent KAD2 HELLO_RES_ACK"
                             );
@@ -526,7 +526,7 @@ pub async fn bootstrap(
             }
             KADEMLIA2_HELLO_RES_ACK => {
                 hello2_ack_recv += 1;
-                tracing::info!(
+                tracing::debug!(
                     from = %crate::i2p::b64::short(&recv.from_destination),
                     valid_receiver_key,
                     "got KAD2 HELLO_RES_ACK"
@@ -801,7 +801,7 @@ pub async fn bootstrap(
             }
             KADEMLIA2_PONG => {
                 if pong_from.insert(recv.from_destination.clone()) {
-                    tracing::info!(
+                    tracing::debug!(
                         from = %crate::i2p::b64::short(&recv.from_destination),
                         "got KAD2 PONG"
                     );
@@ -852,7 +852,7 @@ pub async fn bootstrap(
             }
             KADEMLIA2_BOOTSTRAP_RES => {
                 if bootstrap_from.insert(recv.from_destination.clone()) {
-                    tracing::info!(
+                    tracing::debug!(
                         from = %crate::i2p::b64::short(&recv.from_destination),
                         "got KAD2 BOOTSTRAP_RES"
                     );
@@ -860,7 +860,7 @@ pub async fn bootstrap(
                 match decode_kad2_bootstrap_res(&pkt.payload) {
                     Ok(res) => {
                         new_contacts += res.contacts.len();
-                        tracing::info!(
+                        tracing::debug!(
                             sender_kad_version = res.sender_kad_version,
                             contacts = res.contacts.len(),
                             "decoded BOOTSTRAP_RES"

@@ -15,6 +15,7 @@ use tokio::time::{Duration, Instant};
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
     tracing::info!(
+        event = "app_start",
         log = %config.general.log_level,
         data_dir = %config.general.data_dir,
         "starting app"
@@ -25,13 +26,18 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let lock_path = Path::new(&config.general.data_dir).join("rust-mule.lock");
     let _instance_lock = SingleInstanceLock::acquire(&lock_path)
         .with_context(|| format!("failed to acquire instance lock {}", lock_path.display()))?;
-    tracing::info!(path = %lock_path.display(), "instance lock acquired");
+    tracing::info!(
+        event = "instance_lock_acquired",
+        path = %lock_path.display(),
+        "instance lock acquired"
+    );
 
     // Load or create aMule/iMule-compatible KadID.
     let prefs_path =
         std::path::Path::new(&config.general.data_dir).join(&config.kad.preferences_kad_path);
     let kad_prefs = crate::kad::load_or_create_preferences_kad(&prefs_path).await?;
     tracing::info!(
+        event = "kad_identity_ready",
         kad_id = %crate::logging::redact_hex(&kad_prefs.kad_id.to_hex_lower()),
         prefs = %prefs_path.display(),
         "Loaded Kademlia identity"
@@ -140,7 +146,11 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let srx = stx.subscribe();
     let api_cfg = config.api.clone();
     let api_port = api_cfg.port;
-    tracing::info!("rust-mule UI available at: http://localhost:{}", api_port);
+    tracing::info!(
+        event = "ui_available",
+        "rust-mule UI available at: http://localhost:{}",
+        api_port
+    );
     let etx_for_server = etx.clone();
     let cmd_tx_for_server = kad_cmd_tx.clone();
     let api_runtime_config = config.clone();

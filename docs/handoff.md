@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed logging follow-up pass (`feature/logging-followup`):
+  - Added throttled-warning suppression counters surfaced as periodic summary logs (`event=throttled_warning_summary`).
+  - Broadened log redaction on KAD identifiers in operational/debug paths (`redact_hex`) and shortened destination logging to short base64 forms in additional send-failure paths.
+  - Added structured `event=...` fields to key startup/status/search/publish log lines for machine filtering.
+  - Reduced bootstrap INFO noise by demoting per-peer HELLO/PONG/BOOTSTRAP chatter to DEBUG.
+  - Added retention helper tests in `src/config.rs`:
+    - rotated filename split/match validation
+    - old rotated-file cleanup behavior.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 60 tests).
+- Decisions: Keep operator-facing INFO logs as concise aggregate state transitions and preserve per-peer/protocol chatter under DEBUG/TRACE.
+- Next steps: Optional final pass can redact remaining DEBUG payload snippets (e.g., packet heads) for environments where debug bundles are shared externally.
+- Change log: Logging now includes throttling observability, stronger identifier redaction, and tested retention helpers while keeping INFO output lower-noise.
+
 - Status: Completed API bind policy hardening (`feature/api-bind-loopback-policy`):
   - Enforced loopback-only API bind host handling via shared config helper (`parse_api_bind_host`).
   - Accepted hosts: `localhost`, `127.0.0.1`, `::1`.

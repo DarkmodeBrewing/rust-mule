@@ -535,9 +535,7 @@ fn cleanup_old_logs(log_dir: &Path, prefix: &str, suffix: &str, max_age: Duratio
             continue;
         };
 
-        let starts = name.starts_with(&format!("{prefix}."));
-        let ends = name.ends_with(&format!(".{suffix}"));
-        if !starts || !ends {
+        if !is_matching_rotated_log_file(name, prefix, suffix) {
             continue;
         }
 
@@ -556,5 +554,91 @@ fn cleanup_old_logs(log_dir: &Path, prefix: &str, suffix: &str, max_age: Duratio
         if let Err(err) = std::fs::remove_file(&path) {
             tracing::warn!(path = %path.display(), error = %err, "failed to delete old log file");
         }
+    }
+}
+
+fn is_matching_rotated_log_file(name: &str, prefix: &str, suffix: &str) -> bool {
+    let prefix_marker = format!("{prefix}.");
+    let suffix_marker = format!(".{suffix}");
+    if !name.starts_with(&prefix_marker) || !name.ends_with(&suffix_marker) {
+        return false;
+    }
+    let start = prefix_marker.len();
+    let end = name.len().saturating_sub(suffix_marker.len());
+    end > start
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let mut p = std::env::temp_dir();
+        let nonce = format!(
+            "{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        p.push(nonce);
+        p
+    }
+
+    #[test]
+    fn split_log_file_name_works_for_default_and_custom_ext() {
+        assert_eq!(
+            split_log_file_name("rust-mule.log"),
+            ("rust-mule".to_string(), "log".to_string())
+        );
+        assert_eq!(
+            split_log_file_name("custom.txt"),
+            ("custom".to_string(), "txt".to_string())
+        );
+    }
+
+    #[test]
+    fn cleanup_old_logs_removes_only_matching_rotated_files() {
+        let dir = temp_dir("rust-mule-log-cleanup");
+        std::fs::create_dir_all(&dir).expect("create temp log dir");
+
+        let old_match = dir.join("rust-mule.2026-01-01.log");
+        let keep_other = dir.join("notes.txt");
+        std::fs::write(&old_match, b"x").expect("write rotated log");
+        std::fs::write(&keep_other, b"x").expect("write unrelated file");
+
+        std::thread::sleep(Duration::from_millis(10));
+        cleanup_old_logs(&dir, "rust-mule", "log", Duration::ZERO);
+
+        assert!(
+            !old_match.exists(),
+            "matching rotated log should be removed"
+        );
+        assert!(keep_other.exists(), "non-matching file should be kept");
+
+        let _ = std::fs::remove_file(&keep_other);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn is_matching_rotated_log_file_checks_prefix_and_suffix() {
+        assert!(is_matching_rotated_log_file(
+            "rust-mule.2026-02-12.log",
+            "rust-mule",
+            "log"
+        ));
+        assert!(!is_matching_rotated_log_file(
+            "rust-mule.log",
+            "rust-mule",
+            "log"
+        ));
+        assert!(!is_matching_rotated_log_file(
+            "other.2026-02-12.log",
+            "rust-mule",
+            "log"
+        ));
     }
 }

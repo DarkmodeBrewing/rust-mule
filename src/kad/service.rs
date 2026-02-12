@@ -1240,7 +1240,7 @@ async fn send_search_sources(
         {
             tracing::debug!(
                 error = %err,
-                to = %p.udp_dest_b64(),
+                to = %crate::i2p::b64::short(&p.udp_dest_b64()),
                 "failed sending SEARCH_SOURCE_REQ"
             );
             continue;
@@ -1248,7 +1248,11 @@ async fn send_search_sources(
         svc.stats_window.sent_search_source_reqs += 1;
     }
 
-    tracing::info!(file = %file.to_hex_lower(), "sent SEARCH_SOURCE_REQ");
+    tracing::info!(
+        event = "send_search_source_req_batch",
+        file = %crate::logging::redact_hex(&file.to_hex_lower()),
+        "sent SEARCH_SOURCE_REQ"
+    );
     Ok(())
 }
 
@@ -1284,7 +1288,7 @@ async fn send_publish_source(
         {
             tracing::debug!(
                 error = %err,
-                to = %p.udp_dest_b64(),
+                to = %crate::i2p::b64::short(&p.udp_dest_b64()),
                 "failed sending PUBLISH_SOURCE_REQ"
             );
             continue;
@@ -1292,7 +1296,11 @@ async fn send_publish_source(
         svc.stats_window.sent_publish_source_reqs += 1;
     }
 
-    tracing::info!(file = %file.to_hex_lower(), "sent PUBLISH_SOURCE_REQ");
+    tracing::info!(
+        event = "send_publish_source_req_batch",
+        file = %crate::logging::redact_hex(&file.to_hex_lower()),
+        "sent PUBLISH_SOURCE_REQ"
+    );
     Ok(())
 }
 
@@ -1484,7 +1492,8 @@ async fn progress_keyword_job(
 
         if sent > 0 {
             tracing::info!(
-                keyword = %keyword.to_hex_lower(),
+                event = "keyword_search_req_batch",
+                keyword = %crate::logging::redact_hex(&keyword.to_hex_lower()),
                 sent,
                 to = %dests.join(","),
                 "sent SEARCH_KEY_REQ (job)"
@@ -1532,8 +1541,9 @@ async fn progress_keyword_job(
 
         if sent > 0 {
             tracing::info!(
-                keyword = %keyword.to_hex_lower(),
-                file = %pubspec.file.to_hex_lower(),
+                event = "keyword_publish_req_batch",
+                keyword = %crate::logging::redact_hex(&keyword.to_hex_lower()),
+                file = %crate::logging::redact_hex(&pubspec.file.to_hex_lower()),
                 sent,
                 to = %dests.join(","),
                 "sent PUBLISH_KEY_REQ (job)"
@@ -1831,7 +1841,11 @@ async fn crawl_once(
         if let Err(err) =
             send_kad2_req(svc, sock, crypto, cfg, requested_contacts, target, &p).await
         {
-            tracing::debug!(error = %err, to = %p.udp_dest_b64(), "failed sending KAD2 REQ (crawl)");
+            tracing::debug!(
+                error = %err,
+                to = %crate::i2p::b64::short(&p.udp_dest_b64()),
+                "failed sending KAD2 REQ (crawl)"
+            );
         }
     }
 
@@ -2028,8 +2042,8 @@ async fn debug_probe_peer(
 
     tracing::debug!(
         to = %crate::i2p::b64::short(dest_b64),
-        keyword = %keyword.to_hex_lower(),
-        file = %file.to_hex_lower(),
+        keyword = %crate::logging::redact_hex(&keyword.to_hex_lower()),
+        file = %crate::logging::redact_hex(&file.to_hex_lower()),
         "debug probe sent HELLO/SEARCH_KEY/PUBLISH_KEY"
     );
 
@@ -2585,7 +2599,8 @@ async fn tick_lookups(
         match task.kind {
             LookupKind::Debug => {
                 tracing::info!(
-                    target = %task.target.to_hex_lower(),
+                    event = "lookup_debug_step",
+                    target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
                     iter = task.iteration,
                     set_size,
                     closest = %closest,
@@ -2595,7 +2610,7 @@ async fn tick_lookups(
             }
             LookupKind::Refresh { bucket } => {
                 tracing::debug!(
-                    target = %task.target.to_hex_lower(),
+                    target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
                     bucket,
                     iter = task.iteration,
                     set_size,
@@ -2616,7 +2631,8 @@ async fn tick_lookups(
         match task.kind {
             LookupKind::Debug => {
                 tracing::info!(
-                    target = %task.target.to_hex_lower(),
+                    event = "lookup_debug_finished",
+                    target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
                     iter = task.iteration,
                     new_nodes = task.new_nodes,
                     stalled,
@@ -2627,7 +2643,7 @@ async fn tick_lookups(
             LookupKind::Refresh { bucket } => {
                 if stalled {
                     tracing::debug!(
-                        target = %task.target.to_hex_lower(),
+                        target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
                         bucket,
                         iter = task.iteration,
                         new_nodes = task.new_nodes,
@@ -2880,6 +2896,7 @@ fn publish_status(
         0
     };
     tracing::info!(
+        event = "kad_status",
         uptime_secs = st.uptime_secs,
         routing = st.routing,
         live = st.live,
@@ -2904,6 +2921,7 @@ fn publish_status(
         "kad service status"
     );
     tracing::debug!(
+        event = "kad_status_detail",
         uptime_secs = st.uptime_secs,
         routing = st.routing,
         live = st.live,
@@ -3587,7 +3605,7 @@ async fn handle_inbound(
             svc.stats_window.recv_publish_key_reqs += 1;
             tracing::debug!(
                 from = %crate::i2p::b64::short(&from_dest_b64),
-                keyword = %keyword.to_hex_lower(),
+                keyword = %crate::logging::redact_hex(&keyword.to_hex_lower()),
                 declared = declared_count,
                 parsed = entries.len(),
                 complete,
@@ -3606,8 +3624,9 @@ async fn handle_inbound(
                         svc.publish_key_decode_fail_logged.clear();
                     }
                     tracing::warn!(
+                        event = "publish_key_req_partial_decode",
                         from = %short,
-                        keyword = %keyword.to_hex_lower(),
+                        keyword = %crate::logging::redact_hex(&keyword.to_hex_lower()),
                         declared = declared_count,
                         parsed = entries.len(),
                         len = pkt.payload.len(),
@@ -3683,14 +3702,18 @@ async fn handle_inbound(
             let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
-                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 PUBLISH_SOURCE_REQ payload");
+                    tracing::debug!(
+                        error = %err,
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        "failed to decode KAD2 PUBLISH_SOURCE_REQ payload"
+                    );
                     return Ok(());
                 }
             };
             tracing::debug!(
                 from = %crate::i2p::b64::short(&from_dest_b64),
-                file = %req.file.to_hex_lower(),
-                source = %req.source.to_hex_lower(),
+                file = %crate::logging::redact_hex(&req.file.to_hex_lower()),
+                source = %crate::logging::redact_hex(&req.source.to_hex_lower()),
                 "recv PUBLISH_SOURCE_REQ"
             );
 
@@ -3733,13 +3756,17 @@ async fn handle_inbound(
             let req = match decode_kad2_search_key_req(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
-                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 SEARCH_KEY_REQ payload");
+                    tracing::debug!(
+                        error = %err,
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        "failed to decode KAD2 SEARCH_KEY_REQ payload"
+                    );
                     return Ok(());
                 }
             };
             tracing::debug!(
                 from = %crate::i2p::b64::short(&from_dest_b64),
-                target = %req.target.to_hex_lower(),
+                target = %crate::logging::redact_hex(&req.target.to_hex_lower()),
                 start = req.start_position,
                 restrictive = req.restrictive,
                 "recv SEARCH_KEY_REQ"
@@ -3786,13 +3813,17 @@ async fn handle_inbound(
             let req = match decode_kad2_search_source_req(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
-                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD2 SEARCH_SOURCE_REQ payload");
+                    tracing::debug!(
+                        error = %err,
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        "failed to decode KAD2 SEARCH_SOURCE_REQ payload"
+                    );
                     return Ok(());
                 }
             };
             tracing::debug!(
                 from = %crate::i2p::b64::short(&from_dest_b64),
-                target = %req.target.to_hex_lower(),
+                target = %crate::logging::redact_hex(&req.target.to_hex_lower()),
                 start = req.start_position,
                 file_size = req.file_size,
                 "recv SEARCH_SOURCE_REQ"
@@ -4007,7 +4038,7 @@ async fn handle_inbound(
                     svc.stats_window.recv_publish_ress += 1;
                     tracing::debug!(
                         from = %crate::i2p::b64::short(&from_dest_b64),
-                        file = %res.file.to_hex_lower(),
+                        file = %crate::logging::redact_hex(&res.file.to_hex_lower()),
                         sources = res.source_count,
                         complete = res.complete_count,
                         load = res.load,
