@@ -8,11 +8,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- API contract tightened for development-only workflow:
+  - Removed temporary unversioned API route aliases; API is now `/api/v1/...` only.
+  - Removed `api.enabled` compatibility field from config parsing.
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after removing legacy API handling (`cargo test` passed; clippy warnings remain in existing code paths).
 - Created feature branch `feature/api-v1-control-plane` and implemented API control-plane changes:
   - Canonical API routes are now under `/api/v1/...`.
   - Added loopback-only dev auth endpoint `GET /api/v1/dev/auth` (returns bearer token).
-  - API is now always on; `api.enabled` is deprecated/ignored (host/port remain configurable).
-  - Kept temporary unversioned route aliases for compatibility in this iteration.
+  - API is now always on; only API host/port are configurable.
 - Updated docs and shell wrappers to use `/api/v1/...` endpoints (`README.md`, `docs/architecture.md`, `docs/api_curl.md`, `docs/scripts/*`, `docs/TODO.md`, `docs/API_DESIGN.md`, `docs/UI_DESIGN.md`).
 - Added `docs/scripts/dev_auth.sh` helper for `GET /api/v1/dev/auth`.
 - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after the API/docs changes (`cargo test` passed; clippy warnings remain in existing code paths).
@@ -65,9 +68,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
-- Treat `/api/v1` as canonical API surface and keep legacy unversioned aliases temporarily to avoid breaking existing scripts/clients immediately.
+- Use strict `/api/v1` routes only; no legacy unversioned aliases are kept.
 - Implement loopback-only dev auth as `GET /api/v1/dev/auth` (no auth header required).
-- Make API mandatory (always enabled) and deprecate `api.enabled` instead of hard-breaking old configs.
+- Make API mandatory (always enabled) and remove `api.enabled` compatibility handling from code.
 - Treat `main` as the canonical branch in project docs.
 - No code changes made based on this run; treat results as network sparsity/quietness signal.
 - Keep local publish injection, but expose `origin` so tests are unambiguous.
@@ -88,7 +91,6 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
-- Decide when to remove temporary unversioned API route aliases and enforce `/api/v1` only.
 - Implement API CORS restrictions for loopback origins as listed in `docs/TODO.md`.
 - Decide the next implementation target after docs normalization (API versioning/dev-auth/API always-on were identified as open choices).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -112,6 +114,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Remove temporary unversioned API aliases and enforce `/api/v1` only (`src/api/mod.rs`).
+- 2026-02-12: Remove `api.enabled` compatibility handling from config/app code (`src/config.rs`, `src/app.rs`).
+- 2026-02-12: Run `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after strict v1-only API cleanup (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Implement `/api/v1` canonical routing, add loopback-only `GET /api/v1/dev/auth`, make API always-on (deprecate/ignore `api.enabled`), and add compatibility aliases for legacy routes (`src/api/mod.rs`, `src/app.rs`, `src/config.rs`, `src/main.rs`, `config.toml`).
 - 2026-02-12: Update API docs/scripts to `/api/v1` and add `docs/scripts/dev_auth.sh` helper.
 - 2026-02-12: Run `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after API routing/control-plane changes (tests pass; existing clippy warnings unchanged).

@@ -129,12 +129,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     // Local HTTP API (REST + SSE) for control plane and future GUI.
     //
     // This is always on and requires a bearer token stored under `data/`.
-    if let Some(enabled) = config.api.deprecated_enabled {
-        tracing::warn!(
-            configured = enabled,
-            "config option api.enabled is deprecated and ignored; API is always enabled"
-        );
-    }
     let token_path = data_dir.join("api.token");
     let token = crate::api::token::load_or_create_token(&token_path)
         .await

@@ -84,31 +84,8 @@ pub async fn serve(
         .route("/kad/publish_source", post(kad_publish_source))
         .route("/kad/publish_keyword", post(kad_publish_keyword));
 
-    // Compatibility aliases (unversioned). Keep for now to avoid breaking existing callers.
-    let legacy = Router::new()
-        .route("/health", get(health))
-        .route("/dev/auth", get(dev_auth))
-        .route("/status", get(status))
-        .route("/events", get(events))
-        .route("/kad/peers", get(kad_peers))
-        .route("/debug/routing/summary", get(debug_routing_summary))
-        .route("/debug/routing/buckets", get(debug_routing_buckets))
-        .route("/debug/routing/nodes", get(debug_routing_nodes))
-        .route("/debug/lookup_once", post(debug_lookup_once))
-        .route("/debug/probe_peer", post(debug_probe_peer))
-        .route("/kad/sources/:file_id_hex", get(kad_sources))
-        .route(
-            "/kad/keyword_results/:keyword_id_hex",
-            get(kad_keyword_results),
-        )
-        .route("/kad/search_sources", post(kad_search_sources))
-        .route("/kad/search_keyword", post(kad_search_keyword))
-        .route("/kad/publish_source", post(kad_publish_source))
-        .route("/kad/publish_keyword", post(kad_publish_keyword));
-
     let app = Router::new()
         .nest("/api/v1", v1)
-        .merge(legacy)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, auth_mw));
 
@@ -645,10 +622,7 @@ fn is_loopback_addr(addr: &SocketAddr) -> bool {
 }
 
 fn is_auth_exempt_path(path: &str) -> bool {
-    matches!(
-        path,
-        "/health" | "/dev/auth" | "/api/v1/health" | "/api/v1/dev/auth"
-    )
+    matches!(path, "/api/v1/health" | "/api/v1/dev/auth")
 }
 
 #[cfg(test)]
@@ -668,11 +642,11 @@ mod tests {
     }
 
     #[test]
-    fn auth_exempt_paths_include_v1_and_legacy_health_and_dev_auth() {
+    fn auth_exempt_paths_include_only_v1_health_and_dev_auth() {
         assert!(is_auth_exempt_path("/api/v1/health"));
         assert!(is_auth_exempt_path("/api/v1/dev/auth"));
-        assert!(is_auth_exempt_path("/health"));
-        assert!(is_auth_exempt_path("/dev/auth"));
+        assert!(!is_auth_exempt_path("/health"));
+        assert!(!is_auth_exempt_path("/dev/auth"));
         assert!(!is_auth_exempt_path("/api/v1/status"));
     }
 }
