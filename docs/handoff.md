@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Implemented subsystem-specific typed errors on `feature/subsystem-typed-errors`:
+  - Replaced internal `anyhow` usage with typed error enums + local `Result` aliases in:
+    - `src/config.rs`
+    - `src/config_io.rs`
+    - `src/api/token.rs`
+    - `src/kad.rs`
+    - `src/kad/keyword.rs`
+    - `src/nodes/imule.rs`
+    - `src/i2p/b64.rs`
+    - `src/i2p/http.rs`
+  - Preserved current app-level behavior by allowing these typed errors to bubble into existing `anyhow` boundaries where applicable.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 60 tests).
+- Decisions: Kept this pass focused on subsystem modules with clear ownership boundaries; app orchestration/error aggregation remains unchanged.
+- Next steps: Continue migrating remaining non-core modules still using `anyhow` (for example selected KAD service/bootstrap internals) if full typed-error coverage is desired.
+- Change log: Subsystem error handling now uses concrete typed errors instead of stringly `anyhow` in the converted modules.
+
 - Status: Completed logging follow-up pass (`feature/logging-followup`):
   - Added throttled-warning suppression counters surfaced as periodic summary logs (`event=throttled_warning_summary`).
   - Broadened log redaction on KAD identifiers in operational/debug paths (`redact_hex`) and shortened destination logging to short base64 forms in additional send-failure paths.

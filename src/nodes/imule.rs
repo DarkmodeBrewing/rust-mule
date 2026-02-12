@@ -1,5 +1,58 @@
-use anyhow::{Context, Result, bail};
 use std::path::Path;
+
+pub type Result<T> = std::result::Result<T, ImuleNodesError>;
+
+#[derive(Debug)]
+pub enum ImuleNodesError {
+    Read {
+        path: String,
+        source: std::io::Error,
+    },
+    CreateDir {
+        path: String,
+        source: std::io::Error,
+    },
+    Write {
+        path: String,
+        source: std::io::Error,
+    },
+    Rename {
+        from: String,
+        to: String,
+        source: std::io::Error,
+    },
+    TooManyNodes(usize),
+    InvalidFormat(String),
+    UnexpectedEof {
+        offset: usize,
+    },
+}
+
+impl std::fmt::Display for ImuleNodesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Read { path, .. } => write!(f, "failed to read {path}"),
+            Self::CreateDir { path, .. } => write!(f, "failed creating directory {path}"),
+            Self::Write { path, .. } => write!(f, "failed to write {path}"),
+            Self::Rename { from, to, .. } => write!(f, "failed to rename {from} -> {to}"),
+            Self::TooManyNodes(count) => write!(f, "too many nodes to encode: {count}"),
+            Self::InvalidFormat(msg) => write!(f, "{msg}"),
+            Self::UnexpectedEof { offset } => write!(f, "unexpected EOF at offset {offset}"),
+        }
+    }
+}
+
+impl std::error::Error for ImuleNodesError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { source, .. } => Some(source),
+            Self::CreateDir { source, .. } => Some(source),
+            Self::Write { source, .. } => Some(source),
+            Self::Rename { source, .. } => Some(source),
+            Self::TooManyNodes(_) | Self::InvalidFormat(_) | Self::UnexpectedEof { .. } => None,
+        }
+    }
+}
 
 /// iMule/aMule I2P-only `nodes.dat` contact (version 2 file format).
 ///
@@ -41,8 +94,11 @@ pub async fn nodes_dat_contacts(path: impl AsRef<std::path::Path>) -> Result<Vec
     let path = path.as_ref();
     let bytes = tokio::fs::read(path)
         .await
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    parse_nodes_dat(&bytes).with_context(|| format!("failed to parse {}", path.display()))
+        .map_err(|source| ImuleNodesError::Read {
+            path: path.display().to_string(),
+            source,
+        })?;
+    parse_nodes_dat(&bytes)
 }
 
 /// Persist a `nodes.dat` v2 file (iMule/aMule format).
@@ -52,17 +108,27 @@ pub async fn persist_nodes_dat_v2(path: &Path, nodes: &[ImuleNode]) -> Result<()
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent)
             .await
-            .with_context(|| format!("failed creating directory {}", parent.display()))?;
+            .map_err(|source| ImuleNodesError::CreateDir {
+                path: parent.display().to_string(),
+                source,
+            })?;
     }
 
     let tmp = path.with_extension("tmp");
     let bytes = encode_nodes_dat_v2(nodes)?;
     tokio::fs::write(&tmp, bytes)
         .await
-        .with_context(|| format!("failed to write {}", tmp.display()))?;
+        .map_err(|source| ImuleNodesError::Write {
+            path: tmp.display().to_string(),
+            source,
+        })?;
     tokio::fs::rename(&tmp, path)
         .await
-        .with_context(|| format!("failed to rename {} -> {}", tmp.display(), path.display()))?;
+        .map_err(|source| ImuleNodesError::Rename {
+            from: tmp.display().to_string(),
+            to: path.display().to_string(),
+            source,
+        })?;
     Ok(())
 }
 
@@ -70,7 +136,7 @@ pub fn encode_nodes_dat_v2(nodes: &[ImuleNode]) -> Result<Vec<u8>> {
     let count: u32 = nodes
         .len()
         .try_into()
-        .map_err(|_| anyhow::anyhow!("too many nodes to encode: {}", nodes.len()))?;
+        .map_err(|_| ImuleNodesError::TooManyNodes(nodes.len()))?;
 
     let entry_size = 1 + 16 + 387 + 4 + 4 + 1;
     let mut out = Vec::with_capacity(12 + nodes.len() * entry_size);
@@ -93,7 +159,10 @@ pub fn encode_nodes_dat_v2(nodes: &[ImuleNode]) -> Result<Vec<u8>> {
 
 pub fn parse_nodes_dat(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
     if bytes.len() < 4 {
-        bail!("nodes.dat too small: {} bytes", bytes.len());
+        return Err(ImuleNodesError::InvalidFormat(format!(
+            "nodes.dat too small: {} bytes",
+            bytes.len()
+        )));
     }
 
     let first = read_u32_le(bytes, 0)?;
@@ -118,7 +187,10 @@ fn write_uint128_emule(id_be: &[u8; 16]) -> [u8; 16] {
 
 fn parse_nodes_dat_v2(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
     if bytes.len() < 12 {
-        bail!("nodes.dat v2 header too small: {} bytes", bytes.len());
+        return Err(ImuleNodesError::InvalidFormat(format!(
+            "nodes.dat v2 header too small: {} bytes",
+            bytes.len()
+        )));
     }
 
     let magic = read_u32_le(bytes, 0)?;
@@ -126,19 +198,23 @@ fn parse_nodes_dat_v2(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
     let count = read_u32_le(bytes, 8)? as usize;
 
     if magic != 0 {
-        bail!("unexpected nodes.dat magic={magic}, expected 0");
+        return Err(ImuleNodesError::InvalidFormat(format!(
+            "unexpected nodes.dat magic={magic}, expected 0"
+        )));
     }
     if version != 2 {
-        bail!("unsupported nodes.dat version={version}, expected 2");
+        return Err(ImuleNodesError::InvalidFormat(format!(
+            "unsupported nodes.dat version={version}, expected 2"
+        )));
     }
 
     let entry_size = 1 + 16 + 387 + 4 + 4 + 1;
     let needed = 12 + count * entry_size;
     if bytes.len() < needed {
-        bail!(
+        return Err(ImuleNodesError::InvalidFormat(format!(
             "nodes.dat truncated: expected at least {needed} bytes for {count} entries, got {}",
             bytes.len()
-        );
+        )));
     }
 
     let mut out = Vec::with_capacity(count);
@@ -153,7 +229,7 @@ fn parse_nodes_dat_v2(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
 
         let udp_dest: [u8; 387] = bytes
             .get(off..off + 387)
-            .ok_or_else(|| anyhow::anyhow!("truncated udp_dest"))?
+            .ok_or_else(|| ImuleNodesError::InvalidFormat("truncated udp_dest".to_string()))?
             .try_into()
             .unwrap();
         off += 387;
@@ -185,16 +261,18 @@ fn parse_nodes_dat_bootstrap_v1(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
     // - repeated: u8 version, u128 client_id, 387 bytes udp_dest
     // (no udpkey / verified)
     if bytes.len() < 4 {
-        bail!("bootstrap nodes.dat too small");
+        return Err(ImuleNodesError::InvalidFormat(
+            "bootstrap nodes.dat too small".to_string(),
+        ));
     }
     let count = read_u32_le(bytes, 0)? as usize;
     let entry_size = 1 + 16 + 387;
     let needed = 4 + count * entry_size;
     if bytes.len() < needed {
-        bail!(
+        return Err(ImuleNodesError::InvalidFormat(format!(
             "bootstrap nodes.dat truncated: expected at least {needed} bytes for {count} entries, got {}",
             bytes.len()
-        );
+        )));
     }
 
     let mut out = Vec::with_capacity(count);
@@ -208,7 +286,7 @@ fn parse_nodes_dat_bootstrap_v1(bytes: &[u8]) -> Result<Vec<ImuleNode>> {
 
         let udp_dest: [u8; 387] = bytes
             .get(off..off + 387)
-            .ok_or_else(|| anyhow::anyhow!("truncated udp_dest"))?
+            .ok_or_else(|| ImuleNodesError::InvalidFormat("truncated udp_dest".to_string()))?
             .try_into()
             .unwrap();
         off += 387;
@@ -230,13 +308,13 @@ fn read_u8(bytes: &[u8], off: usize) -> Result<u8> {
     bytes
         .get(off)
         .copied()
-        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at offset {off}"))
+        .ok_or(ImuleNodesError::UnexpectedEof { offset: off })
 }
 
 fn read_u32_le(bytes: &[u8], off: usize) -> Result<u32> {
     let b: [u8; 4] = bytes
         .get(off..off + 4)
-        .ok_or_else(|| anyhow::anyhow!("unexpected EOF at offset {off}"))?
+        .ok_or(ImuleNodesError::UnexpectedEof { offset: off })?
         .try_into()
         .unwrap();
     Ok(u32::from_le_bytes(b))

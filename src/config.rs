@@ -2,6 +2,50 @@ use serde::{Deserialize, Serialize};
 use std::{path::Path, time::Duration};
 use tracing_subscriber::EnvFilter;
 
+pub type Result<T> = std::result::Result<T, ConfigError>;
+
+#[derive(Debug)]
+pub enum ConfigError {
+    SerializeToml(toml::ser::Error),
+    WriteTemp(std::io::Error),
+    Rename(std::io::Error),
+    InvalidApiHost {
+        host: String,
+        source: std::net::AddrParseError,
+    },
+    NonLoopbackApiHost {
+        host: String,
+    },
+}
+
+impl std::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SerializeToml(_) => write!(f, "failed to serialize config to TOML"),
+            Self::WriteTemp(_) => write!(f, "failed writing temporary config file"),
+            Self::Rename(_) => write!(f, "failed replacing config file"),
+            Self::InvalidApiHost { host, .. } => write!(f, "Invalid api.host '{}'", host),
+            Self::NonLoopbackApiHost { host } => write!(
+                f,
+                "Invalid api.host '{}': only loopback hosts are allowed (localhost/127.0.0.1/::1)",
+                host
+            ),
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::SerializeToml(source) => Some(source),
+            Self::WriteTemp(source) => Some(source),
+            Self::Rename(source) => Some(source),
+            Self::InvalidApiHost { source, .. } => Some(source),
+            Self::NonLoopbackApiHost { .. } => None,
+        }
+    }
+}
+
 fn default_sam_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -187,13 +231,17 @@ pub struct Config {
 }
 
 impl Config {
-    pub async fn persist(&self) -> anyhow::Result<()> {
+    pub async fn persist(&self) -> Result<()> {
         let path = "config.toml";
         let tmp_path = format!("{}.tmp", path);
-        let toml = toml::to_string_pretty(self)?;
+        let toml = toml::to_string_pretty(self).map_err(ConfigError::SerializeToml)?;
 
-        tokio::fs::write(&tmp_path, toml).await?;
-        tokio::fs::rename(&tmp_path, path).await?;
+        tokio::fs::write(&tmp_path, toml)
+            .await
+            .map_err(ConfigError::WriteTemp)?;
+        tokio::fs::rename(&tmp_path, path)
+            .await
+            .map_err(ConfigError::Rename)?;
 
         Ok(())
     }
@@ -407,20 +455,22 @@ impl Default for ApiConfig {
     }
 }
 
-pub fn parse_api_bind_host(host: &str) -> anyhow::Result<std::net::IpAddr> {
+pub fn parse_api_bind_host(host: &str) -> Result<std::net::IpAddr> {
     let host = host.trim();
     let ip = if host.eq_ignore_ascii_case("localhost") {
         std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
     } else {
         host.parse::<std::net::IpAddr>()
-            .map_err(|e| anyhow::anyhow!("Invalid api.host '{}': {}", host, e))?
+            .map_err(|source| ConfigError::InvalidApiHost {
+                host: host.to_string(),
+                source,
+            })?
     };
 
     if !ip.is_loopback() {
-        anyhow::bail!(
-            "Invalid api.host '{}': only loopback hosts are allowed (localhost/127.0.0.1/::1)",
-            host
-        );
+        return Err(ConfigError::NonLoopbackApiHost {
+            host: host.to_string(),
+        });
     }
     Ok(ip)
 }
