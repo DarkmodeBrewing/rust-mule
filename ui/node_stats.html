@@ -43,6 +43,7 @@
       href="/ui/assets/css/base.css"
     />
     <script defer src="/ui/assets/js/alpine.min.js"></script>
+    <script defer src="/ui/assets/js/chart.min.js"></script>
     <script type="module" src="/ui/assets/js/app.js"></script>
   </head>
 
@@ -119,6 +120,34 @@
           <div class="card">
             <div class="kpi" x-text="activeNodes"></div>
             <span class="label">Active Nodes (inbound <= 10m)</span>
+          </div>
+        </div>
+
+        <div class="grid grid-3">
+          <div class="card">
+            <h2>Search Hits Over Time</h2>
+            <p class="mt-3">
+              Total active-search hits observed in each sample.
+            </p>
+            <div class="chart-wrap mt-3">
+              <canvas x-ref="hitsChart"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Traffic Rate</h2>
+            <p class="mt-3">
+              Requests/sec vs responses/sec from status counters.
+            </p>
+            <div class="chart-wrap mt-3">
+              <canvas x-ref="rateChart"></canvas>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Peer State Mix</h2>
+            <p class="mt-3">Live and idle peers over time.</p>
+            <div class="chart-wrap mt-3">
+              <canvas x-ref="peersChart"></canvas>
+            </div>
           </div>
         </div>
 

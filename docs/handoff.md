@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Implemented first Chart.js statistics set on `ui/node_stats.html`:
+  - Added three charts:
+    - Search hits over time (line)
+    - Request/response rate over time (line)
+    - Live vs idle peer mix over time (stacked bar)
+  - Added Chart.js loader on `node_stats` and chart canvas panels in the page layout.
+  - Extended `appNodeStats()` in `ui/assets/js/app.js`:
+    - SSE-driven status updates + polling fallback.
+    - Time-series history buffers and rate calculation from status counters.
+    - Chart initialization/update lifecycle and theme-variable color usage.
+  - Added reusable chart container token/style:
+    - `--chart-height` in `ui/assets/css/layout.css`
+    - `.chart-wrap` in `ui/assets/css/base.css`
+  - Updated `docs/TODO.md` and `docs/UI_DESIGN.md` to mark Chart.js usage as implemented and statistics work as partial/ongoing.
+  - Ran Prettier on changed UI files and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Node stats page now includes live operational charts for search productivity, request/response rates, and peer health mix.
 - Implemented frontend session-cookie auth for UI routes and SSE:
   - Added `POST /api/v1/session` (bearer-protected) to issue `rm_session` HTTP-only cookie.
   - Added in-memory session store in API state and cookie validation helpers.
@@ -267,6 +283,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Place first operational charts on `node_stats` to pair routing/node data with live trend context before introducing a dedicated statistics page.
 - Auth split for v1 local UI:
   - Keep bearer token as the API auth mechanism for `/api/v1/*`.
   - Use a separate HTTP-only session cookie for browser page/asset loads and SSE.
@@ -323,6 +340,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Expand chart interactions/usability:
+  - Add legend toggles and chart tooltips formatting for rates and hit counts.
+  - Add pause/reset controls for time-series buffers.
+  - Consider moving/duplicating high-value charts to overview once layout is finalized.
 - Add session lifecycle endpoints and UX (`POST /api/v1/session/logout`, session-expired handling in UI).
 - Add session persistence/eviction policy (TTL + periodic cleanup) instead of in-memory unbounded set.
 - Add integration tests for middleware behavior:

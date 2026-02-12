@@ -271,6 +271,12 @@ a:hover {
   box-shadow: var(--focus);
 }
 
+.chart-wrap {
+  position: relative;
+  width: 100%;
+  height: var(--chart-height);
+}
+
 @media (max-width: 60rem) {
   .shell {
     grid-template-columns: 1fr;

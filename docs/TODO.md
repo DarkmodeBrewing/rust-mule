@@ -42,7 +42,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 - [x] While bootstrapping the UI, a call to the API's endpoint (`GET:/api/<version>/dev/auth`) to get the bearer token (`/data/api.token`)
 - [x] Static files (JavaScript files and CSS files) will be included in `./ui/assets/<type>`, but embedded in the binary (`/ui/assets/css/base.css`, `/ui/assets/js/app.js`, `/ui/assets/js/alpine.min.js`, `/ui/assets/js/chart.min.js`, etc.)
   - [x] Alpine.JS - used for state, interactive form controls, list and for composing components
-  - [ ] Chart.JS - used for plot charts for statistics and the like
+  - [x] Chart.JS - used for plot charts for statistics and the like
   - [x] Bootstrap/init JS exists (`theme-init.js`, `helpers.js`) for startup functions including token bootstrap and theme setup
   - [x] base.css - UI styling, set up themes using CSS variables
   - [/] Rule for CSS - always use variables, never literals, using `em` inside components and `px` for borders/hairlines
@@ -56,7 +56,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
   - [x] Network status (Peers), with statistics (Network throughput, Live / Last seen (peers), streaming events (SSE))
   - [x] Application settings (from config.toml) backed by the API (`PATCH: /api/settings`, `GET: /api/settings`)
 - [x] Create start/overview page
-- [/] Create statistics page, use chart.js to draw statistical charts where needed
+- [/] Create statistics page, use chart.js to draw statistical charts where needed (initial charts implemented on `node_stats`)
 - [x] Create the search form, leveraging Alpine.js
 - [ ] UI should be auto started in the current platforms default browser
 - [ ] Settings toggle to prevent auto open of UI should exist, to be able to run headless

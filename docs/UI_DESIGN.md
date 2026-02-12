@@ -203,7 +203,8 @@ Main:
 - Implemented: API-backed settings read/update via `GET/PATCH /api/v1/settings` with persistence to `config.toml`.
 - Implemented: UI files embedded in binary and served by Rust API.
 - Implemented: frontend session-cookie auth for UI routes and SSE (`/api/v1/events`) without token query params.
-- Partial: statistics charting (Chart.js bundled, chart views not yet implemented).
+- Implemented: first chart set on `node_stats` (search hits over time, request/response rate, live-vs-idle peers).
+- Partial: broader statistics expansion and dedicated statistics page.
 - Open: frontend session lifecycle controls (logout/session expiry UX) and stronger session hardening for remote/headless mode.
 
 ## Implementation Notes
