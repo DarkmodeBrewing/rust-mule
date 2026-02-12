@@ -39,6 +39,7 @@ pub mod token;
 
 static UI_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/ui");
 const SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
+const SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -85,9 +86,18 @@ pub async fn serve(
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
 
+    let sessions_for_sweeper = state.sessions.clone();
     let app = build_app(state.clone())
         .layer(middleware::from_fn(cors_mw))
-        .layer(middleware::from_fn_with_state(state, auth_mw));
+        .layer(middleware::from_fn_with_state(state.clone(), auth_mw));
+
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(SESSION_SWEEP_INTERVAL).await;
+            let mut sessions = sessions_for_sweeper.lock().await;
+            cleanup_expired_sessions(&mut sessions, Instant::now());
+        }
+    });
 
     tracing::info!(addr = %addr, "api server listening");
     let listener = tokio::net::TcpListener::bind(addr).await?;
@@ -1421,6 +1431,17 @@ mod tests {
         assert!(cookie.contains("rm_session=abc"));
         assert!(cookie.contains("Max-Age=60"));
         assert!(clear_session_cookie().contains("Max-Age=0"));
+    }
+
+    #[test]
+    fn cleanup_expired_sessions_removes_expired_entries() {
+        let now = Instant::now();
+        let mut sessions = HashMap::new();
+        sessions.insert("alive".to_string(), now + Duration::from_secs(10));
+        sessions.insert("dead".to_string(), now - Duration::from_secs(10));
+        cleanup_expired_sessions(&mut sessions, now);
+        assert!(sessions.contains_key("alive"));
+        assert!(!sessions.contains_key("dead"));
     }
 
     #[test]

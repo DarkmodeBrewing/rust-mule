@@ -50,6 +50,24 @@
       <aside class="card sidebar">
         <h2>rust-mule</h2>
         <p>Search dashboard shell</p>
+        <div class="flex gap-2 flex-wrap mt-3">
+          <span
+            class="badge"
+            x-bind:class="sessionStateClass"
+            x-text="sessionStateLabel"
+          ></span>
+          <button
+            class="btn"
+            type="button"
+            @click="checkSession()"
+            x-bind:disabled="sessionChecking"
+          >
+            Check
+          </button>
+          <button class="btn" type="button" @click="logoutSession()">
+            Logout
+          </button>
+        </div>
 
         <h3 class="mt-4">Navigation</h3>
         <ul class="nav-list mt-3">

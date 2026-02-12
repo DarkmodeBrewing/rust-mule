@@ -97,8 +97,69 @@ function applyThemeValue(theme) {
   return next;
 }
 
+function sessionControlMixin() {
+  return {
+    sessionActive: null,
+    sessionChecking: false,
+
+    get sessionStateLabel() {
+      if (this.sessionActive === true) {
+        return 'session: active';
+      }
+      if (this.sessionActive === false) {
+        return 'session: expired';
+      }
+      return 'session: unknown';
+    },
+
+    get sessionStateClass() {
+      if (this.sessionActive === true) {
+        return 'state-done';
+      }
+      if (this.sessionActive === false) {
+        return 'state-idle';
+      }
+      return '';
+    },
+
+    async checkSession() {
+      this.sessionChecking = true;
+      try {
+        const resp = await fetch('/api/v1/session/check');
+        if (resp.ok) {
+          this.sessionActive = true;
+          return true;
+        }
+        if (resp.status === 401 || resp.status === 403) {
+          this.sessionActive = false;
+          return false;
+        }
+        throw new Error(`session check failed: ${resp.status}`);
+      } catch (err) {
+        this.sessionActive = false;
+        if ('error' in this) {
+          this.error = String(err?.message || err);
+        }
+        return false;
+      } finally {
+        this.sessionChecking = false;
+      }
+    },
+
+    async logoutSession() {
+      try {
+        await fetch('/api/v1/session/logout', { method: 'POST' });
+      } catch (_err) {
+        // continue with redirect even if session is already invalid
+      }
+      window.location.replace('/auth');
+    },
+  };
+}
+
 window.indexApp = function indexApp() {
   return {
+    ...sessionControlMixin(),
     loading: false,
     connected: false,
     error: '',
@@ -145,6 +206,11 @@ window.indexApp = function indexApp() {
       this.notice = '';
 
       try {
+        const ok = await this.checkSession();
+        if (!ok) {
+          window.location.replace('/auth');
+          return;
+        }
         this.token = await bootstrapToken();
         await this.refreshStatus();
         await this.refreshThreads();
@@ -283,6 +349,7 @@ window.indexApp = function indexApp() {
 
 window.appSearch = function appSearch() {
   return {
+    ...sessionControlMixin(),
     loading: false,
     submitting: false,
     error: '',
@@ -307,6 +374,11 @@ window.appSearch = function appSearch() {
       this.loading = true;
       this.error = '';
       try {
+        const ok = await this.checkSession();
+        if (!ok) {
+          window.location.replace('/auth');
+          return;
+        }
         await bootstrapToken();
         await this.refreshThreads();
       } catch (err) {
@@ -374,6 +446,7 @@ window.appSearch = function appSearch() {
 
 window.appSearchDetails = function appSearchDetails() {
   return {
+    ...sessionControlMixin(),
     loading: false,
     error: '',
     searchId: '',
@@ -402,6 +475,11 @@ window.appSearchDetails = function appSearchDetails() {
       this.searchId = parseSearchIdFromQuery();
 
       try {
+        const ok = await this.checkSession();
+        if (!ok) {
+          window.location.replace('/auth');
+          return;
+        }
         await bootstrapToken();
         await this.refreshThreads();
         if (!this.searchId) {
@@ -430,6 +508,7 @@ window.appSearchDetails = function appSearchDetails() {
 
 window.appNodeStats = function appNodeStats() {
   return {
+    ...sessionControlMixin(),
     loading: false,
     connected: false,
     error: '',
@@ -469,6 +548,11 @@ window.appNodeStats = function appNodeStats() {
       this.loading = true;
       this.error = '';
       try {
+        const ok = await this.checkSession();
+        if (!ok) {
+          window.location.replace('/auth');
+          return;
+        }
         await bootstrapToken();
         await this.refresh();
         this.initCharts();
@@ -792,6 +876,7 @@ window.appNodeStats = function appNodeStats() {
 
 window.appLogs = function appLogs() {
   return {
+    ...sessionControlMixin(),
     loading: false,
     connected: false,
     error: '',
@@ -811,6 +896,11 @@ window.appLogs = function appLogs() {
       this.loading = true;
       this.error = '';
       try {
+        const ok = await this.checkSession();
+        if (!ok) {
+          window.location.replace('/auth');
+          return;
+        }
         await bootstrapToken();
         await this.refreshThreads();
         await this.refreshStatus();
@@ -891,6 +981,7 @@ window.appLogs = function appLogs() {
 
 window.appSettings = function appSettings() {
   return {
+    ...sessionControlMixin(),
     loading: false,
     saving: false,
     error: '',
@@ -924,6 +1015,11 @@ window.appSettings = function appSettings() {
       this.notice = '';
       try {
         this.theme = currentTheme();
+        const ok = await this.checkSession();
+        if (!ok) {
+          window.location.replace('/auth');
+          return;
+        }
         await bootstrapToken();
         await this.refreshThreads();
         this.status = await apiGet('/status');
@@ -991,17 +1087,6 @@ window.appSettings = function appSettings() {
       } finally {
         this.saving = false;
       }
-    },
-
-    async logoutSession() {
-      this.error = '';
-      this.notice = '';
-      try {
-        await apiPost('/session/logout', {});
-      } catch (_err) {
-        // continue with redirect even if backend already considers session invalid
-      }
-      window.location.replace('/auth');
     },
 
     async rotateApiToken() {

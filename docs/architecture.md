@@ -71,6 +71,7 @@ Notes:
   - Bearer auth required.
   - Issues `Set-Cookie: rm_session=...; HttpOnly; SameSite=Strict; Path=/`.
   - Session TTL currently defaults to 8 hours.
+  - Expired sessions are cleaned lazily on validation/create and by a periodic background sweep.
   - Used by browser UI bootstrap so frontend routes and SSE can be session-authenticated.
 
 - `POST /api/v1/token/rotate`

@@ -8,6 +8,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed UI/API follow-up items 1 and 2 on `feature/ui-bootstrap`:
+  - Added shared session status/check/logout widget in sidebar shell on all UI pages, backed by a reusable Alpine mixin.
+  - Added periodic backend session cleanup task (`SESSION_SWEEP_INTERVAL=5m`) in addition to lazy cleanup on create/validate.
+  - Added API unit test `cleanup_expired_sessions_removes_expired_entries`.
+- Decisions: Keep session UX in a single shared sidebar control; keep session sweep simple (fixed interval background task) with existing `Mutex<HashMap<...>>` session store.
+- Next steps: Merge this branch to `main`, then move to the next prioritized UI/API backlog item after validating behavior manually in browser.
+- Change log: Session lifecycle visibility and expiry hygiene are now continuously maintained in both frontend shell and backend runtime.
+
 - Implemented API bearer token rotation flow:
   - Added `POST /api/v1/token/rotate` (bearer-protected).
   - API token is now shared mutable state (`RwLock`) and token file path is stored in API state.
