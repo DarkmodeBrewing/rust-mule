@@ -200,9 +200,10 @@ Main:
 ## Implementation Snapshot (2026-02-12)
 
 - Implemented: shell/sidebar pages, search form, search thread list, search details, node status page, logs page, settings page, theme selector.
+- Implemented: API-backed settings read/update via `GET/PATCH /api/v1/settings` with persistence to `config.toml`.
 - Implemented: UI files embedded in binary and served by Rust API.
 - Partial: statistics charting (Chart.js bundled, chart views not yet implemented).
-- Open: API-backed settings CRUD (`GET/PATCH /api/settings`) and token handling for SSE without query parameter exposure.
+- Open: token handling for SSE without query parameter exposure.
 
 ## Implementation Notes
 

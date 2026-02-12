@@ -54,7 +54,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
   - [x] Start page / overview
   - [x] Search interface: File search by keywords
   - [x] Network status (Peers), with statistics (Network throughput, Live / Last seen (peers), streaming events (SSE))
-  - [ ] Application settings (from config.toml) backed by the API (`PATCH: /api/settings`, `GET: /api/settings`)
+  - [x] Application settings (from config.toml) backed by the API (`PATCH: /api/settings`, `GET: /api/settings`)
 - [x] Create start/overview page
 - [/] Create statistics page, use chart.js to draw statistical charts where needed
 - [x] Create the search form, leveraging Alpine.js

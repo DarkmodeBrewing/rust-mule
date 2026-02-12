@@ -1,6 +1,7 @@
 import {
   apiDelete,
   apiGet,
+  apiPatch,
   apiPost,
   bootstrapToken,
   openStatusEventStream,
@@ -604,10 +605,24 @@ window.appLogs = function appLogs() {
 window.appSettings = function appSettings() {
   return {
     loading: false,
+    saving: false,
     error: '',
+    notice: '',
     searchThreads: [],
     status: null,
     theme: currentTheme(),
+    settings: null,
+    restartRequired: true,
+    form: {
+      samHost: '',
+      samPort: 0,
+      samSessionName: '',
+      apiHost: '',
+      apiPort: 0,
+      logLevel: '',
+      logToFile: true,
+      logFileLevel: '',
+    },
 
     get prettyStatus() {
       if (!this.status) {
@@ -619,11 +634,13 @@ window.appSettings = function appSettings() {
     async init() {
       this.loading = true;
       this.error = '';
+      this.notice = '';
       try {
         this.theme = currentTheme();
         await bootstrapToken();
         await this.refreshThreads();
         this.status = await apiGet('/status');
+        await this.loadSettings();
       } catch (err) {
         this.error = String(err?.message || err);
       } finally {
@@ -637,6 +654,56 @@ window.appSettings = function appSettings() {
 
     applyTheme() {
       this.theme = applyThemeValue(this.theme);
+    },
+
+    async loadSettings() {
+      const resp = await apiGet('/settings');
+      this.settings = resp?.settings || null;
+      this.restartRequired = Boolean(resp?.restart_required);
+      this.form.samHost = this.settings?.sam?.host || '';
+      this.form.samPort = this.settings?.sam?.port || 0;
+      this.form.samSessionName = this.settings?.sam?.session_name || '';
+      this.form.apiHost = this.settings?.api?.host || '';
+      this.form.apiPort = this.settings?.api?.port || 0;
+      this.form.logLevel = this.settings?.general?.log_level || 'info';
+      this.form.logToFile = Boolean(this.settings?.general?.log_to_file);
+      this.form.logFileLevel =
+        this.settings?.general?.log_file_level || 'debug';
+    },
+
+    async saveSettings() {
+      this.saving = true;
+      this.error = '';
+      this.notice = '';
+      try {
+        const payload = {
+          general: {
+            log_level: this.form.logLevel,
+            log_to_file: this.form.logToFile,
+            log_file_level: this.form.logFileLevel,
+          },
+          sam: {
+            host: this.form.samHost,
+            port: Number(this.form.samPort),
+            session_name: this.form.samSessionName,
+          },
+          api: {
+            host: this.form.apiHost,
+            port: Number(this.form.apiPort),
+          },
+        };
+        const resp = await apiPatch('/settings', payload);
+        this.settings = resp?.settings || null;
+        this.restartRequired = Boolean(resp?.restart_required);
+        this.notice = this.restartRequired
+          ? 'Settings saved. Restart required for full effect.'
+          : 'Settings saved.';
+        await this.loadSettings();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      } finally {
+        this.saving = false;
+      }
     },
   };
 };

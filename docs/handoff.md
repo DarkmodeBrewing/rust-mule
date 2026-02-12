@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Implemented API-backed settings read/update and wired settings UI:
+  - Added `GET /api/v1/settings` and `PATCH /api/v1/settings` in `src/api/mod.rs`.
+  - API now keeps a shared runtime `Config` in API state and persists valid PATCH updates to `config.toml`.
+  - Added validation for settings updates (`sam.host`, `sam.port`, `sam.session_name`, `api.host`, `api.port`, and log filter syntax via `EnvFilter`).
+  - Added API tests:
+    - `settings_get_returns_config_snapshot`
+    - `settings_patch_updates_and_persists_config`
+    - `settings_patch_rejects_invalid_values`
+  - Updated settings UI:
+    - Added settings form in `ui/settings.html` for `general`, `sam`, and `api` fields.
+    - Added `apiPatch()` helper and wired `appSettings()` to load/save via `/api/v1/settings`.
+    - Added save/reload flow with restart-required notice.
+  - Updated docs:
+    - `docs/TODO.md`: marked API-backed settings task as done.
+    - `docs/UI_DESIGN.md`: marked settings API integration as implemented.
+    - `docs/architecture.md` and `docs/api_curl.md`: documented new settings endpoints and curl examples.
+  - Ran Prettier on changed UI files and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Settings page is now backed by persisted API settings (`GET/PATCH /api/v1/settings`) instead of runtime-only placeholders.
 - Documentation/UI planning sync pass completed:
   - Updated `docs/TODO.md` UI checklist statuses to reflect implemented work (embedded assets, Alpine usage, shell pages, search form, overview, network status) and kept unresolved/partial items open (Chart.js usage, protected static UI, SSE token exposure, settings API, auto-open/headless toggle).
   - Updated `docs/UI_DESIGN.md` to match current routes and contracts:
@@ -232,6 +250,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Settings API scope for v1: expose/update a focused config subset (`general`, `sam`, `api`) and require restart for full effect.
 - Keep `docs/TODO.md` UI checkboxes aligned to implementation truth, using `[x]` for done and `[/]` for partial completion where design intent is not fully met.
 - UI entrypoint canonical URL is `/index.html`; `/` is a redirect alias.
 - Operator UX: always log a copy-pasteable localhost UI URL at startup.
@@ -283,6 +302,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Add an explicit integration test for `PATCH /api/v1/settings` through the full router (not just handler-level tests), including persistence failure behavior.
+- Consider adding runtime-apply behavior for selected settings that do not require restart (and return per-field `restart_required` metadata).
 - Prioritize remaining UI gaps from `docs/TODO.md`/`docs/UI_DESIGN.md`:
   - Implement Chart.js-based statistics visualizations.
   - Remove SSE token exposure via query params (or document accepted tradeoff explicitly).

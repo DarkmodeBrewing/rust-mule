@@ -95,10 +95,10 @@
         <div class="card">
           <h1>Settings</h1>
           <p>
-            First settings view is focused on runtime visibility for local
-            development.
+            Configure runtime settings persisted to <code>config.toml</code>.
           </p>
           <p class="mt-3" x-show="error" x-text="error"></p>
+          <p class="mt-3" x-show="notice" x-text="notice"></p>
         </div>
 
         <div class="card">
@@ -130,6 +130,106 @@
             <div class="kpi" x-text="status?.routing ?? 0"></div>
             <span class="label">Routing Nodes</span>
           </div>
+        </div>
+
+        <div class="card">
+          <h2>Application Settings</h2>
+          <form class="form-grid mt-3" @submit.prevent="saveSettings()">
+            <div class="field">
+              <label for="sam-host">SAM Host</label>
+              <input
+                id="sam-host"
+                class="input"
+                type="text"
+                x-model="form.samHost"
+              />
+            </div>
+            <div class="field">
+              <label for="sam-port">SAM Port</label>
+              <input
+                id="sam-port"
+                class="input"
+                type="number"
+                min="1"
+                max="65535"
+                x-model.number="form.samPort"
+              />
+            </div>
+            <div class="field">
+              <label for="sam-session">SAM Session Name</label>
+              <input
+                id="sam-session"
+                class="input"
+                type="text"
+                x-model="form.samSessionName"
+              />
+            </div>
+            <div class="field">
+              <label for="api-host">API Host</label>
+              <input
+                id="api-host"
+                class="input"
+                type="text"
+                x-model="form.apiHost"
+              />
+            </div>
+            <div class="field">
+              <label for="api-port">API Port</label>
+              <input
+                id="api-port"
+                class="input"
+                type="number"
+                min="1"
+                max="65535"
+                x-model.number="form.apiPort"
+              />
+            </div>
+            <div class="field">
+              <label for="log-level">Console Log Filter</label>
+              <input
+                id="log-level"
+                class="input"
+                type="text"
+                x-model="form.logLevel"
+              />
+            </div>
+            <div class="field">
+              <label for="log-file-level">File Log Filter</label>
+              <input
+                id="log-file-level"
+                class="input"
+                type="text"
+                x-model="form.logFileLevel"
+              />
+            </div>
+            <div class="field">
+              <label for="log-to-file">Log To File</label>
+              <select id="log-to-file" class="input" x-model="form.logToFile">
+                <option :value="true">Enabled</option>
+                <option :value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="flex gap-3 flex-wrap">
+              <button
+                class="btn btn-primary"
+                type="submit"
+                x-bind:disabled="saving || loading"
+              >
+                <span x-text="saving ? 'Saving...' : 'Save Settings'"></span>
+              </button>
+              <button
+                class="btn"
+                type="button"
+                x-bind:disabled="saving || loading"
+                @click="loadSettings()"
+              >
+                Reload
+              </button>
+            </div>
+          </form>
+          <p class="mt-3" x-show="restartRequired">
+            Changes may require process restart to fully apply.
+          </p>
         </div>
 
         <div class="card">

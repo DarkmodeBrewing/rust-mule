@@ -87,6 +87,15 @@ Notes:
   - Deletes an active keyword-search job.
   - Supports `?purge_results=true|false` (default `true`) to control whether cached keyword hits are removed.
 
+- `GET /api/v1/settings`
+  - Returns API-backed settings snapshot (`general`, `sam`, `api`) read from in-memory config state.
+  - Intended for settings page bootstrapping and refresh.
+
+- `PATCH /api/v1/settings`
+  - Persists selected settings updates into `config.toml`.
+  - Validates host/port/log-filter inputs.
+  - Response includes updated snapshot and `restart_required=true`.
+
 - `GET /api/v1/events`
   - Auth required.
   - SSE stream of live status updates.

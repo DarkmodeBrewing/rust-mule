@@ -12,12 +12,13 @@ use axum::{
 use futures_util::Stream;
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, net::SocketAddr};
+use std::{convert::Infallible, net::SocketAddr, sync::Arc};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::BroadcastStream;
+use tracing_subscriber::EnvFilter;
 
 use crate::{
-    config::ApiConfig,
+    config::{ApiConfig, Config},
     kad::{
         KadId, keyword,
         service::{
@@ -37,6 +38,7 @@ pub struct ApiState {
     status_rx: watch::Receiver<Option<KadServiceStatus>>,
     status_events_tx: broadcast::Sender<KadServiceStatus>,
     kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
+    config: Arc<tokio::sync::Mutex<Config>>,
 }
 
 pub fn new_channels() -> (
@@ -50,6 +52,7 @@ pub fn new_channels() -> (
 
 pub async fn serve(
     cfg: &ApiConfig,
+    app_config: Config,
     token: String,
     status_rx: watch::Receiver<Option<KadServiceStatus>>,
     status_events_tx: broadcast::Sender<KadServiceStatus>,
@@ -66,6 +69,7 @@ pub async fn serve(
         status_rx,
         status_events_tx,
         kad_cmd_tx,
+        config: Arc::new(tokio::sync::Mutex::new(app_config)),
     };
 
     // Canonical API surface.
@@ -74,6 +78,7 @@ pub async fn serve(
         .route("/dev/auth", get(dev_auth))
         .route("/status", get(status))
         .route("/events", get(events))
+        .route("/settings", get(settings_get).patch(settings_patch))
         .route("/searches", get(searches))
         .route(
             "/searches/:search_id",
@@ -254,6 +259,158 @@ struct DebugProbeReq {
 struct DebugProbeResponse {
     queued: bool,
     peer_found: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SettingsGeneral {
+    log_level: String,
+    log_to_file: bool,
+    log_file_level: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SettingsSam {
+    host: String,
+    port: u16,
+    session_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SettingsApi {
+    host: String,
+    port: u16,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SettingsPayload {
+    general: SettingsGeneral,
+    sam: SettingsSam,
+    api: SettingsApi,
+}
+
+#[derive(Debug, Serialize)]
+struct SettingsResponse {
+    settings: SettingsPayload,
+    restart_required: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct SettingsPatchGeneral {
+    #[serde(default)]
+    log_level: Option<String>,
+    #[serde(default)]
+    log_to_file: Option<bool>,
+    #[serde(default)]
+    log_file_level: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SettingsPatchSam {
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    port: Option<u16>,
+    #[serde(default)]
+    session_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SettingsPatchApi {
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    port: Option<u16>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SettingsPatchRequest {
+    #[serde(default)]
+    general: Option<SettingsPatchGeneral>,
+    #[serde(default)]
+    sam: Option<SettingsPatchSam>,
+    #[serde(default)]
+    api: Option<SettingsPatchApi>,
+}
+
+impl SettingsPayload {
+    fn from_config(cfg: &Config) -> Self {
+        Self {
+            general: SettingsGeneral {
+                log_level: cfg.general.log_level.clone(),
+                log_to_file: cfg.general.log_to_file,
+                log_file_level: cfg.general.log_file_level.clone(),
+            },
+            sam: SettingsSam {
+                host: cfg.sam.host.clone(),
+                port: cfg.sam.port,
+                session_name: cfg.sam.session_name.clone(),
+            },
+            api: SettingsApi {
+                host: cfg.api.host.clone(),
+                port: cfg.api.port,
+            },
+        }
+    }
+}
+
+fn validate_settings(cfg: &Config) -> Result<(), StatusCode> {
+    cfg.sam
+        .host
+        .parse::<std::net::IpAddr>()
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    if !(1..=65535).contains(&cfg.sam.port) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if cfg.sam.session_name.trim().is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    cfg.api
+        .host
+        .parse::<std::net::IpAddr>()
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    if !(1..=65535).contains(&cfg.api.port) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    EnvFilter::try_new(cfg.general.log_level.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    EnvFilter::try_new(cfg.general.log_file_level.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok(())
+}
+
+fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest) {
+    if let Some(general) = patch.general {
+        if let Some(log_level) = general.log_level {
+            cfg.general.log_level = log_level.trim().to_string();
+        }
+        if let Some(log_to_file) = general.log_to_file {
+            cfg.general.log_to_file = log_to_file;
+        }
+        if let Some(log_file_level) = general.log_file_level {
+            cfg.general.log_file_level = log_file_level.trim().to_string();
+        }
+    }
+
+    if let Some(sam) = patch.sam {
+        if let Some(host) = sam.host {
+            cfg.sam.host = host.trim().to_string();
+        }
+        if let Some(port) = sam.port {
+            cfg.sam.port = port;
+        }
+        if let Some(session_name) = sam.session_name {
+            cfg.sam.session_name = session_name.trim().to_string();
+        }
+    }
+
+    if let Some(api) = patch.api {
+        if let Some(host) = api.host {
+            cfg.api.host = host.trim().to_string();
+        }
+        if let Some(port) = api.port {
+            cfg.api.port = port;
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -706,6 +863,33 @@ async fn kad_publish_keyword(
     }))
 }
 
+async fn settings_get(State(state): State<ApiState>) -> Result<Json<SettingsResponse>, StatusCode> {
+    let cfg = state.config.lock().await;
+    Ok(Json(SettingsResponse {
+        settings: SettingsPayload::from_config(&cfg),
+        restart_required: true,
+    }))
+}
+
+async fn settings_patch(
+    State(state): State<ApiState>,
+    Json(patch): Json<SettingsPatchRequest>,
+) -> Result<Json<SettingsResponse>, StatusCode> {
+    let mut cfg = state.config.lock().await;
+    let mut next = cfg.clone();
+    apply_settings_patch(&mut next, patch);
+    validate_settings(&next)?;
+    next.persist()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    *cfg = next.clone();
+
+    Ok(Json(SettingsResponse {
+        settings: SettingsPayload::from_config(&next),
+        restart_required: true,
+    }))
+}
+
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
@@ -989,6 +1173,7 @@ mod tests {
             status_rx,
             status_events_tx,
             kad_cmd_tx,
+            config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         }
     }
 
@@ -1176,5 +1361,84 @@ mod tests {
         assert!(resp.0.deleted);
         assert!(resp.0.purged_results);
         waiter.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn settings_get_returns_config_snapshot() {
+        let (tx, _rx) = mpsc::channel(1);
+        let state = test_state(tx);
+
+        {
+            let mut cfg = state.config.lock().await;
+            cfg.sam.session_name = "session-a".to_string();
+            cfg.api.port = 18080;
+            cfg.general.log_level = "info,rust_mule=debug".to_string();
+        }
+
+        let resp = settings_get(State(state)).await.expect("settings_get ok");
+        assert_eq!(resp.0.settings.sam.session_name, "session-a");
+        assert_eq!(resp.0.settings.api.port, 18080);
+        assert!(resp.0.restart_required);
+    }
+
+    #[tokio::test]
+    async fn settings_patch_updates_and_persists_config() {
+        let (tx, _rx) = mpsc::channel(1);
+        let state = test_state(tx);
+
+        let original = tokio::fs::read_to_string("config.toml")
+            .await
+            .expect("read config.toml");
+
+        let result = settings_patch(
+            State(state.clone()),
+            Json(SettingsPatchRequest {
+                general: Some(SettingsPatchGeneral {
+                    log_level: Some("info".to_string()),
+                    log_to_file: Some(false),
+                    log_file_level: None,
+                }),
+                sam: Some(SettingsPatchSam {
+                    host: None,
+                    port: None,
+                    session_name: Some("test-session".to_string()),
+                }),
+                api: Some(SettingsPatchApi {
+                    host: None,
+                    port: Some(17836),
+                }),
+            }),
+        )
+        .await;
+
+        tokio::fs::write("config.toml", original)
+            .await
+            .expect("restore config.toml");
+
+        let resp = result.expect("settings_patch should succeed");
+        assert_eq!(resp.0.settings.sam.session_name, "test-session");
+        assert_eq!(resp.0.settings.api.port, 17836);
+        assert!(!resp.0.settings.general.log_to_file);
+        assert!(resp.0.restart_required);
+    }
+
+    #[tokio::test]
+    async fn settings_patch_rejects_invalid_values() {
+        let (tx, _rx) = mpsc::channel(1);
+        let state = test_state(tx);
+        let resp = settings_patch(
+            State(state),
+            Json(SettingsPatchRequest {
+                general: Some(SettingsPatchGeneral {
+                    log_level: Some("not-a-filter=[".to_string()),
+                    log_to_file: None,
+                    log_file_level: None,
+                }),
+                sam: None,
+                api: None,
+            }),
+        )
+        .await;
+        assert!(matches!(resp, Err(StatusCode::BAD_REQUEST)));
     }
 }

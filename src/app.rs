@@ -144,9 +144,17 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     );
     let etx_for_server = etx.clone();
     let cmd_tx_for_server = kad_cmd_tx.clone();
+    let api_runtime_config = config.clone();
     tokio::spawn(async move {
-        if let Err(err) =
-            crate::api::serve(&api_cfg, token, srx, etx_for_server, cmd_tx_for_server).await
+        if let Err(err) = crate::api::serve(
+            &api_cfg,
+            api_runtime_config,
+            token,
+            srx,
+            etx_for_server,
+            cmd_tx_for_server,
+        )
+        .await
         {
             tracing::error!(error = %err, "api server stopped");
         }
