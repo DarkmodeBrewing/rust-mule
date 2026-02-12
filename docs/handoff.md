@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- CSS normalization pass completed for variable/units discipline:
+  - Moved remaining shared `base.css` size literals into reusable vars in `ui/assets/css/layout.css`:
+    - container width, glow dimensions, badge/button/table sizing, log max-height.
+  - Updated `ui/assets/css/base.css` to consume vars instead of hardcoded numeric literals.
+  - Replaced non-hairline `px` units in theme focus/shadow tokens with relative units in:
+    - `ui/assets/css/color-dark.css`
+    - `ui/assets/css/colors-light.css`
+    - `ui/assets/css/color-hc.css`
+  - Kept hairline width token as `--line: 1px` for border usage.
+  - Ran Prettier for CSS files and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Shared UI styles now rely on layout/theme variables with non-hairline sizing converted to relative units.
 - Implemented first Chart.js statistics set on `ui/node_stats.html`:
   - Added three charts:
     - Search hits over time (line)
@@ -283,6 +294,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- CSS policy tightened for shared UI styles: prefer variable-driven sizing and relative units; reserve `px` for border/hairline tokens.
 - Place first operational charts on `node_stats` to pair routing/node data with live trend context before introducing a dedicated statistics page.
 - Auth split for v1 local UI:
   - Keep bearer token as the API auth mechanism for `/api/v1/*`.

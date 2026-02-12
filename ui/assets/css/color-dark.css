@@ -1,4 +1,4 @@
-html[data-theme="dark"] {
+html[data-theme='dark'] {
   --bg: #0b0e12;
   --bg-2: #0f141b;
   --panel: #121926;
@@ -33,6 +33,6 @@ html[data-theme="dark"] {
   --table-head-bg: rgba(255, 255, 255, 0.02);
   --table-row-hover-bg: rgba(51, 195, 255, 0.04);
 
-  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
-  --focus: 0 0 0 2px rgba(51, 195, 255, 0.35);
+  --shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.35);
+  --focus: 0 0 0 0.125rem rgba(51, 195, 255, 0.35);
 }

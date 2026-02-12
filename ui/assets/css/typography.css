@@ -1,17 +1,21 @@
 :root {
-    /* Typography */
-    --font-ui: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-    --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  /* Typography */
+  --font-ui:
+    ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    'Apple Color Emoji', 'Segoe UI Emoji';
+  --font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
 
-    /* Font sizes */
-    --text-xs: 0.75rem;
-    /* 12px */
-    --text-sm: 0.875rem;
-    /* 14px */
-    --text-md: 1rem;
-    /* 16px */
-    --text-lg: 1.125rem;
-    /* 18px */
-    --text-xl: 1.375rem;
-    /* 22px */
+  /* Font sizes */
+  --text-xs: 0.75rem;
+  /* 12px */
+  --text-sm: 0.875rem;
+  /* 14px */
+  --text-md: 1rem;
+  /* 16px */
+  --text-lg: 1.125rem;
+  /* 18px */
+  --text-xl: 1.375rem;
+  /* 22px */
 }

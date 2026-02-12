@@ -1,4 +1,4 @@
-html[data-theme="hc"] {
+html[data-theme='hc'] {
   --bg: #000000;
   --bg-2: #000000;
   --panel: #000000;
@@ -34,5 +34,5 @@ html[data-theme="hc"] {
   --table-row-hover-bg: #111111;
 
   --shadow: none;
-  --focus: 0 0 0 3px #ffffff;
+  --focus: 0 0 0 0.1875rem #ffffff;
 }

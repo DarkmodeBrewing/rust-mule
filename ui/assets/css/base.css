@@ -5,7 +5,7 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
-  font-size: 16px; /* browser default — respect user prefs */
+  font-size: var(--text-md);
 }
 
 a {
@@ -18,7 +18,7 @@ a:hover {
 }
 
 .container {
-  max-width: 1100px;
+  max-width: var(--layout-container-max-width);
   margin: 0 auto;
   padding: var(--s-5);
 }
@@ -37,12 +37,12 @@ a:hover {
 .card {
   background:
     radial-gradient(
-      1200px 400px at 20% 0%,
+      var(--layout-card-glow-1-width) var(--layout-card-glow-1-height) at 20% 0%,
       var(--card-glow-accent),
       transparent 60%
     ),
     radial-gradient(
-      900px 300px at 80% 0%,
+      var(--layout-card-glow-2-width) var(--layout-card-glow-2-height) at 80% 0%,
       var(--card-glow-signal),
       transparent 55%
     ),
@@ -69,22 +69,22 @@ a:hover {
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
+  gap: var(--layout-badge-gap);
+  padding: var(--layout-badge-pad-y) var(--layout-badge-pad-x);
+  border-radius: var(--layout-badge-radius);
   border: var(--line) solid var(--border);
   background: var(--badge-bg);
   color: var(--fg-2);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: var(--layout-btn-gap);
+  padding: var(--layout-btn-pad-y) var(--layout-btn-pad-x);
   border-radius: var(--radius-sm);
   border: var(--line) solid var(--border);
   background: var(--btn-bg);
@@ -121,7 +121,7 @@ a:hover {
 
 .table th,
 .table td {
-  padding: 10px 12px;
+  padding: var(--layout-table-cell-pad-y) var(--layout-table-cell-pad-x);
   border-bottom: var(--line) solid var(--border);
   color: var(--fg-2);
 }
@@ -138,15 +138,15 @@ a:hover {
 
 .kpi {
   font-family: var(--font-mono);
-  font-size: 22px;
+  font-size: var(--text-xl);
   color: var(--fg);
 }
 
 .kpi .label {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted);
-  margin-top: 6px;
+  margin-top: var(--s-1);
 }
 
 .log {
@@ -156,7 +156,7 @@ a:hover {
   border-radius: var(--radius);
   padding: var(--s-4);
   color: var(--fg-2);
-  max-height: 420px;
+  max-height: var(--layout-log-max-height);
   overflow: auto;
 }
 

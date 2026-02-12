@@ -22,10 +22,25 @@
   --layout-shell-sidebar-width: 20rem;
   --layout-shell-min-height: 100vh;
   --layout-sidebar-height: 100vh;
+  --layout-container-max-width: 68.75rem;
 
   /* List items */
   --layout-list-item-pad-y: 0.625rem;
   --layout-list-item-pad-x: 0.75rem;
+  --layout-badge-gap: 0.5rem;
+  --layout-badge-pad-y: 0.375rem;
+  --layout-badge-pad-x: 0.625rem;
+  --layout-badge-radius: 999rem;
+  --layout-btn-gap: var(--s-2);
+  --layout-btn-pad-y: var(--s-2);
+  --layout-btn-pad-x: var(--s-3);
+  --layout-table-cell-pad-y: var(--s-2);
+  --layout-table-cell-pad-x: 0.75rem;
+  --layout-log-max-height: 26.25rem;
+  --layout-card-glow-1-width: 75rem;
+  --layout-card-glow-1-height: 25rem;
+  --layout-card-glow-2-width: 56.25rem;
+  --layout-card-glow-2-height: 18.75rem;
 
   /* Form controls */
   --control-radius: var(--radius-sm);
