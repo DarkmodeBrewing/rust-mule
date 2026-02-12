@@ -1300,6 +1300,10 @@ fn closest_peers_live_first(
     let mut peers = svc.routing.closest_to(target, max * 4, exclude_dest_hash);
     let mut live = Vec::new();
     let mut cold = Vec::new();
+    peers.retain(|p| p.kad_version >= min_kad_version);
+    if peers.len() > max {
+        peers.truncate(max);
+    }
     for p in peers.drain(..) {
         if p.kad_version < min_kad_version {
             continue;
@@ -1317,7 +1321,6 @@ fn closest_peers_live_first(
         }
     }
     live.extend(cold);
-    live.truncate(max);
     live
 }
 

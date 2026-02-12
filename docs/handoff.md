@@ -15,6 +15,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Observed SAM `SESSION STATUS RESULT=I2P_ERROR MESSAGE="PONG timeout"` on both instances at 2026-02-12 06:49:20; service auto-recreated SAM session.
 - Source publish/search remained empty in the script output.
 - Periodic KAD2 BOOTSTRAP_REQ now sends **plain** packets to peers with `kad_version` 2–5 and **encrypted** packets only to `kad_version >= 6` to avoid silent ignores in mixed-version networks.
+- Publish/search candidate selection now truncates by **distance first**, then optionally reorders the *same* set by liveness to avoid skipping closest nodes.
 
 ## Status (2026-02-11)
 
@@ -96,6 +97,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-11: Add routing snapshot controls and end-of-run routing dumps for the two-instance selftest; update `tmp/test_script_command.txt`.
 - 2026-02-12: Long-haul run confirmed network-origin keyword hits; routing table still flat; SAM session recreated after PONG timeout on both instances.
 - 2026-02-12: Send periodic BOOTSTRAP_REQ unencrypted to Kad v2–v5 peers; only encrypt for Kad v6+.
+- 2026-02-12: Fix publish/search peer selection so distance is primary; liveness only reorders within the closest set.
 - 2026-02-10: Two-instance DHT selftest (5 rounds) showed only local keyword hits; no cross-instance results, no publish-key acks, empty search responses; routing stayed flat (quiet network).
 - 2026-02-10: Add `origin` field to keyword hit API responses (`local` vs `network`).
 - 2026-02-10: Add `/kad/peers` API endpoint and new inbound request counters in `/status`; slightly increase keyword job cadence/batch size.
