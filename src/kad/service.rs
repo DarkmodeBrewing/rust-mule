@@ -3114,7 +3114,11 @@ async fn handle_inbound(
     let now = Instant::now();
     let from_dest_raw = crate::i2p::b64::decode(&from_dest_b64).ok();
     let from_hash = match &from_dest_raw {
-        Some(b) if b.len() >= 4 => u32::from_le_bytes(b[0..4].try_into().unwrap()),
+        Some(b) if b.len() >= 4 => {
+            let mut h = [0u8; 4];
+            h.copy_from_slice(&b[..4]);
+            u32::from_le_bytes(h)
+        }
         _ => 0,
     };
 

@@ -8,6 +8,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed panic-hardening follow-up for sanity findings (items 1..4) on `main`:
+  - `src/logging.rs`: removed panic-on-poison in warning throttle lock path; now recovers poisoned mutex state and logs a warning.
+  - `src/app.rs`: removed runtime `unwrap()` conversions for destination hash/array extraction; switched to explicit copy logic.
+  - `src/i2p/sam/datagram.rs`: replaced `expect()` in `forward_port`/`forward_addr` with typed `Result` returns (`SamError`), and updated call sites in `src/app.rs`.
+  - `src/kad/service.rs`, `src/nodes/imule.rs`, `src/kad/wire.rs`: replaced safe-but-brittle slice `try_into().unwrap()` patterns with non-panicking copy-based conversions.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, strict clippy sanity pass (`unwrap/expect/panic/todo/unimplemented`), and `cargo test` (all passing; strict pass now only flags remaining test/internal non-critical unwrap/expect sites outside this scoped fix).
+- Decisions: Keep panic-hardening targeted to runtime production paths first; test-only unwrap/expect cleanup can be a separate ergonomics pass.
+- Next steps: Optional low-risk pass to eliminate remaining test/internal unwrap/expect usage repository-wide for stricter lint cleanliness.
+- Change log: Production/runtime panic surfaces identified in the sanity pass were removed for logging lock handling, SAM datagram address accessors, and key byte-conversion paths.
+
 - Status: Completed typed-error migration pass across remaining runtime/boundary modules on `main`:
   - Converted to typed errors:
     - `src/app.rs` (`AppError`)

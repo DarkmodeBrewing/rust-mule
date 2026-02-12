@@ -81,7 +81,9 @@ impl ImuleNode {
     /// Mirrors iMule's `CI2PAddress::hashCode()`:
     /// reinterpret the first 4 destination bytes as little-endian u32.
     pub fn udp_dest_hash_code(&self) -> u32 {
-        u32::from_le_bytes(self.udp_dest[0..4].try_into().unwrap())
+        let mut b = [0u8; 4];
+        b.copy_from_slice(&self.udp_dest[..4]);
+        u32::from_le_bytes(b)
     }
 
     /// Encode the raw 387-byte destination using I2P base64 (`-~` alphabet).

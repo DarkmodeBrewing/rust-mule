@@ -59,17 +59,17 @@ impl SamDatagramSocket {
         })
     }
 
-    pub fn forward_port(&self) -> u16 {
+    pub fn forward_port(&self) -> Result<u16> {
         self.udp
             .local_addr()
-            .expect("UDP socket must have local addr")
-            .port()
+            .map(|addr| addr.port())
+            .map_err(|e| SamError::io("read local UDP forwarding port", e))
     }
 
-    pub fn forward_addr(&self) -> SocketAddr {
+    pub fn forward_addr(&self) -> Result<SocketAddr> {
         self.udp
             .local_addr()
-            .expect("UDP socket must have local addr")
+            .map_err(|e| SamError::io("read local UDP forwarding address", e))
     }
 
     pub fn session_id(&self) -> &str {

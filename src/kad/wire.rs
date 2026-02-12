@@ -1108,7 +1108,9 @@ impl<'a> Reader<'a> {
             .get(self.i..self.i + 2)
             .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += 2;
-        Ok(u16::from_le_bytes(s.try_into().unwrap()))
+        let mut out = [0u8; 2];
+        out.copy_from_slice(s);
+        Ok(u16::from_le_bytes(out))
     }
 
     fn read_u32_le(&mut self) -> Result<u32> {
@@ -1117,7 +1119,9 @@ impl<'a> Reader<'a> {
             .get(self.i..self.i + 4)
             .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += 4;
-        Ok(u32::from_le_bytes(s.try_into().unwrap()))
+        let mut out = [0u8; 4];
+        out.copy_from_slice(s);
+        Ok(u32::from_le_bytes(out))
     }
 
     fn read_i2p_dest(&mut self) -> Result<[u8; I2P_DEST_LEN]> {
@@ -1126,7 +1130,9 @@ impl<'a> Reader<'a> {
             .get(self.i..self.i + I2P_DEST_LEN)
             .ok_or(WireError::UnexpectedEof { offset: self.i })?;
         self.i += I2P_DEST_LEN;
-        Ok(s.try_into().unwrap())
+        let mut out = [0u8; I2P_DEST_LEN];
+        out.copy_from_slice(s);
+        Ok(out)
     }
 
     // iMule "weird" UInt128 encoding:

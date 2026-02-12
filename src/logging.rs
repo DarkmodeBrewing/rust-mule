@@ -43,7 +43,13 @@ pub fn warn_throttled(key: &'static str, interval: Duration) -> bool {
 pub fn warn_throttled_with_count(key: &'static str, interval: Duration) -> Option<u64> {
     static LAST_WARN: OnceLock<Mutex<HashMap<&'static str, WarnThrottleState>>> = OnceLock::new();
     let map = LAST_WARN.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = map.lock().expect("warn throttle lock poisoned");
+    let mut guard = match map.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            tracing::warn!("warn throttle lock poisoned; continuing with recovered state");
+            poisoned.into_inner()
+        }
+    };
     let now = Instant::now();
     if let Some(state) = guard.get_mut(key) {
         if now.saturating_duration_since(state.last) < interval {

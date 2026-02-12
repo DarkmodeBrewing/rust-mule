@@ -269,8 +269,11 @@ pub async fn run(config: Config) -> AppResult<()> {
             crate::kad::wire::I2P_DEST_LEN
         )));
     }
-    let my_dest_hash: u32 = u32::from_le_bytes(my_dest_bytes[0..4].try_into().unwrap());
-    let my_dest: [u8; crate::kad::wire::I2P_DEST_LEN] = my_dest_bytes.try_into().unwrap();
+    let mut hash_bytes = [0u8; 4];
+    hash_bytes.copy_from_slice(&my_dest_bytes[..4]);
+    let my_dest_hash: u32 = u32::from_le_bytes(hash_bytes);
+    let mut my_dest = [0u8; crate::kad::wire::I2P_DEST_LEN];
+    my_dest.copy_from_slice(&my_dest_bytes);
 
     let kad_session_id = format!("{base_session_name}-kad");
 
@@ -911,7 +914,7 @@ async fn create_kad_socket(
                     .session_create_datagram_forward(
                         kad_session_id,
                         &keys.priv_key,
-                        dg.forward_port(),
+                        dg.forward_port()?,
                         sam_forward_ip,
                         ["i2cp.messageReliability=BestEffort"],
                     )
@@ -964,7 +967,7 @@ async fn create_kad_socket(
             tracing::info!(
                 session = %kad_session_id,
                 transport = "udp_forward",
-                forward = %dg.forward_addr(),
+                forward = %dg.forward_addr()?,
                 sam_udp = %dg.sam_udp_addr(),
                 "SAM DATAGRAM session ready"
             );
