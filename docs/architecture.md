@@ -23,8 +23,8 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
      - **SSE** for live updates (status, peer events, search results, progress).
 
 3. **GUI**
-   - Not implemented yet.
-   - Expected to read the backend token from disk (or be launched with it) and then use:
+   - Initial skeleton is wired and served by the backend at `/` and `/ui/...`.
+   - Current bootstrap flow fetches token via `GET /api/v1/dev/auth` (loopback-only), stores it in `sessionStorage`, then uses:
      - `GET /api/v1/status` for a snapshot
      - `GET /api/v1/events` for continuous updates
 

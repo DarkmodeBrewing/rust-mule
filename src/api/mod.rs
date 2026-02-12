@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode},
     middleware,
     response::sse::{Event, Sse},
@@ -8,7 +8,7 @@ use axum::{
 };
 use futures_util::Stream;
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, net::SocketAddr};
+use std::{convert::Infallible, net::SocketAddr, path::PathBuf};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -85,6 +85,11 @@ pub async fn serve(
         .route("/kad/publish_keyword", post(kad_publish_keyword));
 
     let app = Router::new()
+        .route("/", get(ui_index))
+        .route("/ui", get(ui_index))
+        .route("/ui/", get(ui_index))
+        .route("/ui/:page", get(ui_page))
+        .route("/ui/assets/*path", get(ui_asset))
         .nest("/api/v1", v1)
         .with_state(state.clone())
         .layer(middleware::from_fn(cors_mw))
@@ -607,6 +612,13 @@ async fn auth_mw(
         return Ok(next.run(req).await);
     }
 
+    if req.uri().path() == "/api/v1/events"
+        && let Some(token) = query_token(req.uri())
+        && token == state.token
+    {
+        return Ok(next.run(req).await);
+    }
+
     let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
     if provided != state.token {
         return Err(StatusCode::FORBIDDEN);
@@ -628,7 +640,21 @@ fn is_loopback_addr(addr: &SocketAddr) -> bool {
 }
 
 fn is_auth_exempt_path(path: &str) -> bool {
-    matches!(path, "/api/v1/health" | "/api/v1/dev/auth")
+    matches!(
+        path,
+        "/api/v1/health" | "/api/v1/dev/auth" | "/" | "/ui" | "/ui/"
+    ) || path.starts_with("/ui/")
+}
+
+fn query_token(uri: &axum::http::Uri) -> Option<&str> {
+    let query = uri.query()?;
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=')?;
+        if k == "token" {
+            return Some(v);
+        }
+    }
+    None
 }
 
 async fn cors_mw(
@@ -697,6 +723,79 @@ fn is_allowed_origin(origin: &HeaderValue) -> bool {
         .unwrap_or(false)
 }
 
+async fn ui_index() -> Result<axum::response::Response, StatusCode> {
+    serve_ui_file("index.html").await
+}
+
+async fn ui_page(Path(page): Path<String>) -> Result<axum::response::Response, StatusCode> {
+    if page.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let mut file = page;
+    if !file.ends_with(".html") {
+        file.push_str(".html");
+    }
+    if !is_safe_ui_segment(&file) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    serve_ui_file(&file).await
+}
+
+async fn ui_asset(Path(path): Path<String>) -> Result<axum::response::Response, StatusCode> {
+    if !is_safe_ui_path(&path) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let full = PathBuf::from("ui").join("assets").join(path);
+    serve_file(full).await
+}
+
+fn is_safe_ui_segment(name: &str) -> bool {
+    !name.contains('/') && !name.contains('\\') && !name.contains("..")
+}
+
+fn is_safe_ui_path(path: &str) -> bool {
+    if path.is_empty() || path.starts_with('/') || path.contains('\\') || path.contains("..") {
+        return false;
+    }
+    path.split('/').all(|c| !c.is_empty() && c != ".")
+}
+
+async fn serve_ui_file(name: &str) -> Result<axum::response::Response, StatusCode> {
+    let full = PathBuf::from("ui").join(name);
+    serve_file(full).await
+}
+
+async fn serve_file(path: PathBuf) -> Result<axum::response::Response, StatusCode> {
+    let bytes = tokio::fs::read(&path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
+
+    let content_type = content_type_for_path(&path);
+    let resp = axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header(axum::http::header::CONTENT_TYPE, content_type)
+        .body(axum::body::Body::from(bytes))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(resp)
+}
+
+fn content_type_for_path(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|s| s.to_str()).unwrap_or("") {
+        "html" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" => "application/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "ico" => "image/x-icon",
+        _ => "application/octet-stream",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -717,9 +816,25 @@ mod tests {
     fn auth_exempt_paths_include_only_v1_health_and_dev_auth() {
         assert!(is_auth_exempt_path("/api/v1/health"));
         assert!(is_auth_exempt_path("/api/v1/dev/auth"));
-        assert!(!is_auth_exempt_path("/health"));
-        assert!(!is_auth_exempt_path("/dev/auth"));
+        assert!(is_auth_exempt_path("/"));
+        assert!(is_auth_exempt_path("/ui"));
+        assert!(is_auth_exempt_path("/ui/assets/js/app.js"));
         assert!(!is_auth_exempt_path("/api/v1/status"));
+    }
+
+    #[test]
+    fn extracts_query_token() {
+        let uri: axum::http::Uri = "/api/v1/events?token=abc123&x=1".parse().unwrap();
+        assert_eq!(query_token(&uri), Some("abc123"));
+    }
+
+    #[test]
+    fn validates_ui_paths() {
+        assert!(is_safe_ui_path("css/base.css"));
+        assert!(!is_safe_ui_path("../etc/passwd"));
+        assert!(!is_safe_ui_path("css\\base.css"));
+        assert!(is_safe_ui_segment("index.html"));
+        assert!(!is_safe_ui_segment("../index.html"));
     }
 
     #[test]

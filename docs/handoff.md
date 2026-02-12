@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Implemented backend-served UI bootstrap skeleton:
+  - Added static UI routes: `/`, `/ui`, `/ui/:page`, and `/ui/assets/*`.
+  - Added safe path validation for UI file serving (reject traversal/unsafe paths).
+  - Added content-type-aware static file responses for HTML/CSS/JS/assets.
+- Implemented UI auth bootstrap flow for development:
+  - UI now bootstraps bearer auth via `GET /api/v1/dev/auth`.
+  - Token is stored in browser `sessionStorage` and used for `/api/v1/status`.
+  - UI opens SSE with `GET /api/v1/events?token=...` for browser compatibility.
+- Updated UI skeleton pages and JS modules:
+  - Rewrote `ui/assets/js/helpers.js` and `ui/assets/js/app.js` to align with `/api/v1`.
+  - Updated `ui/index.html` and `ui/search.html` to use module scripts and current API flow.
+- Added/updated API tests:
+  - Query-token extraction test for SSE auth path.
+  - UI path-safety validation test coverage.
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after UI/bootstrap changes (`cargo test` passed; existing clippy warnings unchanged).
 - Implemented API CORS hardening for `/api/v1`:
   - Allow only loopback origins (`localhost`, `127.0.0.1`, and loopback IPs).
   - Allow only `Authorization` and `Content-Type` request headers.
@@ -75,6 +90,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Serve the in-repo UI skeleton from the Rust backend (single local control-plane origin).
+- Keep browser auth bootstrap development-only and loopback-only via `/api/v1/dev/auth`.
+- Permit SSE token via query parameter for `/api/v1/events` to support browser `EventSource` without custom headers.
 - Restrict browser CORS access to loopback origins for local-control-plane safety.
 - Use strict `/api/v1` routes only; no legacy unversioned aliases are kept.
 - Implement loopback-only dev auth as `GET /api/v1/dev/auth` (no auth header required).
@@ -100,8 +118,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 ## Next Steps (2026-02-10)
 
 - Add integration tests for API auth/CORS behavior (preflight + protected endpoint access patterns).
-- Decide the next implementation target after docs normalization (API versioning/dev-auth/API always-on were identified as open choices).
-- Start UI bootstrap flow to fetch token from `GET /api/v1/dev/auth` and store it in `sessionStorage`.
+- Expand UI beyond status/search placeholder views (routing table, peers, and publish/search workflow surfaces).
+- Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
+- Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
 - Consider clearing per-keyword job `sent_to_*` sets on new API commands to allow re-tries to the same peers.
 - Consider a small UI view over `/kad/peers` to spot real inbound activity quickly.
@@ -123,6 +142,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Serve UI skeleton from backend (`/`, `/ui`, `/ui/:page`, `/ui/assets/*`) with safe path validation and static content handling; allow SSE query-token auth for `/api/v1/events`; add related tests and update UI JS/HTML/docs (`src/api/mod.rs`, `ui/*`, `README.md`, `docs/architecture.md`, `docs/TODO.md`).
+- 2026-02-12: Run `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after UI/bootstrap work (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add loopback-only CORS middleware for `/api/v1` with explicit preflight handling and origin validation tests (`src/api/mod.rs`).
 - 2026-02-12: Fix CORS IPv6 loopback origin parsing (`[::1]`) and rerun fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Extend `Access-Control-Allow-Methods` to include `PUT` and `PATCH`; add regression test (`src/api/mod.rs`).

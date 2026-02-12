@@ -39,7 +39,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 
 - Overview of the design of the UI is documented in `/docs/UI_DESIGN.md`
 - [ ] The UI will consist of static HTML-,CSS-, JS-files with Alpine.JS and Chart.js
-- [ ] While bootstrapping the UI, a call to the API's endpoint (`GET:/api/<version>/dev/auth`) to get the bearer token (`/data/api.token`)
+- [x] While bootstrapping the UI, a call to the API's endpoint (`GET:/api/<version>/dev/auth`) to get the bearer token (`/data/api.token`)
 - [ ] Static files (JavaScript files and CSS files) will be included in `./ui/assets/<type>`, but embedded in the binary (`/ui/assets/css/base.css`, `/ui/assets/js/app.js`, `/ui/assets/js/alpine.min.js`, `/ui/assets/js/chart.min.js`, etc.)
   - [ ] Alpine.JS - used for state, interactive form controls, list and for composing components
   - [ ] Chart.JS - used for plot charts for statistics and the like

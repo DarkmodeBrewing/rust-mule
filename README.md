@@ -136,6 +136,15 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:17835/api/v1/kad/sources/00112233445566778899aabbccddeeff | jq .
 ```
 
+UI bootstrap (dev):
+
+```bash
+open http://127.0.0.1:17835/
+```
+
+The overview page bootstraps a token via `GET /api/v1/dev/auth`, stores it in
+`sessionStorage`, fetches `/api/v1/status`, and subscribes to `/api/v1/events`.
+
 ## Data Files
 
 Runtime state lives under `data/` (gitignored):
