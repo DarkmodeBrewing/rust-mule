@@ -24,6 +24,15 @@ function stateClass(state) {
   return 'state-idle';
 }
 
+function normalizeSearchThread(thread) {
+  const nextState = typeof thread?.state === 'string' ? thread.state : 'idle';
+  return {
+    ...thread,
+    state: nextState,
+    state_class: stateClass(nextState),
+  };
+}
+
 function nodeState(peer) {
   const inbound = peer?.last_inbound_secs_ago;
   const seen = peer?.last_seen_secs_ago;
@@ -36,8 +45,7 @@ function nodeState(peer) {
   return 'idle';
 }
 
-function nodeStateClass(peer) {
-  const state = nodeState(peer);
+function nodeStateClass(state) {
   if (state === 'active') {
     return 'state-running';
   }
@@ -49,7 +57,8 @@ function nodeStateClass(peer) {
 
 async function loadSearchThreads(ctx) {
   const data = await apiGet('/searches');
-  ctx.searchThreads = Array.isArray(data?.searches) ? data.searches : [];
+  const threads = Array.isArray(data?.searches) ? data.searches : [];
+  ctx.searchThreads = threads.map(normalizeSearchThread);
 }
 
 function downloadJson(filename, data) {
@@ -98,10 +107,6 @@ window.indexApp = function indexApp() {
     searchThreads: [],
     selectedSearchId: '',
 
-    threadStateClass(state) {
-      return stateClass(state);
-    },
-
     get activeThread() {
       if (!this.selectedSearchId) {
         return null;
@@ -119,6 +124,10 @@ window.indexApp = function indexApp() {
 
     get activeThreadState() {
       return this.activeThread?.state || 'idle';
+    },
+
+    get activeThreadStateClass() {
+      return this.activeThread?.state_class || stateClass('idle');
     },
 
     get prettyStatus() {
@@ -281,10 +290,6 @@ window.appSearch = function appSearch() {
     keywordResults: null,
     searchThreads: [],
 
-    threadStateClass(state) {
-      return stateClass(state);
-    },
-
     get activeKeywordIdHex() {
       return this.searchResponse?.keyword_id_hex || this.keywordIdHex.trim();
     },
@@ -373,10 +378,6 @@ window.appSearchDetails = function appSearchDetails() {
     details: null,
     searchThreads: [],
 
-    threadStateClass(state) {
-      return stateClass(state);
-    },
-
     get hits() {
       return this.details?.hits || [];
     },
@@ -386,6 +387,11 @@ window.appSearchDetails = function appSearchDetails() {
         return '{}';
       }
       return JSON.stringify(this.details, null, 2);
+    },
+
+    get detailsStateClass() {
+      const state = this.details?.search?.state || 'idle';
+      return stateClass(state);
     },
 
     async init() {
@@ -428,28 +434,16 @@ window.appNodeStats = function appNodeStats() {
     peers: [],
     searchThreads: [],
 
-    threadStateClass(state) {
-      return stateClass(state);
-    },
-
-    nodeState(peer) {
-      return nodeState(peer);
-    },
-
-    nodeStateClass(peer) {
-      return nodeStateClass(peer);
-    },
-
     get totalNodes() {
       return this.peers.length;
     },
 
     get liveNodes() {
-      return this.peers.filter((p) => this.nodeState(p) !== 'idle').length;
+      return this.peers.filter((p) => p.ui_state !== 'idle').length;
     },
 
     get activeNodes() {
-      return this.peers.filter((p) => this.nodeState(p) === 'active').length;
+      return this.peers.filter((p) => p.ui_state === 'active').length;
     },
 
     async init() {
@@ -479,9 +473,19 @@ window.appNodeStats = function appNodeStats() {
         ]);
         this.status = statusResp;
         const rawPeers = Array.isArray(peersResp?.peers) ? peersResp.peers : [];
-        this.peers = rawPeers.slice().sort((a, b) => {
-          const sa = this.nodeState(a);
-          const sb = this.nodeState(b);
+        const normalizedPeers = rawPeers.map((peer) => {
+          const state = nodeState(peer);
+          const inbound = peer?.last_inbound_secs_ago;
+          return {
+            ...peer,
+            ui_state: state,
+            ui_state_class: nodeStateClass(state),
+            inbound_label: typeof inbound === 'number' ? `${inbound}s` : '-',
+          };
+        });
+        this.peers = normalizedPeers.slice().sort((a, b) => {
+          const sa = a.ui_state;
+          const sb = b.ui_state;
           const rank = { active: 0, live: 1, idle: 2 };
           if (rank[sa] !== rank[sb]) {
             return rank[sa] - rank[sb];
@@ -507,10 +511,6 @@ window.appLogs = function appLogs() {
     sse: null,
     searchThreads: [],
     logEntries: [],
-
-    threadStateClass(state) {
-      return stateClass(state);
-    },
 
     get prettyStatus() {
       if (!this.status) {
@@ -608,10 +608,6 @@ window.appSettings = function appSettings() {
     searchThreads: [],
     status: null,
     theme: currentTheme(),
-
-    threadStateClass(state) {
-      return stateClass(state);
-    },
 
     get prettyStatus() {
       if (!this.status) {

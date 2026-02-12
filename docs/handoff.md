@@ -8,6 +8,13 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Alpine binding best-practice sanity pass completed:
+  - Normalized `searchThreads` in `ui/assets/js/app.js` to include precomputed `state_class`.
+  - Normalized node rows in `appNodeStats` to include precomputed `ui_state`, `ui_state_class`, and `inbound_label`.
+  - Updated templates (`ui/index.html`, `ui/search.html`, `ui/search_details.html`, `ui/node_stats.html`, `ui/log.html`, `ui/settings.html`) to bind directly to precomputed fields instead of calling controller/helper methods from bindings.
+  - Added `activeThreadStateClass` (index) and `detailsStateClass` (search details) getters for declarative badge binding.
+  - Ran Prettier on UI JS/HTML and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Refactored Alpine bindings to remove template-time helper method calls and keep side effects inside explicit actions/lifecycle methods only.
 - Performed CSS theme sanity refactor under `ui/assets/css`:
   - Moved all color literals used by shared UI components into theme files only:
     - `ui/assets/css/color-dark.css`
@@ -187,6 +194,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Alpine template bindings should be declarative and side-effect free; compute display-only classes/labels in controller state/getters before render.
 - Theme ownership rule: all color values live in `color-*` theme files; shared CSS (`base.css`, `layout.css`) references theme vars only.
 - Theme selection persistence uses `localStorage` key `ui_theme` and is applied via `<html data-theme=\"dark|light|hc\">`.
 - Treat `docs/architecture.md` + `docs/api_curl.md` as the implementation-aligned API references for current `/api/v1`; `docs/API_DESIGN.md` remains broader future-state design.
@@ -232,6 +240,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Add a lightweight UI smoke test pass (load each `/ui/*` page and assert Alpine init has no console/runtime errors) to guard future binding regressions.
 - Add integration tests for API auth/CORS behavior (preflight + protected endpoint access patterns).
 - Expand UI beyond status/search placeholder views (routing table, peers, and publish/search workflow surfaces).
 - Replace static index sidebar/result placeholders with real search data once `/api/searches` endpoints are implemented.

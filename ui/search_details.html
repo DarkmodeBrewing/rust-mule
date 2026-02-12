@@ -1,135 +1,186 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en" data-theme="dark">
-
-<head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title>rust-mule::search_details</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="/ui/assets/js/theme-init.js"></script>
-    <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/layout.css">
-    <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/typography.css">
-    <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/color-hc.css">
-    <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/colors-light.css">
-    <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/color-dark.css">
-    <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/base.css">
+    <link
+      rel="stylesheet"
+      type="text/css"
+      media="screen"
+      href="/ui/assets/css/layout.css"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      media="screen"
+      href="/ui/assets/css/typography.css"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      media="screen"
+      href="/ui/assets/css/color-hc.css"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      media="screen"
+      href="/ui/assets/css/colors-light.css"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      media="screen"
+      href="/ui/assets/css/color-dark.css"
+    />
+    <link
+      rel="stylesheet"
+      type="text/css"
+      media="screen"
+      href="/ui/assets/css/base.css"
+    />
     <script defer src="/ui/assets/js/alpine.min.js"></script>
     <script type="module" src="/ui/assets/js/app.js"></script>
-</head>
+  </head>
 
-<body x-data="appSearchDetails()" x-init="init()">
+  <body x-data="appSearchDetails()" x-init="init()">
     <section class="container shell">
-        <aside class="card sidebar">
-            <h2>rust-mule</h2>
-            <p>Search dashboard shell</p>
+      <aside class="card sidebar">
+        <h2>rust-mule</h2>
+        <p>Search dashboard shell</p>
 
-            <h3 class="mt-4">Navigation</h3>
-            <ul class="nav-list mt-3">
-                <li><a href="/ui">Overview</a></li>
-                <li><a href="/ui/search">Searches</a></li>
-                <li><a href="/ui/node_stats">Nodes / Routing</a></li>
-                <li><a href="/ui/log">Logs</a></li>
-                <li><a href="/ui/settings">Settings</a></li>
-            </ul>
+        <h3 class="mt-4">Navigation</h3>
+        <ul class="nav-list mt-3">
+          <li><a href="/ui">Overview</a></li>
+          <li><a href="/ui/search">Searches</a></li>
+          <li><a href="/ui/node_stats">Nodes / Routing</a></li>
+          <li><a href="/ui/log">Logs</a></li>
+          <li><a href="/ui/settings">Settings</a></li>
+        </ul>
 
-            <h3 class="mt-4">Search Threads</h3>
-            <ul class="search-list mt-3">
-                <template x-if="searchThreads.length === 0">
-                    <li class="search-item">
-                        <small>No active keyword searches yet.</small>
-                    </li>
-                </template>
-                <template x-for="thread in searchThreads" :key="thread.search_id_hex">
-                    <li class="search-item">
-                        <div class="flex gap-3 flex-wrap">
-                            <a x-bind:href="'/ui/search_details?searchId=' + thread.search_id_hex">
-                                <strong x-text="thread.search_id_hex"></strong>
-                            </a>
-                            <span class="badge" x-bind:class="threadStateClass(thread.state)" x-text="thread.state"></span>
-                        </div>
-                        <small>
-                            hits: <span x-text="thread.hits"></span>
-                            · age: <span x-text="thread.created_secs_ago"></span>s
-                        </small>
-                    </li>
-                </template>
-            </ul>
-        </aside>
+        <h3 class="mt-4">Search Threads</h3>
+        <ul class="search-list mt-3">
+          <template x-if="searchThreads.length === 0">
+            <li class="search-item">
+              <small>No active keyword searches yet.</small>
+            </li>
+          </template>
+          <template x-for="thread in searchThreads" :key="thread.search_id_hex">
+            <li class="search-item">
+              <div class="flex gap-3 flex-wrap">
+                <a
+                  x-bind:href="'/ui/search_details?searchId=' + thread.search_id_hex"
+                >
+                  <strong x-text="thread.search_id_hex"></strong>
+                </a>
+                <span
+                  class="badge"
+                  x-bind:class="thread.state_class"
+                  x-text="thread.state"
+                ></span>
+              </div>
+              <small>
+                hits: <span x-text="thread.hits"></span> · age:
+                <span x-text="thread.created_secs_ago"></span>s
+              </small>
+            </li>
+          </template>
+        </ul>
+      </aside>
 
-        <main class="main-scroll grid gap-4">
-            <div class="card">
-                <div class="flex gap-3 flex-wrap">
-                    <h1>Search Details</h1>
-                    <span class="badge" x-show="details && details.search"
-                        x-bind:class="threadStateClass(details.search.state)"
-                        x-text="details && details.search ? details.search.state : 'unknown'"></span>
-                </div>
-                <p class="mt-3">searchId: <code x-text="searchId || '(missing)'"></code></p>
-                <p class="mt-3" x-show="error" x-text="error"></p>
-            </div>
+      <main class="main-scroll grid gap-4">
+        <div class="card">
+          <div class="flex gap-3 flex-wrap">
+            <h1>Search Details</h1>
+            <span
+              class="badge"
+              x-show="details && details.search"
+              x-bind:class="detailsStateClass"
+              x-text="details && details.search ? details.search.state : 'unknown'"
+            ></span>
+          </div>
+          <p class="mt-3">
+            searchId: <code x-text="searchId || '(missing)'"></code>
+          </p>
+          <p class="mt-3" x-show="error" x-text="error"></p>
+        </div>
 
-            <div class="card" x-show="details && details.search">
-                <h2>Summary</h2>
-                <table class="table mt-3">
-                    <tbody>
-                        <tr>
-                            <th>Keyword ID</th>
-                            <td x-text="details?.search?.keyword_id_hex"></td>
-                        </tr>
-                        <tr>
-                            <th>State</th>
-                            <td x-text="details?.search?.state"></td>
-                        </tr>
-                        <tr>
-                            <th>Hits</th>
-                            <td x-text="details?.search?.hits"></td>
-                        </tr>
-                        <tr>
-                            <th>Created</th>
-                            <td><span x-text="details?.search?.created_secs_ago"></span>s ago</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+        <div class="card" x-show="details && details.search">
+          <h2>Summary</h2>
+          <table class="table mt-3">
+            <tbody>
+              <tr>
+                <th>Keyword ID</th>
+                <td x-text="details?.search?.keyword_id_hex"></td>
+              </tr>
+              <tr>
+                <th>State</th>
+                <td x-text="details?.search?.state"></td>
+              </tr>
+              <tr>
+                <th>Hits</th>
+                <td x-text="details?.search?.hits"></td>
+              </tr>
+              <tr>
+                <th>Created</th>
+                <td>
+                  <span x-text="details?.search?.created_secs_ago"></span>s ago
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
-            <div class="card">
-                <div class="flex gap-3 flex-wrap">
-                    <h2>Keyword Hits</h2>
-                    <button class="btn" type="button" @click="loadDetails()" x-bind:disabled="loading">Refresh</button>
-                </div>
-                <table class="table mt-3">
-                    <thead>
-                        <tr>
-                            <th>File Name</th>
-                            <th>Size</th>
-                            <th>Origin</th>
-                            <th>File ID</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <template x-if="hits.length === 0">
-                            <tr>
-                                <td colspan="4">No hits available for this search yet.</td>
-                            </tr>
-                        </template>
-                        <template x-for="hit in hits" :key="hit.file_id_hex + hit.filename">
-                            <tr>
-                                <td x-text="hit.filename"></td>
-                                <td x-text="hit.file_size"></td>
-                                <td x-text="hit.origin"></td>
-                                <td x-text="hit.file_id_hex"></td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
-            </div>
+        <div class="card">
+          <div class="flex gap-3 flex-wrap">
+            <h2>Keyword Hits</h2>
+            <button
+              class="btn"
+              type="button"
+              @click="loadDetails()"
+              x-bind:disabled="loading"
+            >
+              Refresh
+            </button>
+          </div>
+          <table class="table mt-3">
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Size</th>
+                <th>Origin</th>
+                <th>File ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-if="hits.length === 0">
+                <tr>
+                  <td colspan="4">No hits available for this search yet.</td>
+                </tr>
+              </template>
+              <template
+                x-for="hit in hits"
+                :key="hit.file_id_hex + hit.filename"
+              >
+                <tr>
+                  <td x-text="hit.filename"></td>
+                  <td x-text="hit.file_size"></td>
+                  <td x-text="hit.origin"></td>
+                  <td x-text="hit.file_id_hex"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
 
-            <div class="card">
-                <h2>Raw Search Payload</h2>
-                <pre class="log" x-text="prettyDetails"></pre>
-            </div>
-        </main>
+        <div class="card">
+          <h2>Raw Search Payload</h2>
+          <pre class="log" x-text="prettyDetails"></pre>
+        </div>
+      </main>
     </section>
-</body>
-
+  </body>
 </html>
