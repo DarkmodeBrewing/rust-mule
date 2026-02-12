@@ -78,6 +78,15 @@ Notes:
   - Returns one active keyword-search job plus its current in-memory hits.
   - `search_id` is the keyword hash hex used for the search job.
 
+- `POST /api/v1/searches/:search_id/stop`
+  - Auth required.
+  - Stops an active keyword-search job from continuing search/publish activity.
+
+- `DELETE /api/v1/searches/:search_id`
+  - Auth required.
+  - Deletes an active keyword-search job.
+  - Supports `?purge_results=true|false` (default `true`) to control whether cached keyword hits are removed.
+
 - `GET /api/v1/events`
   - Auth required.
   - SSE stream of live status updates.

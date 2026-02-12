@@ -51,6 +51,23 @@ SEARCH_ID="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/searches/$SEARCH_ID" | jq .
 ```
 
+## Stop Active Keyword Search
+
+```bash
+SEARCH_ID="00112233445566778899aabbccddeeff"
+curl -sS "${AUTH[@]}" "${JSON[@]}" \
+  -d '{}' \
+  "$BASE_URL/api/v1/searches/$SEARCH_ID/stop" | jq .
+```
+
+## Delete Active Keyword Search
+
+```bash
+SEARCH_ID="00112233445566778899aabbccddeeff"
+curl -sS -X DELETE "${AUTH[@]}" \
+  "$BASE_URL/api/v1/searches/$SEARCH_ID?purge_results=true" | jq .
+```
+
 ## Live Events (SSE)
 
 ```bash

@@ -292,6 +292,15 @@ pub enum KadServiceCommand {
     GetKeywordSearches {
         respond_to: oneshot::Sender<Vec<KadKeywordSearchInfo>>,
     },
+    StopKeywordSearch {
+        keyword: KadId,
+        respond_to: oneshot::Sender<bool>,
+    },
+    DeleteKeywordSearch {
+        keyword: KadId,
+        purge_results: bool,
+        respond_to: oneshot::Sender<bool>,
+    },
     GetPeers {
         respond_to: oneshot::Sender<Vec<KadPeerInfo>>,
     },
@@ -635,6 +644,37 @@ pub async fn run_service(
     Ok(())
 }
 
+fn stop_keyword_search(svc: &mut KadService, keyword: KadId) -> bool {
+    let Some(job) = svc.keyword_jobs.get_mut(&keyword) else {
+        return false;
+    };
+
+    job.want_search = false;
+    job.publish = None;
+    job.got_publish_ack = true;
+    true
+}
+
+fn delete_keyword_search(svc: &mut KadService, keyword: KadId, purge_results: bool) -> bool {
+    let removed = svc.keyword_jobs.remove(&keyword).is_some();
+    if !removed {
+        return false;
+    }
+
+    if purge_results {
+        if let Some(hits) = svc.keyword_hits_by_keyword.remove(&keyword) {
+            svc.keyword_hits_total = svc.keyword_hits_total.saturating_sub(hits.len());
+        }
+        svc.keyword_interest.remove(&keyword);
+
+        if let Some(store) = svc.keyword_store_by_keyword.remove(&keyword) {
+            svc.keyword_store_total = svc.keyword_store_total.saturating_sub(store.len());
+        }
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -695,6 +735,109 @@ mod tests {
         let ids: Vec<u8> = peers.iter().map(|p| p.client_id[15]).collect();
 
         assert_eq!(ids, vec![2, 3]);
+    }
+
+    #[test]
+    fn stop_keyword_search_disables_active_job() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let now = Instant::now();
+        let keyword = KadId([1u8; 16]);
+
+        svc.keyword_jobs.insert(
+            keyword,
+            KeywordJob {
+                created_at: now,
+                next_lookup_at: now,
+                next_search_at: now,
+                next_publish_at: now,
+                sent_to_search: HashSet::new(),
+                sent_to_publish: HashSet::new(),
+                want_search: true,
+                publish: Some(KeywordPublishSpec {
+                    file: KadId([2u8; 16]),
+                    filename: "f.bin".to_string(),
+                    file_size: 1,
+                    file_type: None,
+                }),
+                got_publish_ack: false,
+            },
+        );
+
+        assert!(stop_keyword_search(&mut svc, keyword));
+        let job = svc.keyword_jobs.get(&keyword).expect("job must exist");
+        assert!(!job.want_search);
+        assert!(job.publish.is_none());
+        assert!(job.got_publish_ack);
+    }
+
+    #[test]
+    fn delete_keyword_search_purges_cached_results() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let now = Instant::now();
+        let keyword = KadId([3u8; 16]);
+        let file = KadId([4u8; 16]);
+
+        svc.keyword_jobs.insert(
+            keyword,
+            KeywordJob {
+                created_at: now,
+                next_lookup_at: now,
+                next_search_at: now,
+                next_publish_at: now,
+                sent_to_search: HashSet::new(),
+                sent_to_publish: HashSet::new(),
+                want_search: true,
+                publish: None,
+                got_publish_ack: false,
+            },
+        );
+
+        let mut hits = BTreeMap::new();
+        hits.insert(
+            file,
+            KeywordHitState {
+                hit: KadKeywordHit {
+                    file_id: file,
+                    filename: "x.bin".to_string(),
+                    file_size: 1,
+                    file_type: None,
+                    publish_info: None,
+                    origin: KadKeywordHitOrigin::Local,
+                },
+                last_seen: now,
+            },
+        );
+        svc.keyword_hits_by_keyword.insert(keyword, hits);
+        svc.keyword_hits_total = 1;
+        svc.keyword_interest.insert(keyword, now);
+
+        let mut store_hits = BTreeMap::new();
+        store_hits.insert(
+            file,
+            KeywordHitState {
+                hit: KadKeywordHit {
+                    file_id: file,
+                    filename: "x.bin".to_string(),
+                    file_size: 1,
+                    file_type: None,
+                    publish_info: None,
+                    origin: KadKeywordHitOrigin::Network,
+                },
+                last_seen: now,
+            },
+        );
+        svc.keyword_store_by_keyword.insert(keyword, store_hits);
+        svc.keyword_store_total = 1;
+
+        assert!(delete_keyword_search(&mut svc, keyword, true));
+        assert!(!svc.keyword_jobs.contains_key(&keyword));
+        assert!(!svc.keyword_hits_by_keyword.contains_key(&keyword));
+        assert!(!svc.keyword_interest.contains_key(&keyword));
+        assert!(!svc.keyword_store_by_keyword.contains_key(&keyword));
+        assert_eq!(svc.keyword_hits_total, 0);
+        assert_eq!(svc.keyword_store_total, 0);
     }
 }
 
@@ -810,6 +953,21 @@ async fn handle_command(
                 .collect::<Vec<_>>();
             searches.sort_by_key(|s| s.created_secs_ago);
             let _ = respond_to.send(searches);
+        }
+        KadServiceCommand::StopKeywordSearch {
+            keyword,
+            respond_to,
+        } => {
+            let stopped = stop_keyword_search(svc, keyword);
+            let _ = respond_to.send(stopped);
+        }
+        KadServiceCommand::DeleteKeywordSearch {
+            keyword,
+            purge_results,
+            respond_to,
+        } => {
+            let deleted = delete_keyword_search(svc, keyword, purge_results);
+            let _ = respond_to.send(deleted);
         }
         KadServiceCommand::GetPeers { respond_to } => {
             let mut states = svc.routing.snapshot_states();

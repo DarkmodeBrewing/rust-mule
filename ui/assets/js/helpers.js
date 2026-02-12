@@ -64,6 +64,18 @@ export async function apiPost(path, body) {
   return res.json();
 }
 
+export async function apiDelete(path) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`${path}: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
 export function openStatusEventStream(onStatus, onError) {
   const token = getToken();
   if (!token) {

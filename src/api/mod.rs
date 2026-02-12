@@ -69,7 +69,11 @@ pub async fn serve(
         .route("/status", get(status))
         .route("/events", get(events))
         .route("/searches", get(searches))
-        .route("/searches/:search_id", get(search_details))
+        .route(
+            "/searches/:search_id",
+            get(search_details).delete(search_delete),
+        )
+        .route("/searches/:search_id/stop", post(search_stop))
         .route("/kad/peers", get(kad_peers))
         .route("/debug/routing/summary", get(debug_routing_summary))
         .route("/debug/routing/buckets", get(debug_routing_buckets))
@@ -167,6 +171,27 @@ struct SearchListResponse {
 struct SearchDetailsResponse {
     search: KadKeywordSearchInfo,
     hits: Vec<KadKeywordHitJson>,
+}
+
+#[derive(Debug, Serialize)]
+struct SearchStopResponse {
+    stopped: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct SearchDeleteQuery {
+    #[serde(default = "default_true")]
+    purge_results: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Serialize)]
+struct SearchDeleteResponse {
+    deleted: bool,
+    purged_results: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -378,6 +403,57 @@ async fn search_details(
         .collect::<Vec<_>>();
 
     Ok(Json(SearchDetailsResponse { search, hits }))
+}
+
+async fn search_stop(
+    State(state): State<ApiState>,
+    axum::extract::Path(search_id): axum::extract::Path<String>,
+) -> Result<Json<SearchStopResponse>, StatusCode> {
+    let keyword_id = KadId::from_hex(&search_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::StopKeywordSearch {
+            keyword: keyword_id,
+            respond_to: tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let stopped = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(SearchStopResponse { stopped }))
+}
+
+async fn search_delete(
+    State(state): State<ApiState>,
+    axum::extract::Path(search_id): axum::extract::Path<String>,
+    Query(q): Query<SearchDeleteQuery>,
+) -> Result<Json<SearchDeleteResponse>, StatusCode> {
+    let keyword_id = KadId::from_hex(&search_id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (tx, rx) = tokio::sync::oneshot::channel::<bool>();
+    state
+        .kad_cmd_tx
+        .send(KadServiceCommand::DeleteKeywordSearch {
+            keyword: keyword_id,
+            purge_results: q.purge_results,
+            respond_to: tx,
+        })
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    let deleted = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+        .await
+        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+
+    Ok(Json(SearchDeleteResponse {
+        deleted,
+        purged_results: q.purge_results,
+    }))
 }
 
 async fn kad_peers(State(state): State<ApiState>) -> Result<Json<KadPeersResponse>, StatusCode> {

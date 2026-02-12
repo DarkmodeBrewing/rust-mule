@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Completed API-backing coverage for Alpine UI controls/helpers by implementing missing search control endpoints:
+  - Added `POST /api/v1/searches/:search_id/stop`.
+  - Added `DELETE /api/v1/searches/:search_id` with `purge_results` (default `true`).
+  - Wired `indexApp.stopActiveSearch()` and `indexApp.deleteActiveSearch()` to these endpoints.
+- Added backend service commands and logic:
+  - `StopKeywordSearch` (disable ongoing search/publish for a job).
+  - `DeleteKeywordSearch` (remove active job; optionally purge cached keyword results/store/interest).
+- Added frontend helper `apiDelete()` (`ui/assets/js/helpers.js`) for `/api/v1` DELETE calls.
+- Added unit tests in KAD service:
+  - `stop_keyword_search_disables_active_job`
+  - `delete_keyword_search_purges_cached_results`
+- Updated API docs for new endpoints (`docs/architecture.md`, `docs/api_curl.md`).
+- Ran Prettier on UI JS and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after API coverage implementation (`cargo test` passed; existing clippy warnings unchanged).
 - Closed UI consistency gaps identified in `/ui` review:
   - Added real settings page `ui/settings.html` with backing `appSettings()` controller.
   - Wired all sidebar `Settings` links to `/ui/settings`.
@@ -153,7 +166,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
-- Keep unimplemented control-plane actions (`Stop`) explicit in UI via notice messaging instead of silent no-ops.
+- Search stop/delete are now first-class `/api/v1` controls instead of UI-local placeholders.
+- `DELETE /api/v1/searches/:search_id` defaults to purging cached keyword results for that search (`purge_results=true`) to keep UI state consistent after delete.
 - Use current active search thread (query-selected or first available) as the source for overview title/state.
 - Use SSE-backed status updates as the first log timeline source in UI (`appLogs`), with snapshot polling available via manual refresh.
 - Use `ui/.prettierrc` as the canonical formatter config for UI JS files (`ui/assets/js/*`).
@@ -201,6 +215,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Add API/frontend support for completed (no longer active) search history so `search_details` remains available after a job leaves `keyword_jobs`.
 - Consider making node-state thresholds (`active/live` age windows) configurable in UI settings or API response metadata.
 - Add richer log event typing/filtering once non-status event types are exposed from the API.
+- Add API integration tests for `/api/v1/searches/:search_id/stop` and `DELETE /api/v1/searches/:search_id` behavior paths.
 - Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
 - Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -224,6 +239,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Implement missing `/api/v1` backing for UI search controls: add stop/delete search endpoints + service commands/logic + tests; wire UI stop/delete to API and add `apiDelete()` helper; update API docs; run Prettier + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Implement UI consistency fixes 1..4: add `ui/settings.html` + `appSettings()`, wire settings/new-search/actions, and make overview header/state thread-driven; run Prettier (`ui/assets/js/app.js`) + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `ui/log.html` and `appLogs()` (status snapshot + SSE-backed rolling log view), and route sidebar "Logs" links to `/ui/log`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Format `ui/assets/js/app.js` and `ui/assets/js/helpers.js` with `ui/.prettierrc`; verify with `prettier --check`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).

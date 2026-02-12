@@ -1,4 +1,5 @@
 import {
+  apiDelete,
   apiGet,
   apiPost,
   bootstrapToken,
@@ -194,14 +195,23 @@ window.indexApp = function indexApp() {
       goToSearchPage();
     },
 
-    stopActiveSearch() {
+    async stopActiveSearch() {
       if (!this.activeThread) {
         this.notice = 'No active search selected to stop.';
         return;
       }
-      this.notice =
-        `Stop requested for ${this.activeThread.search_id_hex}. ` +
-        'Stop API is not available yet in this development build.';
+      try {
+        const id = this.activeThread.search_id_hex;
+        const resp = await apiPost(`/searches/${id}/stop`, {});
+        if (resp?.stopped) {
+          this.notice = `Stopped search ${id}.`;
+        } else {
+          this.notice = `Search ${id} was not active.`;
+        }
+        await this.refreshThreads();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      }
     },
 
     async exportActiveSearch() {
@@ -220,17 +230,23 @@ window.indexApp = function indexApp() {
       }
     },
 
-    deleteActiveSearch() {
+    async deleteActiveSearch() {
       if (!this.activeThread) {
         this.notice = 'No active search selected to remove from view.';
         return;
       }
-      const id = this.activeThread.search_id_hex;
-      this.searchThreads = this.searchThreads.filter(
-        (t) => t.search_id_hex !== id,
-      );
-      this.selectedSearchId = this.searchThreads[0]?.search_id_hex || '';
-      this.notice = `Removed ${id} from local overview list.`;
+      try {
+        const id = this.activeThread.search_id_hex;
+        const resp = await apiDelete(`/searches/${id}`);
+        if (resp?.deleted) {
+          this.notice = `Deleted search ${id}.`;
+        } else {
+          this.notice = `Search ${id} was not found.`;
+        }
+        await this.refreshThreads();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      }
     },
   };
 };
