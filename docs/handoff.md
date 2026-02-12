@@ -8,6 +8,13 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Closed UI consistency gaps identified in `/ui` review:
+  - Added real settings page `ui/settings.html` with backing `appSettings()` controller.
+  - Wired all sidebar `Settings` links to `/ui/settings`.
+  - Wired `+ New Search` buttons with Alpine actions (`index` navigates to search page, `search` resets form state).
+  - Wired overview action buttons (`Stop`, `Export`, `Delete`) to implemented Alpine methods in `indexApp`.
+  - Removed hardcoded overview header state and made it data-driven from selected active thread.
+- Ran Prettier on `ui/assets/js/app.js` and then ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after the UI consistency pass (`cargo test` passed; existing clippy warnings unchanged).
 - Added `ui/log.html` with the shared shell and a dedicated Logs view.
 - Implemented `appLogs()` Alpine controller in `ui/assets/js/app.js`:
   - Bootstraps token and loads search threads.
@@ -146,6 +153,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Keep unimplemented control-plane actions (`Stop`) explicit in UI via notice messaging instead of silent no-ops.
+- Use current active search thread (query-selected or first available) as the source for overview title/state.
 - Use SSE-backed status updates as the first log timeline source in UI (`appLogs`), with snapshot polling available via manual refresh.
 - Use `ui/.prettierrc` as the canonical formatter config for UI JS files (`ui/assets/js/*`).
 - Define node UI state as:
@@ -215,6 +224,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Implement UI consistency fixes 1..4: add `ui/settings.html` + `appSettings()`, wire settings/new-search/actions, and make overview header/state thread-driven; run Prettier (`ui/assets/js/app.js`) + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `ui/log.html` and `appLogs()` (status snapshot + SSE-backed rolling log view), and route sidebar "Logs" links to `/ui/log`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Format `ui/assets/js/app.js` and `ui/assets/js/helpers.js` with `ui/.prettierrc`; verify with `prettier --check`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Add `ui/node_stats.html` with shell + node status table/KPIs using `/api/v1/status` and `/api/v1/kad/peers`; implement `appNodeStats()`; point shell nav "Nodes / Routing" to `/ui/node_stats`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).

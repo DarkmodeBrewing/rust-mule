@@ -48,18 +48,57 @@ async function loadSearchThreads(ctx) {
   ctx.searchThreads = Array.isArray(data?.searches) ? data.searches : [];
 }
 
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: 'application/json',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function goToSearchPage() {
+  window.location.href = '/ui/search';
+}
+
 window.indexApp = function indexApp() {
   return {
     loading: false,
     connected: false,
     error: '',
+    notice: '',
     token: '',
     status: null,
     sse: null,
     searchThreads: [],
+    selectedSearchId: '',
 
     threadStateClass(state) {
       return stateClass(state);
+    },
+
+    get activeThread() {
+      if (!this.selectedSearchId) {
+        return null;
+      }
+      return (
+        this.searchThreads.find(
+          (t) => t.search_id_hex === this.selectedSearchId,
+        ) || null
+      );
+    },
+
+    get activeThreadTitle() {
+      return this.activeThread?.search_id_hex || 'No active search selected';
+    },
+
+    get activeThreadState() {
+      return this.activeThread?.state || 'idle';
     },
 
     get prettyStatus() {
@@ -72,17 +111,31 @@ window.indexApp = function indexApp() {
     async init() {
       this.loading = true;
       this.error = '';
+      this.notice = '';
 
       try {
         this.token = await bootstrapToken();
         await this.refreshStatus();
         await this.refreshThreads();
+        this.selectInitialThread();
         this.startEvents();
       } catch (err) {
         this.error = String(err?.message || err);
       } finally {
         this.loading = false;
       }
+    },
+
+    selectInitialThread() {
+      const fromQuery = parseSearchIdFromQuery();
+      if (
+        fromQuery &&
+        this.searchThreads.some((t) => t.search_id_hex === fromQuery)
+      ) {
+        this.selectedSearchId = fromQuery;
+        return;
+      }
+      this.selectedSearchId = this.searchThreads[0]?.search_id_hex || '';
     },
 
     async refreshStatus() {
@@ -97,6 +150,14 @@ window.indexApp = function indexApp() {
     async refreshThreads() {
       try {
         await loadSearchThreads(this);
+        if (
+          this.selectedSearchId &&
+          !this.searchThreads.some(
+            (t) => t.search_id_hex === this.selectedSearchId,
+          )
+        ) {
+          this.selectedSearchId = this.searchThreads[0]?.search_id_hex || '';
+        }
       } catch (err) {
         this.error = String(err?.message || err);
       }
@@ -127,6 +188,49 @@ window.indexApp = function indexApp() {
         this.sse = null;
       }
       this.connected = false;
+    },
+
+    startNewSearch() {
+      goToSearchPage();
+    },
+
+    stopActiveSearch() {
+      if (!this.activeThread) {
+        this.notice = 'No active search selected to stop.';
+        return;
+      }
+      this.notice =
+        `Stop requested for ${this.activeThread.search_id_hex}. ` +
+        'Stop API is not available yet in this development build.';
+    },
+
+    async exportActiveSearch() {
+      if (!this.activeThread) {
+        this.notice = 'No active search selected to export.';
+        return;
+      }
+      try {
+        const details = await apiGet(
+          `/searches/${this.activeThread.search_id_hex}`,
+        );
+        downloadJson(`search-${this.activeThread.search_id_hex}.json`, details);
+        this.notice = `Exported search ${this.activeThread.search_id_hex}.`;
+      } catch (err) {
+        this.error = String(err?.message || err);
+      }
+    },
+
+    deleteActiveSearch() {
+      if (!this.activeThread) {
+        this.notice = 'No active search selected to remove from view.';
+        return;
+      }
+      const id = this.activeThread.search_id_hex;
+      this.searchThreads = this.searchThreads.filter(
+        (t) => t.search_id_hex !== id,
+      );
+      this.selectedSearchId = this.searchThreads[0]?.search_id_hex || '';
+      this.notice = `Removed ${id} from local overview list.`;
     },
   };
 };
@@ -198,6 +302,17 @@ window.appSearch = function appSearch() {
       this.keywordResults = await apiGet(
         `/kad/keyword_results/${keywordIdHex}`,
       );
+    },
+
+    startNewSearch() {
+      this.query = '';
+      this.keywordIdHex = '';
+      this.searchResponse = null;
+      this.keywordResults = null;
+      const queryInput = document.getElementById('query');
+      if (queryInput) {
+        queryInput.focus();
+      }
     },
 
     buildPayload() {
@@ -447,6 +562,44 @@ window.appLogs = function appLogs() {
         payload: '',
       });
       this.logEntries = this.logEntries.slice(0, 200);
+    },
+  };
+};
+
+window.appSettings = function appSettings() {
+  return {
+    loading: false,
+    error: '',
+    searchThreads: [],
+    status: null,
+
+    threadStateClass(state) {
+      return stateClass(state);
+    },
+
+    get prettyStatus() {
+      if (!this.status) {
+        return '{}';
+      }
+      return JSON.stringify(this.status, null, 2);
+    },
+
+    async init() {
+      this.loading = true;
+      this.error = '';
+      try {
+        await bootstrapToken();
+        await this.refreshThreads();
+        this.status = await apiGet('/status');
+      } catch (err) {
+        this.error = String(err?.message || err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async refreshThreads() {
+      await loadSearchThreads(this);
     },
   };
 };

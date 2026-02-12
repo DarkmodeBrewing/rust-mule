@@ -26,7 +26,7 @@
                 <li><a href="/ui/search">Searches</a></li>
                 <li><a href="/ui/node_stats">Nodes / Routing</a></li>
                 <li><a href="/ui/log">Logs</a></li>
-                <li><a href="/ui">Settings</a></li>
+                <li><a href="/ui/settings">Settings</a></li>
             </ul>
 
             <h3 class="mt-4">Search Threads</h3>
@@ -53,23 +53,24 @@
             </ul>
 
             <div class="mt-4">
-                <button class="btn btn-primary" type="button">+ New Search</button>
+                <button class="btn btn-primary" type="button" @click="startNewSearch()">+ New Search</button>
             </div>
         </aside>
 
         <main class="main-scroll grid gap-4">
             <div class="card">
                 <div class="flex gap-3 flex-wrap">
-                    <h1>Search Overview: linux iso</h1>
-                    <span class="badge state-running">running</span>
+                    <h1>Search Overview: <span x-text="activeThreadTitle"></span></h1>
+                    <span class="badge" x-bind:class="threadStateClass(activeThreadState)" x-text="activeThreadState"></span>
                     <span class="badge" x-text="connected ? 'sse: connected' : 'sse: disconnected'"></span>
                     <span class="badge" x-text="token ? 'token: ready' : 'token: missing'"></span>
                     <button class="btn ml-auto" @click="refreshStatus()">Refresh</button>
-                    <button class="btn" type="button">Stop</button>
-                    <button class="btn" type="button">Export</button>
-                    <button class="btn btn-danger" type="button">Delete</button>
+                    <button class="btn" type="button" @click="stopActiveSearch()">Stop</button>
+                    <button class="btn" type="button" @click="exportActiveSearch()">Export</button>
+                    <button class="btn btn-danger" type="button" @click="deleteActiveSearch()">Delete</button>
                 </div>
                 <p class="mt-3" x-show="error" x-text="error"></p>
+                <p class="mt-3" x-show="notice" x-text="notice"></p>
             </div>
 
             <div class="grid grid-3" x-show="status">
