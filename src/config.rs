@@ -45,9 +45,6 @@ fn default_log_file_name() -> String {
 fn default_log_file_level() -> String {
     "debug".to_string()
 }
-fn default_api_enabled() -> bool {
-    false
-}
 fn default_api_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -302,8 +299,11 @@ pub struct GeneralConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ApiConfig {
-    /// Enable the local HTTP API (used by the future GUI).
-    pub enabled: bool,
+    /// Deprecated: `api.enabled` is accepted for backward compatibility, but ignored.
+    ///
+    /// The API is always on and acts as the local control plane.
+    #[serde(default, rename = "enabled", skip_serializing)]
+    pub deprecated_enabled: Option<bool>,
     /// Bind IP address (default: 127.0.0.1).
     pub host: String,
     /// Bind TCP port.
@@ -401,7 +401,7 @@ impl Default for GeneralConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
-            enabled: default_api_enabled(),
+            deprecated_enabled: None,
             host: default_api_host(),
             port: default_api_port(),
         }

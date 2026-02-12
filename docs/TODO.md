@@ -31,9 +31,9 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 - Overview of API design is located in `/docs/API_DESIGN.md`
 - [ ] API should bind to `127.0.0.1` and `localhost`, not `0.0.0.0`
 - [ ] API `CORS` rules should only accept connections from `127.0.0.1`/`localhost`, and allow headers `Authorization`, `Content-Type` (at least not more headers than required)
-- [ ] API should be served from base URL `/api/<version>`
-- [ ] API should expose an endpoint for the UI to get the bearer token from `/data/api.token` (`GET:/api/<version>/dev/auth`)
-  - [ ] Endpoint should be loopback only
+- [x] API should be served from base URL `/api/<version>`
+- [x] API should expose an endpoint for the UI to get the bearer token from `/data/api.token` (`GET:/api/<version>/dev/auth`)
+  - [x] Endpoint should be loopback only
 
 ## UI
 
@@ -69,7 +69,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 - [ ] Do a `clippy` round on the complete repo
 - [ ] Memory pressure logging using `jmalloc`, and memory management
 - [ ] Memory pressure logs size of routing table, lookups etc. to have
-- [ ] API should be mandatory, i.e. no config toggle to load the API, only port number should be configurable (since the API is the control plane)
+- [x] API should be mandatory, i.e. no config toggle to load the API, only port number should be configurable (since the API is the control plane)
 - [ ] Logfile names should be written as `rust-mule.YYYY-mm-DD.log` and continue daily rotation, but there should be a check on startup to delete logfiles older than 30 days
 - [ ] `rust-mule` client shows up in I2P Router console as `SAM UDP Client` - investigate if we can report a client name to the router (just like `I2P Snark`)
 - [ ] TLS for headless, remote UI - low priority

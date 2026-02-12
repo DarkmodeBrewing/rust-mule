@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/debug_routing_nodes.sh --bucket N [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  GET /debug/routing/nodes?bucket=N
+  GET /api/v1/debug/routing/nodes?bucket=N
 
 Options:
   --bucket N           Required bucket index (0..127)
@@ -44,4 +44,4 @@ fi
 
 curl -sS \
   -H "Authorization: Bearer $TOKEN" \
-  "$BASE_URL/debug/routing/nodes?bucket=$BUCKET"
+  "$BASE_URL/api/v1/debug/routing/nodes?bucket=$BUCKET"

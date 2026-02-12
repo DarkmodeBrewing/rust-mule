@@ -112,28 +112,28 @@ Then run each instance from its own directory (so it picks up that directory’s
 
 ## Local HTTP API (For Future GUI)
 
-There is an optional local HTTP API (REST + SSE) intended for a future GUI.
+There is a local HTTP API (REST + SSE) intended for the control plane and a future GUI.
 
-- Config: `[api]` in `config.toml` (default `enabled=false`)
+- Config: `[api]` in `config.toml`
 - Auth: bearer token stored in `data/api.token`
 - Docs: `docs/architecture.md`
 
-Quick curl test (after setting `[api].enabled=true`):
+Quick curl test:
 
 ```bash
 TOKEN="$(cat data/api.token)"
-curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/status
-curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/events
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/status
+curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/events
 
 # Enqueue a Kad2 search for sources of a fileID (16 bytes / 32 hex chars).
 curl -sS -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"file_id_hex":"00112233445566778899aabbccddeeff","file_size":0}' \
-  http://127.0.0.1:17835/kad/search_sources
+  http://127.0.0.1:17835/api/v1/kad/search_sources
 
 # Read sources discovered so far (in-memory).
 curl -sS -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:17835/kad/sources/00112233445566778899aabbccddeeff | jq .
+  http://127.0.0.1:17835/api/v1/kad/sources/00112233445566778899aabbccddeeff | jq .
 ```
 
 ## Data Files

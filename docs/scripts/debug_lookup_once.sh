@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/debug_lookup_once.sh [--target-id-hex HEX] [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  POST /debug/lookup_once
+  POST /api/v1/debug/lookup_once
 
 Options:
   --target-id-hex HEX  Optional 16-byte hex KadID (32 hex chars)
@@ -46,4 +46,4 @@ curl -sS \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "$BODY" \
-  "$BASE_URL/debug/lookup_once"
+  "$BASE_URL/api/v1/debug/lookup_once"

@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/status.sh [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  GET /status   (auth required)
+  GET /api/v1/status   (auth required)
 
 Options:
   --base-url URL       Default: http://127.0.0.1:17835
@@ -33,5 +33,5 @@ if [[ -z "$TOKEN" ]]; then
   TOKEN="$(cat "$TOKEN_FILE")"
 fi
 
-curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/status"
+curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/status"
 

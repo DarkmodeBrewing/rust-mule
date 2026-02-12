@@ -145,7 +145,7 @@ Search lifecycle:
 
 - GET /api/searches
 - GET /api/searches/:id
-- GET /api/events (SSE)
+- GET /api/v1/events (SSE)
 
 Event types:
 
@@ -194,7 +194,7 @@ Main:
 - GET /api/searches/:id
 - POST /api/searches/:id/start
 - POST /api/searches/:id/stop
-- GET /api/events
+- GET /api/v1/events
 
 ## Implementation Notes
 

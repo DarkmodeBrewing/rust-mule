@@ -6,7 +6,6 @@ For “one script per endpoint” wrappers, see `docs/scripts/`.
 
 Assumptions:
 
-- `config.toml` has `[api].enabled=true`
 - rust-mule is running
 - API token exists at `data/api.token`
 
@@ -19,22 +18,28 @@ AUTH=(-H "Authorization: Bearer $TOKEN")
 JSON=(-H "Content-Type: application/json")
 ```
 
+## Dev Auth Token (Loopback Only)
+
+```bash
+curl -sS "$BASE_URL/api/v1/dev/auth" | jq .
+```
+
 ## Health
 
 ```bash
-curl -sS "$BASE_URL/health" | jq .
+curl -sS "$BASE_URL/api/v1/health" | jq .
 ```
 
 ## Status Snapshot
 
 ```bash
-curl -sS "${AUTH[@]}" "$BASE_URL/status" | jq .
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/status" | jq .
 ```
 
 ## Live Events (SSE)
 
 ```bash
-curl -N -sS "${AUTH[@]}" "$BASE_URL/events"
+curl -N -sS "${AUTH[@]}" "$BASE_URL/api/v1/events"
 ```
 
 ## KAD: Search Sources For FileID
@@ -45,7 +50,7 @@ curl -N -sS "${AUTH[@]}" "$BASE_URL/events"
 FILE_ID_HEX="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"file_id_hex\":\"$FILE_ID_HEX\",\"file_size\":0}" \
-  "$BASE_URL/kad/search_sources" | jq .
+  "$BASE_URL/api/v1/kad/search_sources" | jq .
 ```
 
 ## KAD: Publish This Node As A Source
@@ -54,14 +59,14 @@ curl -sS "${AUTH[@]}" "${JSON[@]}" \
 FILE_ID_HEX="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"file_id_hex\":\"$FILE_ID_HEX\",\"file_size\":0}" \
-  "$BASE_URL/kad/publish_source" | jq .
+  "$BASE_URL/api/v1/kad/publish_source" | jq .
 ```
 
 ## KAD: Read Sources Learned So Far (In-Memory)
 
 ```bash
 FILE_ID_HEX="00112233445566778899aabbccddeeff"
-curl -sS "${AUTH[@]}" "$BASE_URL/kad/sources/$FILE_ID_HEX" | jq .
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/kad/sources/$FILE_ID_HEX" | jq .
 ```
 
 ## KAD: Keyword Search (Discover File IDs)
@@ -72,7 +77,7 @@ This does a Kad2 keyword search using iMule-compatible keyword hashing (first ex
 QUERY="ubuntu iso"
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"query\":\"$QUERY\"}" \
-  "$BASE_URL/kad/search_keyword" | jq .
+  "$BASE_URL/api/v1/kad/search_keyword" | jq .
 ```
 
 Or specify a keyword hash directly:
@@ -81,39 +86,39 @@ Or specify a keyword hash directly:
 KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"keyword_id_hex\":\"$KEYWORD_ID_HEX\"}" \
-  "$BASE_URL/kad/search_keyword" | jq .
+  "$BASE_URL/api/v1/kad/search_keyword" | jq .
 ```
 
 ## KAD: Read Keyword Hits Learned So Far (In-Memory)
 
 ```bash
 KEYWORD_ID_HEX="00112233445566778899aabbccddeeff"
-curl -sS "${AUTH[@]}" "$BASE_URL/kad/keyword_results/$KEYWORD_ID_HEX" | jq .
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/kad/keyword_results/$KEYWORD_ID_HEX" | jq .
 ```
 
 ## KAD: List Known Peers (Routing Snapshot)
 
 ```bash
-curl -sS "${AUTH[@]}" "$BASE_URL/kad/peers" | jq .
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/kad/peers" | jq .
 ```
 
 ## Debug: Routing Summary
 
 ```bash
-curl -sS "${AUTH[@]}" "$BASE_URL/debug/routing/summary" | jq .
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/debug/routing/summary" | jq .
 ```
 
 ## Debug: Routing Buckets
 
 ```bash
-curl -sS "${AUTH[@]}" "$BASE_URL/debug/routing/buckets" | jq .
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/debug/routing/buckets" | jq .
 ```
 
 ## Debug: Routing Nodes (Per Bucket)
 
 ```bash
 BUCKET=0
-curl -sS "${AUTH[@]}" "$BASE_URL/debug/routing/nodes?bucket=$BUCKET" | jq .
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/debug/routing/nodes?bucket=$BUCKET" | jq .
 ```
 
 ## Debug: Trigger One Lookup
@@ -121,7 +126,7 @@ curl -sS "${AUTH[@]}" "$BASE_URL/debug/routing/nodes?bucket=$BUCKET" | jq .
 ```bash
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{}" \
-  "$BASE_URL/debug/lookup_once" | jq .
+  "$BASE_URL/api/v1/debug/lookup_once" | jq .
 ```
 
 Or provide a target KadID:
@@ -130,12 +135,12 @@ Or provide a target KadID:
 TARGET_ID_HEX="00112233445566778899aabbccddeeff"
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"target_id_hex\":\"$TARGET_ID_HEX\"}" \
-  "$BASE_URL/debug/lookup_once" | jq .
+  "$BASE_URL/api/v1/debug/lookup_once" | jq .
 ```
 
 ## Debug: Probe A Specific Peer (HELLO + SEARCH + PUBLISH)
 
-Use `/kad/peers` to find a `udp_dest_b64` for a known peer.
+Use `/api/v1/kad/peers` to find a `udp_dest_b64` for a known peer.
 
 ```bash
 UDP_DEST_B64="AAA...AAAA"
@@ -146,7 +151,7 @@ FILE_SIZE=123
 
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"udp_dest_b64\":\"$UDP_DEST_B64\",\"keyword_id_hex\":\"$KEYWORD_ID_HEX\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE}" \
-  "$BASE_URL/debug/probe_peer" | jq .
+  "$BASE_URL/api/v1/debug/probe_peer" | jq .
 ```
 
 Optional file type:
@@ -155,7 +160,7 @@ Optional file type:
 FILE_TYPE="Pro"
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"udp_dest_b64\":\"$UDP_DEST_B64\",\"keyword_id_hex\":\"$KEYWORD_ID_HEX\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE,\"file_type\":\"$FILE_TYPE\"}" \
-  "$BASE_URL/debug/probe_peer" | jq .
+  "$BASE_URL/api/v1/debug/probe_peer" | jq .
 ```
 
 ## KAD: Publish A Keyword->File Entry (DHT)
@@ -172,7 +177,7 @@ FILE_TYPE="Pro"
 
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"query\":\"$QUERY\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE,\"file_type\":\"$FILE_TYPE\"}" \
-  "$BASE_URL/kad/publish_keyword" | jq .
+  "$BASE_URL/api/v1/kad/publish_keyword" | jq .
 ```
 
 Or specify a keyword hash directly:
@@ -185,5 +190,5 @@ FILE_SIZE=123
 
 curl -sS "${AUTH[@]}" "${JSON[@]}" \
   -d "{\"keyword_id_hex\":\"$KEYWORD_ID_HEX\",\"file_id_hex\":\"$FILE_ID_HEX\",\"filename\":\"$FILENAME\",\"file_size\":$FILE_SIZE}" \
-  "$BASE_URL/kad/publish_keyword" | jq .
+  "$BASE_URL/api/v1/kad/publish_keyword" | jq .
 ```

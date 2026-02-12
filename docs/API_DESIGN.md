@@ -52,7 +52,7 @@ This spec assumes **v1 in path**.
   3) use WebSocket (later)
 
 ### Endpoints
-- `POST /api/v1/auth/dev`
+- `GET /api/v1/dev/auth`
   - **Loopback-only**
   - returns `{ "token": "..." }`
   - used by UI to bootstrap a local session
@@ -311,7 +311,7 @@ All events follow a consistent envelope:
 ## Security Notes (Pragmatic)
 
 - Bind API to `127.0.0.1` by default.
-- `POST /auth/dev` must be loopback-only.
+- `GET /api/v1/dev/auth` must be loopback-only.
 - Avoid putting tokens in URLs except for localhost SSE; do not log full query strings.
 - For headless deployments:
   - keep API loopback-only and expose via VPN or reverse proxy with TLS + auth.

@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/kad_peers_get.sh [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  GET /kad/peers
+  GET /api/v1/kad/peers
 
 Options:
   --base-url URL       Default: http://127.0.0.1:17835
@@ -35,4 +35,4 @@ fi
 
 curl -sS \
   -H "Authorization: Bearer $TOKEN" \
-  "$BASE_URL/kad/peers"
+  "$BASE_URL/api/v1/kad/peers"

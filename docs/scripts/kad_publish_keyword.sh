@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/kad_publish_keyword.sh (--query "words..." | --keyword-id-hex HEX) --file-id-hex HEX --filename NAME --file-size N [--file-type TYPE] [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  POST /kad/publish_keyword
+  POST /api/v1/kad/publish_keyword
 
 Options:
   --query TEXT          Keyword query (iMule-style: we hash the first extracted word)
@@ -79,4 +79,4 @@ curl -sS \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "$BODY" \
-  "$BASE_URL/kad/publish_keyword"
+  "$BASE_URL/api/v1/kad/publish_keyword"

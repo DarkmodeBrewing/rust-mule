@@ -25,8 +25,8 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 3. **GUI**
    - Not implemented yet.
    - Expected to read the backend token from disk (or be launched with it) and then use:
-     - `GET /status` for a snapshot
-     - `GET /events` for continuous updates
+     - `GET /api/v1/status` for a snapshot
+     - `GET /api/v1/events` for continuous updates
 
 ## HTTP API
 
@@ -34,13 +34,12 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 
 `config.toml`:
 
-- `[api].enabled` (default `false`)
 - `[api].host` (default `127.0.0.1`)
 - `[api].port` (default `17835`)
 
 ### Auth / Token
 
-On first start with `api.enabled=true`, the backend creates a token file:
+On first start, the backend creates a token file:
 
 - `data/api.token`
 
@@ -55,51 +54,56 @@ Notes:
 
 ### Endpoints
 
-- `GET /health`
+- `GET /api/v1/dev/auth`
+  - No auth.
+  - Loopback-only.
+  - Returns `{ "token": "<bearer token>" }` for local UI bootstrap.
+
+- `GET /api/v1/health`
   - No auth.
   - Returns `{ "ok": true }`.
 
-- `GET /status`
+- `GET /api/v1/status`
   - Auth required.
   - Returns the latest KAD service status snapshot (or `503` until the service has started).
 
-- `GET /events`
+- `GET /api/v1/events`
   - Auth required.
   - SSE stream of live status updates.
   - Events are sent as:
     - `event: status`
     - `data: <json KadServiceStatus>`
 
-- `POST /kad/search_sources`
+- `POST /api/v1/kad/search_sources`
   - Auth required.
   - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
   - Enqueues a conservative Kad2 `KADEMLIA2_SEARCH_SOURCE_REQ` against a few closest known peers.
 
-- `GET /kad/sources/:file_id_hex`
+- `GET /api/v1/kad/sources/:file_id_hex`
   - Auth required.
   - Returns sources learned so far for that fileID (in-memory, not yet persisted).
 
-- `POST /kad/publish_source`
+- `POST /api/v1/kad/publish_source`
   - Auth required.
   - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
   - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_SOURCE_REQ` advertising *this node* as a source.
 
-- `POST /kad/search_keyword`
+- `POST /api/v1/kad/search_keyword`
   - Auth required.
   - Body: `{ "query": "some words" }`
   - Enqueues a conservative Kad2 `KADEMLIA2_SEARCH_KEY_REQ` for an iMule-style keyword hash.
   - Currently uses the **first extracted keyword word** (iMule behavior).
 
-- `POST /kad/publish_keyword`
+- `POST /api/v1/kad/publish_keyword`
   - Auth required.
   - Body: `{ "query": "some words", "file_id_hex": "<32 hex chars>", "filename": "...", "file_size": 123, "file_type": "Pro" }`
   - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_KEY_REQ` publishing keyword->file metadata to the DHT.
 
-- `GET /kad/keyword_results/:keyword_id_hex`
+- `GET /api/v1/kad/keyword_results/:keyword_id_hex`
   - Auth required.
   - Returns keyword hits learned so far for that keyword hash (in-memory, not yet persisted).
 
-- `GET /kad/peers`
+- `GET /api/v1/kad/peers`
   - Auth required.
   - Returns a routing table snapshot (peer IDs, liveness ages, failures, and optional agent string).
 
@@ -107,14 +111,14 @@ Example:
 
 ```bash
 TOKEN="$(cat data/api.token)"
-curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/status | jq .
-curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/events
+curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/status | jq .
+curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/events
 
 # File/source actions (hex is 16 bytes / 32 hex chars).
 curl -sS -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"file_id_hex":"00112233445566778899aabbccddeeff","file_size":0}' \
-  http://127.0.0.1:17835/kad/search_sources
+  http://127.0.0.1:17835/api/v1/kad/search_sources
 ```
 
 For a maintained collection of `curl` commands, see `docs/api_curl.md`.
