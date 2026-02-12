@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed a UI accessibility/usability sweep across all `ui/*.html` pages.
+  - Added keyboard skip-link and focus target (`#main-content`) on all pages.
+  - Added semantic navigation landmarks and `aria-current` for active routes.
+  - Added live regions for runtime error/notice messages (`role="alert"` / `role="status"`).
+  - Added table captions and explicit `scope` attributes on table headers.
+  - Added chart canvas ARIA labels and log-region semantics for event stream output.
+  - Added shared `.skip-link` and `.sr-only` styles in `ui/assets/css/base.css`.
+- Decisions: Keep accessibility improvements HTML/CSS-only for now (no controller-side behavior changes), and preserve current visual layout.
+- Next steps: Run browser-based automated audit (axe/Lighthouse) and address measurable contrast/focus-order findings.
+- Change log: UI shell and data views now have stronger baseline WCAG support for keyboard navigation, screen-reader semantics, and dynamic status announcements.
+
 - Status: Completed UI/API follow-up items 1 and 2 on `feature/ui-bootstrap`:
   - Added shared session status/check/logout widget in sidebar shell on all UI pages, backed by a reusable Alpine mixin.
   - Added periodic backend session cleanup task (`SESSION_SWEEP_INTERVAL=5m`) in addition to lazy cleanup on create/validate.

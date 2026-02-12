@@ -46,8 +46,9 @@
     <script type="module" src="/ui/assets/js/app.js"></script>
   </head>
   <body x-data="indexApp()" x-init="init()">
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <section class="container shell">
-      <aside class="card sidebar">
+      <aside class="card sidebar" aria-label="Sidebar">
         <h2>rust-mule</h2>
         <p>Search dashboard shell</p>
         <div class="flex gap-2 flex-wrap mt-3">
@@ -69,14 +70,16 @@
           </button>
         </div>
 
-        <h3 class="mt-4">Navigation</h3>
-        <ul class="nav-list mt-3">
-          <li><a href="/ui">Overview</a></li>
+        <h3 class="mt-4" id="primary-navigation-title">Navigation</h3>
+        <nav aria-labelledby="primary-navigation-title">
+          <ul class="nav-list mt-3">
+            <li><a href="/ui" aria-current="page">Overview</a></li>
           <li><a href="/ui/search">Searches</a></li>
           <li><a href="/ui/node_stats">Nodes / Routing</a></li>
           <li><a href="/ui/log">Logs</a></li>
           <li><a href="/ui/settings">Settings</a></li>
-        </ul>
+          </ul>
+        </nav>
 
         <h3 class="mt-4">Search Threads</h3>
         <ul class="search-list mt-3">
@@ -118,7 +121,7 @@
         </div>
       </aside>
 
-      <main class="main-scroll grid gap-4">
+      <main id="main-content" class="main-scroll grid gap-4" tabindex="-1">
         <div class="card">
           <div class="flex gap-3 flex-wrap">
             <h1>Search Overview: <span x-text="activeThreadTitle"></span></h1>
@@ -135,7 +138,7 @@
               class="badge"
               x-text="token ? 'token: ready' : 'token: missing'"
             ></span>
-            <button class="btn ml-auto" @click="refreshStatus()">
+            <button class="btn ml-auto" type="button" @click="refreshStatus()">
               Refresh
             </button>
             <button class="btn" type="button" @click="stopActiveSearch()">
@@ -152,8 +155,20 @@
               Delete
             </button>
           </div>
-          <p class="mt-3" x-show="error" x-text="error"></p>
-          <p class="mt-3" x-show="notice" x-text="notice"></p>
+          <p
+            class="mt-3"
+            x-show="error"
+            x-text="error"
+            role="alert"
+            aria-live="assertive"
+          ></p>
+          <p
+            class="mt-3"
+            x-show="notice"
+            x-text="notice"
+            role="status"
+            aria-live="polite"
+          ></p>
         </div>
 
         <div class="grid grid-3" x-show="status">
@@ -185,12 +200,15 @@
         <div class="card">
           <h2>Results</h2>
           <table class="table mt-3">
+            <caption class="sr-only">
+              Search results overview table
+            </caption>
             <thead>
               <tr>
-                <th>File</th>
-                <th>Size</th>
-                <th>Sources</th>
-                <th>Confidence</th>
+                <th scope="col">File</th>
+                <th scope="col">Size</th>
+                <th scope="col">Sources</th>
+                <th scope="col">Confidence</th>
               </tr>
             </thead>
             <tbody>
