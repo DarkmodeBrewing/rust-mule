@@ -1,9 +1,12 @@
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, Path, Query, State},
+    extract::{ConnectInfo, OriginalUri, Path, Query, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode},
     middleware,
-    response::sse::{Event, Sse},
+    response::{
+        Redirect,
+        sse::{Event, Sse},
+    },
     routing::{get, post},
 };
 use futures_util::Stream;
@@ -99,6 +102,7 @@ pub async fn serve(
         .route("/ui/", get(ui_index))
         .route("/ui/:page", get(ui_page))
         .route("/ui/assets/*path", get(ui_asset))
+        .fallback(get(ui_fallback))
         .nest("/api/v1", v1)
         .with_state(state.clone())
         .layer(middleware::from_fn(cors_mw))
@@ -803,10 +807,7 @@ fn is_loopback_addr(addr: &SocketAddr) -> bool {
 }
 
 fn is_auth_exempt_path(path: &str) -> bool {
-    matches!(
-        path,
-        "/api/v1/health" | "/api/v1/dev/auth" | "/" | "/ui" | "/ui/"
-    ) || path.starts_with("/ui/")
+    !path.starts_with("/api/") || matches!(path, "/api/v1/health" | "/api/v1/dev/auth")
 }
 
 fn query_token(uri: &axum::http::Uri) -> Option<&str> {
@@ -913,6 +914,13 @@ async fn ui_asset(Path(path): Path<String>) -> Result<axum::response::Response, 
     serve_embedded_ui_file(&format!("assets/{path}"))
 }
 
+async fn ui_fallback(OriginalUri(uri): OriginalUri) -> Result<Redirect, StatusCode> {
+    if let Some(location) = spa_fallback_location(&uri) {
+        return Ok(Redirect::to(location));
+    }
+    Err(StatusCode::NOT_FOUND)
+}
+
 fn is_safe_ui_segment(name: &str) -> bool {
     !name.contains('/') && !name.contains('\\') && !name.contains("..")
 }
@@ -922,6 +930,14 @@ fn is_safe_ui_path(path: &str) -> bool {
         return false;
     }
     path.split('/').all(|c| !c.is_empty() && c != ".")
+}
+
+fn spa_fallback_location(uri: &axum::http::Uri) -> Option<&'static str> {
+    let path = uri.path();
+    if path.starts_with("/api/") || path.starts_with("/ui/assets/") {
+        return None;
+    }
+    Some("/")
 }
 
 async fn serve_ui_file(name: &str) -> Result<axum::response::Response, StatusCode> {
@@ -989,6 +1005,7 @@ mod tests {
         assert!(is_auth_exempt_path("/"));
         assert!(is_auth_exempt_path("/ui"));
         assert!(is_auth_exempt_path("/ui/assets/js/app.js"));
+        assert!(is_auth_exempt_path("/nonexisting.php"));
         assert!(!is_auth_exempt_path("/api/v1/status"));
     }
 
@@ -1005,6 +1022,20 @@ mod tests {
         assert!(!is_safe_ui_path("css\\base.css"));
         assert!(is_safe_ui_segment("index.html"));
         assert!(!is_safe_ui_segment("../index.html"));
+    }
+
+    #[test]
+    fn spa_fallback_redirects_unknown_non_api_paths_to_root() {
+        let uri: axum::http::Uri = "/nonexisting.php?queryParams=whatever".parse().unwrap();
+        assert_eq!(spa_fallback_location(&uri), Some("/"));
+    }
+
+    #[test]
+    fn spa_fallback_does_not_capture_api_or_asset_paths() {
+        let api_uri: axum::http::Uri = "/api/v1/does-not-exist".parse().unwrap();
+        let asset_uri: axum::http::Uri = "/ui/assets/js/missing.js".parse().unwrap();
+        assert_eq!(spa_fallback_location(&api_uri), None);
+        assert_eq!(spa_fallback_location(&asset_uri), None);
     }
 
     #[test]

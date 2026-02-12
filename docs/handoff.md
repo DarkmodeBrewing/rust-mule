@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Added SPA fallback behavior for unknown browser routes:
+  - Added router fallback handler in `src/api/mod.rs` that redirects unknown non-API/non-asset paths to `/` (serving embedded `index.html`).
+  - Redirect target is always `/`, so arbitrary query parameters on unknown paths are dropped.
+  - Kept `/api/*` and `/ui/assets/*` as real 404 paths when missing (no SPA redirect for API/static asset misses).
+  - Updated auth exemption to allow non-API paths through auth middleware so fallback can run before auth checks.
+  - Added tests:
+    - `spa_fallback_redirects_unknown_non_api_paths_to_root`
+    - `spa_fallback_does_not_capture_api_or_asset_paths`
+    - Extended auth-exempt path coverage for unknown non-API paths.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Unknown non-API routes now canonicalize to `/` (index) with query params stripped, while API and missing asset paths remain 404.
 - Embedded UI into binary using `include_dir`:
   - Added `include_dir` dependency.
   - Added static `UI_DIR` bundle for `$CARGO_MANIFEST_DIR/ui`.
@@ -202,6 +213,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Route-fallback policy: treat unknown non-API, non-asset browser paths as SPA entry points and redirect to `/`; keep unknown `/api/*` and `/ui/assets/*` as 404.
 - Serve UI from binary-embedded assets (`include_dir`) instead of runtime disk reads to guarantee deploy-time asset completeness.
 - Alpine template bindings should be declarative and side-effect free; compute display-only classes/labels in controller state/getters before render.
 - Theme ownership rule: all color values live in `color-*` theme files; shared CSS (`base.css`, `layout.css`) references theme vars only.
@@ -249,6 +261,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Add an integration test against the full Axum router asserting `GET /nonexisting.php?x=1` returns redirect `Location: /`.
 - Consider adding a `/api/v1/ui/manifest` debug endpoint exposing embedded UI file names/checksums for operational verification.
 - Add a lightweight UI smoke test pass (load each `/ui/*` page and assert Alpine init has no console/runtime errors) to guard future binding regressions.
 - Add integration tests for API auth/CORS behavior (preflight + protected endpoint access patterns).
