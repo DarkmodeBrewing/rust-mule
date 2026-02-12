@@ -8,6 +8,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Canonicalized root UI route to explicit index path:
+  - `GET /` now redirects to `/index.html`.
+  - Added explicit `GET /index.html` route serving embedded `index.html`.
+  - Updated SPA fallback redirect target from `/` to `/index.html` for unknown non-API/non-asset routes.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Root URL now canonical redirects to `/index.html`; fallback redirects align to same canonical entry.
 - Added explicit UI startup message on boot in `src/app.rs`:
   - Logs `rust-mule UI available at: http://localhost:<port>` right before API server task spawn.
   - Uses configured `api.port` so users get a direct URL immediately during startup.
@@ -218,6 +224,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- UI entrypoint canonical URL is `/index.html`; `/` is a redirect alias.
 - Operator UX: always log a copy-pasteable localhost UI URL at startup.
 - Route-fallback policy: treat unknown non-API, non-asset browser paths as SPA entry points and redirect to `/`; keep unknown `/api/*` and `/ui/assets/*` as 404.
 - Serve UI from binary-embedded assets (`include_dir`) instead of runtime disk reads to guarantee deploy-time asset completeness.

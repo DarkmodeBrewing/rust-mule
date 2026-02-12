@@ -97,7 +97,8 @@ pub async fn serve(
         .route("/kad/publish_keyword", post(kad_publish_keyword));
 
     let app = Router::new()
-        .route("/", get(ui_index))
+        .route("/", get(root_index_redirect))
+        .route("/index.html", get(ui_index))
         .route("/ui", get(ui_index))
         .route("/ui/", get(ui_index))
         .route("/ui/:page", get(ui_page))
@@ -891,6 +892,10 @@ async fn ui_index() -> Result<axum::response::Response, StatusCode> {
     serve_ui_file("index.html").await
 }
 
+async fn root_index_redirect() -> Redirect {
+    Redirect::to("/index.html")
+}
+
 async fn ui_page(Path(page): Path<String>) -> Result<axum::response::Response, StatusCode> {
     if page.is_empty() {
         return Err(StatusCode::NOT_FOUND);
@@ -937,7 +942,7 @@ fn spa_fallback_location(uri: &axum::http::Uri) -> Option<&'static str> {
     if path.starts_with("/api/") || path.starts_with("/ui/assets/") {
         return None;
     }
-    Some("/")
+    Some("/index.html")
 }
 
 async fn serve_ui_file(name: &str) -> Result<axum::response::Response, StatusCode> {
@@ -1027,7 +1032,7 @@ mod tests {
     #[test]
     fn spa_fallback_redirects_unknown_non_api_paths_to_root() {
         let uri: axum::http::Uri = "/nonexisting.php?queryParams=whatever".parse().unwrap();
-        assert_eq!(spa_fallback_location(&uri), Some("/"));
+        assert_eq!(spa_fallback_location(&uri), Some("/index.html"));
     }
 
     #[test]
