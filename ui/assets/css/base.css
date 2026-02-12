@@ -38,12 +38,12 @@ a:hover {
   background:
     radial-gradient(
       1200px 400px at 20% 0%,
-      rgba(224, 90, 42, 0.12),
+      var(--card-glow-accent),
       transparent 60%
     ),
     radial-gradient(
       900px 300px at 80% 0%,
-      rgba(51, 195, 255, 0.1),
+      var(--card-glow-signal),
       transparent 55%
     ),
     var(--panel);
@@ -73,7 +73,7 @@ a:hover {
   padding: 6px 10px;
   border-radius: 999px;
   border: var(--line) solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--badge-bg);
   color: var(--fg-2);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -87,13 +87,13 @@ a:hover {
   padding: 10px 14px;
   border-radius: var(--radius-sm);
   border: var(--line) solid var(--border);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--btn-bg);
   color: var(--fg);
   cursor: pointer;
 }
 
 .btn:hover {
-  border-color: rgba(51, 195, 255, 0.35);
+  border-color: var(--btn-hover-border);
 }
 
 .btn:focus {
@@ -102,13 +102,13 @@ a:hover {
 }
 
 .btn-primary {
-  background: rgba(224, 90, 42, 0.12);
-  border-color: rgba(224, 90, 42, 0.35);
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-border);
 }
 
 .btn-danger {
-  background: rgba(255, 77, 109, 0.1);
-  border-color: rgba(255, 77, 109, 0.35);
+  background: var(--btn-danger-bg);
+  border-color: var(--btn-danger-border);
 }
 
 .table {
@@ -129,11 +129,11 @@ a:hover {
 .table th {
   text-align: left;
   color: var(--fg);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--table-head-bg);
 }
 
 .table tr:hover td {
-  background: rgba(51, 195, 255, 0.04);
+  background: var(--table-row-hover-bg);
 }
 
 .kpi {

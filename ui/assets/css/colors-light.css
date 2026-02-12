@@ -1,8 +1,12 @@
 html[data-theme="light"] {
   --bg: #f6f7fb;
+  --bg-2: #eef2f9;
   --panel: #ffffff;
+  --panel-2: #f7f9fd;
   --border: #d9deea;
+
   --fg: #111827;
+  --fg-2: #374151;
   --muted: #55637a;
 
   --accent: #c2441e;
@@ -10,4 +14,25 @@ html[data-theme="light"] {
   --ok: #1f9d55;
   --warn: #b7791f;
   --danger: #c81e3a;
+
+  --state-running: #0f766e;
+  --state-idle: #a16207;
+  --state-done: #166534;
+
+  --card-glow-accent: rgba(194, 68, 30, 0.08);
+  --card-glow-signal: rgba(0, 111, 191, 0.08);
+
+  --badge-bg: rgba(17, 24, 39, 0.04);
+  --btn-bg: rgba(17, 24, 39, 0.05);
+  --btn-hover-border: rgba(0, 111, 191, 0.35);
+  --btn-primary-bg: rgba(194, 68, 30, 0.12);
+  --btn-primary-border: rgba(194, 68, 30, 0.35);
+  --btn-danger-bg: rgba(200, 30, 58, 0.1);
+  --btn-danger-border: rgba(200, 30, 58, 0.35);
+
+  --table-head-bg: rgba(17, 24, 39, 0.04);
+  --table-row-hover-bg: rgba(0, 111, 191, 0.08);
+
+  --shadow: 0 8px 24px rgba(17, 24, 39, 0.08);
+  --focus: 0 0 0 2px rgba(0, 111, 191, 0.25);
 }

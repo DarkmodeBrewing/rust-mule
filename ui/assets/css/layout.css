@@ -15,8 +15,8 @@
   --radius-sm: 0.5rem;
   --radius: 0.75rem;
 
-  /* Border */
-  --border: 1px;
+  /* Border widths */
+  --line: 1px;
 
   /* App shell layout */
   --layout-shell-sidebar-width: 20rem;
@@ -26,11 +26,6 @@
   /* List items */
   --layout-list-item-pad-y: 0.625rem;
   --layout-list-item-pad-x: 0.75rem;
-
-  /* Search state colors */
-  --state-running: #7dd3fc;
-  --state-idle: #fcd34d;
-  --state-done: #86efac;
 
   /* Form controls */
   --control-radius: var(--radius-sm);

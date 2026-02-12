@@ -1,11 +1,12 @@
-:root {
-  /* Default colors */
+html[data-theme="dark"] {
   --bg: #0b0e12;
   --bg-2: #0f141b;
   --panel: #121926;
+  --panel-2: #0e1521;
   --border: #202a3a;
 
   --fg: #e6edf6;
+  --fg-2: #c0cade;
   --muted: #7f8aa3;
 
   --accent: #e05a2a;
@@ -13,4 +14,25 @@
   --ok: #4cd37b;
   --warn: #ffcc66;
   --danger: #ff4d6d;
+
+  --state-running: #7dd3fc;
+  --state-idle: #fcd34d;
+  --state-done: #86efac;
+
+  --card-glow-accent: rgba(224, 90, 42, 0.12);
+  --card-glow-signal: rgba(51, 195, 255, 0.1);
+
+  --badge-bg: rgba(255, 255, 255, 0.02);
+  --btn-bg: rgba(255, 255, 255, 0.03);
+  --btn-hover-border: rgba(51, 195, 255, 0.35);
+  --btn-primary-bg: rgba(224, 90, 42, 0.12);
+  --btn-primary-border: rgba(224, 90, 42, 0.35);
+  --btn-danger-bg: rgba(255, 77, 109, 0.1);
+  --btn-danger-border: rgba(255, 77, 109, 0.35);
+
+  --table-head-bg: rgba(255, 255, 255, 0.02);
+  --table-row-hover-bg: rgba(51, 195, 255, 0.04);
+
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --focus: 0 0 0 2px rgba(51, 195, 255, 0.35);
 }

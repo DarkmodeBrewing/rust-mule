@@ -6,6 +6,9 @@ import {
   openStatusEventStream,
 } from './helpers.js';
 
+const THEME_KEY = 'ui_theme';
+const ALLOWED_THEMES = ['dark', 'light', 'hc'];
+
 function parseSearchIdFromQuery() {
   const params = new URLSearchParams(window.location.search);
   return (params.get('searchId') || '').trim();
@@ -65,6 +68,22 @@ function downloadJson(filename, data) {
 
 function goToSearchPage() {
   window.location.href = '/ui/search';
+}
+
+function currentTheme() {
+  const t = document.documentElement.getAttribute('data-theme') || 'dark';
+  return ALLOWED_THEMES.includes(t) ? t : 'dark';
+}
+
+function applyThemeValue(theme) {
+  const next = ALLOWED_THEMES.includes(theme) ? theme : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  try {
+    localStorage.setItem(THEME_KEY, next);
+  } catch (_err) {
+    // best-effort local preference persistence
+  }
+  return next;
 }
 
 window.indexApp = function indexApp() {
@@ -588,6 +607,7 @@ window.appSettings = function appSettings() {
     error: '',
     searchThreads: [],
     status: null,
+    theme: currentTheme(),
 
     threadStateClass(state) {
       return stateClass(state);
@@ -604,6 +624,7 @@ window.appSettings = function appSettings() {
       this.loading = true;
       this.error = '';
       try {
+        this.theme = currentTheme();
         await bootstrapToken();
         await this.refreshThreads();
         this.status = await apiGet('/status');
@@ -616,6 +637,10 @@ window.appSettings = function appSettings() {
 
     async refreshThreads() {
       await loadSearchThreads(this);
+    },
+
+    applyTheme() {
+      this.theme = applyThemeValue(this.theme);
     },
   };
 };

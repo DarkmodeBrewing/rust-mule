@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Performed CSS theme sanity refactor under `ui/assets/css`:
+  - Moved all color literals used by shared UI components into theme files only:
+    - `ui/assets/css/color-dark.css`
+    - `ui/assets/css/colors-light.css`
+    - `ui/assets/css/color-hc.css`
+  - `ui/assets/css/base.css` and `ui/assets/css/layout.css` now consume color variables only (no direct color values).
+  - Fixed dark theme scoping to `html[data-theme=\"dark\"]` (instead of global `:root`) so light/hc themes apply correctly.
+- Added persisted theme bootstrapping:
+  - New early loader `ui/assets/js/theme-init.js` applies `localStorage.ui_theme` before CSS paint.
+  - Included `theme-init.js` in all UI HTML pages.
+- Implemented Settings theme selector:
+  - Added theme control in `ui/settings.html` for `dark|light|hc`.
+  - `appSettings()` now applies selected theme to `<html data-theme=\"...\">` and persists to `localStorage`.
+- Ran Prettier (`ui/assets/js/app.js`) and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after theme implementation (`cargo test` passed; existing clippy warnings unchanged).
 - Performed API sanity audit against current UI helpers/controllers:
   - Confirmed all active Alpine controller API calls are backed by `/api/v1` endpoints.
   - Confirmed stop/delete UI controls now use real API handlers (`/searches/:id/stop`, `DELETE /searches/:id`).
@@ -173,6 +187,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Theme ownership rule: all color values live in `color-*` theme files; shared CSS (`base.css`, `layout.css`) references theme vars only.
+- Theme selection persistence uses `localStorage` key `ui_theme` and is applied via `<html data-theme=\"dark|light|hc\">`.
 - Treat `docs/architecture.md` + `docs/api_curl.md` as the implementation-aligned API references for current `/api/v1`; `docs/API_DESIGN.md` remains broader future-state design.
 - Search stop/delete are now first-class `/api/v1` controls instead of UI-local placeholders.
 - `DELETE /api/v1/searches/:search_id` defaults to purging cached keyword results for that search (`purge_results=true`) to keep UI state consistent after delete.
@@ -224,6 +240,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Consider making node-state thresholds (`active/live` age windows) configurable in UI settings or API response metadata.
 - Add richer log event typing/filtering once non-status event types are exposed from the API.
 - Decide which `docs/API_DESIGN.md` endpoints should be promoted into the near-term implementation backlog vs kept as long-term design.
+- Consider renaming `ui/assets/css/colors-light.css` to `ui/assets/css/color-light.css` for file-name symmetry (non-functional cleanup).
 - Decide whether to keep dev auth as an explicit development-only endpoint or move to stronger local auth flow before release.
 - Add UI-focused integration coverage (static UI route serving + SSE auth query behavior end-to-end).
 - Consider adding a debug toggle to disable local injection during tests.
@@ -247,6 +264,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: CSS/theme pass: consolidate shared UI colors into `color-dark.css`/`colors-light.css`/`color-hc.css`, remove direct colors from `base.css`/`layout.css`, add early `theme-init.js`, and implement settings theme selector persisted via `localStorage` + `html[data-theme]`; run Prettier + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: API sanity check-run completed; add endpoint-level API tests for `/api/v1/searches/:search_id/stop` and `DELETE /api/v1/searches/:search_id` dispatch behavior (`src/api/mod.rs`); run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Implement missing `/api/v1` backing for UI search controls: add stop/delete search endpoints + service commands/logic + tests; wire UI stop/delete to API and add `apiDelete()` helper; update API docs; run Prettier + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Implement UI consistency fixes 1..4: add `ui/settings.html` + `appSettings()`, wire settings/new-search/actions, and make overview header/state thread-driven; run Prettier (`ui/assets/js/app.js`) + fmt/clippy/test (tests pass; existing clippy warnings unchanged).
