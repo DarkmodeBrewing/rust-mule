@@ -7,8 +7,9 @@ use axum::{
     routing::{get, post},
 };
 use futures_util::Stream;
+use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
-use std::{convert::Infallible, net::SocketAddr, path::PathBuf};
+use std::{convert::Infallible, net::SocketAddr};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -24,6 +25,8 @@ use crate::{
 };
 
 pub mod token;
+
+static UI_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/ui");
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -907,8 +910,7 @@ async fn ui_asset(Path(path): Path<String>) -> Result<axum::response::Response, 
     if !is_safe_ui_path(&path) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    let full = PathBuf::from("ui").join("assets").join(path);
-    serve_file(full).await
+    serve_embedded_ui_file(&format!("assets/{path}"))
 }
 
 fn is_safe_ui_segment(name: &str) -> bool {
@@ -923,20 +925,16 @@ fn is_safe_ui_path(path: &str) -> bool {
 }
 
 async fn serve_ui_file(name: &str) -> Result<axum::response::Response, StatusCode> {
-    let full = PathBuf::from("ui").join(name);
-    serve_file(full).await
+    serve_embedded_ui_file(name)
 }
 
-async fn serve_file(path: PathBuf) -> Result<axum::response::Response, StatusCode> {
-    let bytes = tokio::fs::read(&path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-
-    let content_type = content_type_for_path(&path);
+fn serve_embedded_ui_file(rel_path: &str) -> Result<axum::response::Response, StatusCode> {
+    let file = UI_DIR.get_file(rel_path).ok_or(StatusCode::NOT_FOUND)?;
+    let content_type = content_type_for_path(std::path::Path::new(rel_path));
     let resp = axum::response::Response::builder()
         .status(StatusCode::OK)
         .header(axum::http::header::CONTENT_TYPE, content_type)
-        .body(axum::body::Body::from(bytes))
+        .body(axum::body::Body::from(file.contents().to_vec()))
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     Ok(resp)
@@ -1046,6 +1044,36 @@ mod tests {
 
         assert!(methods.contains("PUT"));
         assert!(methods.contains("PATCH"));
+    }
+
+    #[test]
+    fn embeds_required_ui_files() {
+        let required = [
+            "index.html",
+            "search.html",
+            "search_details.html",
+            "node_stats.html",
+            "log.html",
+            "settings.html",
+            "assets/css/base.css",
+            "assets/css/layout.css",
+            "assets/css/typography.css",
+            "assets/css/color-dark.css",
+            "assets/css/colors-light.css",
+            "assets/css/color-hc.css",
+            "assets/js/alpine.min.js",
+            "assets/js/app.js",
+            "assets/js/chart.min.js",
+            "assets/js/helpers.js",
+            "assets/js/theme-init.js",
+        ];
+
+        for path in required {
+            assert!(
+                UI_DIR.get_file(path).is_some(),
+                "missing embedded ui file: {path}",
+            );
+        }
     }
 
     #[tokio::test]

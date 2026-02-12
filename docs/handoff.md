@@ -8,6 +8,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Embedded UI into binary using `include_dir`:
+  - Added `include_dir` dependency.
+  - Added static `UI_DIR` bundle for `$CARGO_MANIFEST_DIR/ui`.
+  - Switched UI page/asset serving in `src/api/mod.rs` from filesystem reads (`tokio::fs::read`) to embedded lookups.
+  - Kept existing UI path safety guards (`is_safe_ui_segment`, `is_safe_ui_path`).
+  - Added API unit test `embeds_required_ui_files` validating required `/ui/*.html`, `/ui/assets/css/*.css`, and `/ui/assets/js/*.js` are included in the embedded bundle.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: UI static assets/pages are now binary-embedded and served without runtime filesystem dependency.
 - Alpine binding best-practice sanity pass completed:
   - Normalized `searchThreads` in `ui/assets/js/app.js` to include precomputed `state_class`.
   - Normalized node rows in `appNodeStats` to include precomputed `ui_state`, `ui_state_class`, and `inbound_label`.
@@ -194,6 +202,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Serve UI from binary-embedded assets (`include_dir`) instead of runtime disk reads to guarantee deploy-time asset completeness.
 - Alpine template bindings should be declarative and side-effect free; compute display-only classes/labels in controller state/getters before render.
 - Theme ownership rule: all color values live in `color-*` theme files; shared CSS (`base.css`, `layout.css`) references theme vars only.
 - Theme selection persistence uses `localStorage` key `ui_theme` and is applied via `<html data-theme=\"dark|light|hc\">`.
@@ -240,6 +249,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Consider adding a `/api/v1/ui/manifest` debug endpoint exposing embedded UI file names/checksums for operational verification.
 - Add a lightweight UI smoke test pass (load each `/ui/*` page and assert Alpine init has no console/runtime errors) to guard future binding regressions.
 - Add integration tests for API auth/CORS behavior (preflight + protected endpoint access patterns).
 - Expand UI beyond status/search placeholder views (routing table, peers, and publish/search workflow surfaces).
