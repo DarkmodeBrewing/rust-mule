@@ -32,7 +32,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         std::path::Path::new(&config.general.data_dir).join(&config.kad.preferences_kad_path);
     let kad_prefs = crate::kad::load_or_create_preferences_kad(&prefs_path).await?;
     tracing::info!(
-        kad_id = %kad_prefs.kad_id.to_hex_lower(),
+        kad_id = %crate::logging::redact_hex(&kad_prefs.kad_id.to_hex_lower()),
         prefs = %prefs_path.display(),
         "Loaded Kademlia identity"
     );
@@ -58,12 +58,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     tracing::info!("Loading SAM keys");
 
-    tracing::info!("Testing i2p + SAM connectivity");
+    tracing::info!("testing i2p + SAM connectivity");
     let mut sam: SamClient = SamClient::connect(&config.sam.host, config.sam.port)
         .await?
         .with_timeout(Duration::from_secs(config.sam.control_timeout_secs));
     let reply = sam.hello("3.0", "3.3").await?;
-    tracing::info!("(RAW) SAM Replies: {}", reply.raw);
+    tracing::debug!(reply = %reply.raw, "SAM HELLO reply");
 
     // Load SAM destination keys.
     //

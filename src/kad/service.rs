@@ -2887,6 +2887,30 @@ fn publish_status(
         pending = st.pending,
         sent_reqs = st.sent_reqs,
         recv_ress = st.recv_ress,
+        timeouts = st.timeouts,
+        new_nodes = st.new_nodes,
+        evicted = st.evicted,
+        search_results = st.search_results,
+        keyword_results = st.keyword_results,
+        keyword_keywords_tracked = st.keyword_keywords_tracked,
+        keyword_hits_total = st.keyword_hits_total,
+        store_keyword_keywords = st.store_keyword_keywords,
+        store_keyword_hits_total = st.store_keyword_hits_total,
+        verified_pct,
+        buckets_empty = summary.buckets_empty,
+        bucket_fill_min = summary.bucket_fill_min,
+        bucket_fill_median = summary.bucket_fill_median,
+        bucket_fill_max = summary.bucket_fill_max,
+        "kad service status"
+    );
+    tracing::debug!(
+        uptime_secs = st.uptime_secs,
+        routing = st.routing,
+        live = st.live,
+        live_10m = st.live_10m,
+        pending = st.pending,
+        sent_reqs = st.sent_reqs,
+        recv_ress = st.recv_ress,
         res_contacts = st.res_contacts,
         dropped_undecipherable = st.dropped_undecipherable,
         dropped_unparsable = st.dropped_unparsable,
@@ -2933,9 +2957,13 @@ fn publish_status(
         bucket_fill_min = summary.bucket_fill_min,
         bucket_fill_median = summary.bucket_fill_median,
         bucket_fill_max = summary.bucket_fill_max,
-        "kad service status"
+        "kad service status detail"
     );
-    if st.routing > 0 && st.evicted as usize >= st.routing / 5 && st.evicted > 0 {
+    if st.routing > 0
+        && st.evicted as usize >= st.routing / 5
+        && st.evicted > 0
+        && crate::logging::warn_throttled("kad_contacts_decayed_fast", Duration::from_secs(300))
+    {
         tracing::warn!(
             evicted = st.evicted,
             routing = st.routing,

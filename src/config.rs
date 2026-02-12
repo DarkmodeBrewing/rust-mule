@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::{path::Path, time::Duration};
 use tracing_subscriber::EnvFilter;
 
 fn default_sam_host() -> String {
@@ -453,7 +453,21 @@ pub fn init_tracing(config: &Config) {
     // Keep runtime artifacts in `data/` and logs in a dedicated subdir.
     let log_dir = Path::new(&config.general.data_dir).join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
-    let file_appender = tracing_appender::rolling::daily(&log_dir, &config.general.log_file_name);
+    let (prefix, suffix) = split_log_file_name(&config.general.log_file_name);
+    cleanup_old_logs(
+        &log_dir,
+        &prefix,
+        &suffix,
+        Duration::from_secs(30 * 24 * 60 * 60),
+    );
+    let file_appender = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix(&prefix)
+        .filename_suffix(&suffix)
+        .build(&log_dir)
+        .unwrap_or_else(|_| {
+            tracing_appender::rolling::daily(&log_dir, &config.general.log_file_name)
+        });
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     static GUARD: std::sync::OnceLock<tracing_appender::non_blocking::WorkerGuard> =
@@ -473,4 +487,56 @@ pub fn init_tracing(config: &Config) {
         .with(stdout_layer)
         .with(file_layer)
         .init();
+}
+
+fn split_log_file_name(file_name: &str) -> (String, String) {
+    let p = Path::new(file_name);
+    let stem = p
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("rust-mule");
+    let ext = p
+        .extension()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("log");
+    (stem.to_string(), ext.to_string())
+}
+
+fn cleanup_old_logs(log_dir: &Path, prefix: &str, suffix: &str, max_age: Duration) {
+    let Ok(entries) = std::fs::read_dir(log_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+
+        let starts = name.starts_with(&format!("{prefix}."));
+        let ends = name.ends_with(&format!(".{suffix}"));
+        if !starts || !ends {
+            continue;
+        }
+
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = meta.modified() else {
+            continue;
+        };
+        let Ok(age) = std::time::SystemTime::now().duration_since(modified) else {
+            continue;
+        };
+        if age <= max_age {
+            continue;
+        }
+        if let Err(err) = std::fs::remove_file(&path) {
+            tracing::warn!(path = %path.display(), error = %err, "failed to delete old log file");
+        }
+    }
 }

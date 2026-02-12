@@ -59,6 +59,11 @@ Notes:
 - On Unix we attempt to set file permissions to `0600` best-effort; on Windows we skip this.
 - CORS is restricted to loopback origins only (`localhost`, `127.0.0.1`, and loopback IPs), with
   `Authorization` and `Content-Type` as the allowed request headers.
+- Logging policy:
+  - `INFO` is concise operator status (startup/readiness/periodic summaries).
+  - Detailed protocol and per-peer diagnostics are kept in `DEBUG`/`TRACE`.
+  - Daily file logs are rotated with `prefix.YYYY-MM-DD.suffix` naming (default: `rust-mule.YYYY-MM-DD.log`).
+  - Startup prunes matching log files older than 30 days.
 
 ### Endpoints
 

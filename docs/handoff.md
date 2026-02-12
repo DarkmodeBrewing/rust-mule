@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Completed logging hardening / INFO-vs-DEBUG pass on `feature/log-hardening`.
+  - Added shared logging utilities (`src/logging.rs`) for redaction helpers and warning throttling.
+  - Removed noisy boot marker and moved raw SAM HELLO reply logging to `DEBUG`.
+  - Redacted Kademlia identity at startup logs (`kad_id` now shortened).
+  - Rebalanced KAD periodic status logging:
+    - concise operational summary at `INFO`
+    - full status payload at `DEBUG`
+  - Added warning throttling for repetitive bootstrap send-failure warnings and recurring KAD decay warning.
+  - Updated tracing file appender setup:
+    - daily rotated naming as `prefix.YYYY-MM-DD.suffix` (default `rust-mule.YYYY-MM-DD.log`)
+    - startup cleanup of matching logs older than 30 days.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 56 tests).
+- Decisions: Keep redaction/throttling lightweight and local (no new dependencies) and preserve existing log filter controls (`general.log_level`, `general.log_file_level`).
+- Next steps: Optional follow-up is to apply redaction helpers to any remaining DEBUG-level destination/id logs where operators may share debug bundles externally.
+- Change log: Logging output is now safer and lower-noise at `INFO`, with richer diagnostics preserved at `DEBUG` and daily log retention enforced.
+
 - Status: Completed clippy+formatting improvement batch on `feature/clippy-format-pass`.
   - Addressed all active `cargo clippy --all-targets --all-features` warnings across app/KAD/utility modules.
   - Applied idiomatic fixes (`div_ceil`, iterator/enumerate loops, collapsed `if let` chains, unnecessary casts/question-marks/conversions, lock-file open options).

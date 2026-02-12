@@ -297,11 +297,22 @@ pub async fn bootstrap(
 
                 let res = KadPacket::encode(KADEMLIA_HELLO_RES_DEPRECATED, &payload);
                 if let Err(err) = sock.send_to(&recv.from_destination, &res).await {
-                    tracing::warn!(
-                        error = %err,
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        "failed sending KAD1 HELLO_RES"
-                    );
+                    if crate::logging::warn_throttled(
+                        "bootstrap_send_kad1_hello_res_failed",
+                        Duration::from_secs(30),
+                    ) {
+                        tracing::warn!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD1 HELLO_RES"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD1 HELLO_RES"
+                        );
+                    }
                 } else {
                     tracing::info!(
                         to = %crate::i2p::b64::short(&recv.from_destination),
@@ -389,11 +400,22 @@ pub async fn bootstrap(
                     res_plain
                 };
                 if let Err(err) = sock.send_to(&recv.from_destination, &res).await {
-                    tracing::warn!(
-                        error = %err,
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        "failed sending KAD2 HELLO_RES"
-                    );
+                    if crate::logging::warn_throttled(
+                        "bootstrap_send_kad2_hello_res_failed",
+                        Duration::from_secs(30),
+                    ) {
+                        tracing::warn!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 HELLO_RES"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 HELLO_RES"
+                        );
+                    }
                 } else {
                     tracing::info!(
                         to = %crate::i2p::b64::short(&recv.from_destination),
@@ -476,11 +498,22 @@ pub async fn bootstrap(
                         )?;
 
                         if let Err(err) = sock.send_to(&recv.from_destination, &ack).await {
-                            tracing::warn!(
-                                error = %err,
-                                to = %crate::i2p::b64::short(&recv.from_destination),
-                                "failed sending KAD2 HELLO_RES_ACK"
-                            );
+                            if crate::logging::warn_throttled(
+                                "bootstrap_send_kad2_hello_res_ack_failed",
+                                Duration::from_secs(30),
+                            ) {
+                                tracing::warn!(
+                                    error = %err,
+                                    to = %crate::i2p::b64::short(&recv.from_destination),
+                                    "failed sending KAD2 HELLO_RES_ACK"
+                                );
+                            } else {
+                                tracing::debug!(
+                                    error = %err,
+                                    to = %crate::i2p::b64::short(&recv.from_destination),
+                                    "failed sending KAD2 HELLO_RES_ACK"
+                                );
+                            }
                         } else {
                             hello2_ack_sent += 1;
                             tracing::info!(
@@ -546,11 +579,22 @@ pub async fn bootstrap(
                 };
 
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
-                    tracing::warn!(
-                        error = %err,
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        "failed sending KAD2 RES"
-                    );
+                    if crate::logging::warn_throttled(
+                        "bootstrap_send_kad2_res_failed",
+                        Duration::from_secs(30),
+                    ) {
+                        tracing::warn!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 RES"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 RES"
+                        );
+                    }
                 } else {
                     kad2_res_sent += 1;
                     tracing::debug!(
@@ -606,11 +650,22 @@ pub async fn bootstrap(
                 };
 
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
-                    tracing::warn!(
-                        error = %err,
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        "failed sending KAD2 PUBLISH_RES"
-                    );
+                    if crate::logging::warn_throttled(
+                        "bootstrap_send_kad2_publish_res_failed",
+                        Duration::from_secs(30),
+                    ) {
+                        tracing::warn!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 PUBLISH_RES"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 PUBLISH_RES"
+                        );
+                    }
                 } else {
                     publish_source_res_sent += 1;
                     tracing::debug!(
@@ -664,11 +719,22 @@ pub async fn bootstrap(
                 };
 
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
-                    tracing::warn!(
-                        error = %err,
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        "failed sending KAD2 SEARCH_RES"
-                    );
+                    if crate::logging::warn_throttled(
+                        "bootstrap_send_kad2_search_res_failed",
+                        Duration::from_secs(30),
+                    ) {
+                        tracing::warn!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 SEARCH_RES"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 SEARCH_RES"
+                        );
+                    }
                 } else {
                     search_res_sent += 1;
                     tracing::debug!(
@@ -708,11 +774,22 @@ pub async fn bootstrap(
                 let res_plain = KadPacket::encode(KADEMLIA_RES_DEPRECATED, &res_payload);
 
                 if let Err(err) = sock.send_to(&recv.from_destination, &res_plain).await {
-                    tracing::warn!(
-                        error = %err,
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        "failed sending KAD1 RES"
-                    );
+                    if crate::logging::warn_throttled(
+                        "bootstrap_send_kad1_res_failed",
+                        Duration::from_secs(30),
+                    ) {
+                        tracing::warn!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD1 RES"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD1 RES"
+                        );
+                    }
                 } else {
                     kad1_res_sent += 1;
                     tracing::debug!(
@@ -749,11 +826,22 @@ pub async fn bootstrap(
                 };
 
                 if let Err(err) = sock.send_to(&recv.from_destination, &out).await {
-                    tracing::warn!(
-                        error = %err,
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        "failed sending KAD2 PONG"
-                    );
+                    if crate::logging::warn_throttled(
+                        "bootstrap_send_kad2_pong_failed",
+                        Duration::from_secs(30),
+                    ) {
+                        tracing::warn!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 PONG"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error = %err,
+                            to = %crate::i2p::b64::short(&recv.from_destination),
+                            "failed sending KAD2 PONG"
+                        );
+                    }
                 } else {
                     pongs_sent += 1;
                     tracing::debug!(
