@@ -8,6 +8,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Per-user request, documentation normalization pass completed across `docs/` (typos, naming consistency, and branch references).
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after docs changes (`cargo test` passed; clippy warnings remain in existing code paths).
 - Long-haul two-instance run (25 rounds) confirmed network-origin keyword hits on both instances:
   - A received non-empty `SEARCH_RES` at 2026-02-11 19:41:41.
   - B received non-empty `SEARCH_RES` at 2026-02-11 19:50:02.
@@ -55,6 +57,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Treat `main` as the canonical branch in project docs.
 - No code changes made based on this run; treat results as network sparsity/quietness signal.
 - Keep local publish injection, but expose `origin` so tests are unambiguous.
 - Keep Rust-native architecture; optimize behavioral parity rather than line-by-line porting.
@@ -74,6 +77,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Decide the next implementation target after docs normalization (API versioning/dev-auth/API always-on were identified as open choices).
 - Consider adding a debug toggle to disable local injection during tests.
 - Consider clearing per-keyword job `sent_to_*` sets on new API commands to allow re-tries to the same peers.
 - Consider a small UI view over `/kad/peers` to spot real inbound activity quickly.
@@ -95,6 +99,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Normalize docs wording/typos and align branch references to `main` (`docs/TODO.md`, `docs/dev.md`, `docs/handoff.md`).
+- 2026-02-12: Run `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after doc normalization (tests pass; existing clippy warnings unchanged).
 - 2026-02-11: Tune two-instance selftest script with polling + peer snapshot controls; update `tmp/test_script_command.txt` to use new flags.
 - 2026-02-11: Add routing snapshot controls and end-of-run routing dumps for the two-instance selftest; update `tmp/test_script_command.txt`.
 - 2026-02-12: Long-haul run confirmed network-origin keyword hits; routing table still flat; SAM session recreated after PONG timeout on both instances.
@@ -192,7 +198,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Current State (As Of 2026-02-07)
 
-- Active branch (latest work): `feature/kad-search-publish`
+- Canonical branch: `main` (recent historical work happened on `feature/kad-search-publish`).
 - Implemented:
   - SAM v3 TCP control client with logging and redacted sensitive fields (`src/i2p/sam/`).
   - SAM `STYLE=DATAGRAM` session over TCP (iMule-style `DATAGRAM SEND` / `DATAGRAM RECEIVED`) (`src/i2p/sam/datagram_tcp.rs`).
@@ -423,7 +429,7 @@ It:
 
 ### Important Fix (2026-02-05): `KADEMLIA2_REQ` Check Field
 
-If you see the service loop sending lots of `KADEMLIA2_REQ` but reporting `recv_ress=0` in `kad service status`, the most likely culprit was a bug which was fixed on `feature/sam-protocol`:
+If you see the service loop sending lots of `KADEMLIA2_REQ` but reporting `recv_ress=0` in `kad service status`, the most likely culprit was a bug which is fixed in `main` (originally developed on `feature/sam-protocol`):
 
 - In iMule, the `KADEMLIA2_REQ` payload includes a `check` KadID field which must match the **receiver's** KadID.
 - If we incorrectly put *our* KadID in the `check` field, peers will silently ignore the request and never send `KADEMLIA2_RES`.

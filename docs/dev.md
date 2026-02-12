@@ -6,7 +6,7 @@ If you're continuing work in a new chat session, start with `docs/handoff.md`.
 
 ## Branch
 
-Active work has been happening on the feature branch `feature/sam-protocol`.
+Canonical branch is `main`.
 
 ## What Works Today
 
