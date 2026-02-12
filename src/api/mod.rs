@@ -298,6 +298,7 @@ struct SettingsGeneral {
     log_level: String,
     log_to_file: bool,
     log_file_level: String,
+    auto_open_ui: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -334,6 +335,8 @@ struct SettingsPatchGeneral {
     log_to_file: Option<bool>,
     #[serde(default)]
     log_file_level: Option<String>,
+    #[serde(default)]
+    auto_open_ui: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -371,6 +374,7 @@ impl SettingsPayload {
                 log_level: cfg.general.log_level.clone(),
                 log_to_file: cfg.general.log_to_file,
                 log_file_level: cfg.general.log_file_level.clone(),
+                auto_open_ui: cfg.general.auto_open_ui,
             },
             sam: SettingsSam {
                 host: cfg.sam.host.clone(),
@@ -420,6 +424,9 @@ fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest) {
         }
         if let Some(log_file_level) = general.log_file_level {
             cfg.general.log_file_level = log_file_level.trim().to_string();
+        }
+        if let Some(auto_open_ui) = general.auto_open_ui {
+            cfg.general.auto_open_ui = auto_open_ui;
         }
     }
 
@@ -1612,11 +1619,13 @@ mod tests {
             cfg.sam.session_name = "session-a".to_string();
             cfg.api.port = 18080;
             cfg.general.log_level = "info,rust_mule=debug".to_string();
+            cfg.general.auto_open_ui = false;
         }
 
         let resp = settings_get(State(state)).await.expect("settings_get ok");
         assert_eq!(resp.0.settings.sam.session_name, "session-a");
         assert_eq!(resp.0.settings.api.port, 18080);
+        assert!(!resp.0.settings.general.auto_open_ui);
         assert!(resp.0.restart_required);
     }
 
@@ -1636,6 +1645,7 @@ mod tests {
                     log_level: Some("info".to_string()),
                     log_to_file: Some(false),
                     log_file_level: None,
+                    auto_open_ui: Some(false),
                 }),
                 sam: Some(SettingsPatchSam {
                     host: None,
@@ -1658,6 +1668,7 @@ mod tests {
         assert_eq!(resp.0.settings.sam.session_name, "test-session");
         assert_eq!(resp.0.settings.api.port, 17836);
         assert!(!resp.0.settings.general.log_to_file);
+        assert!(!resp.0.settings.general.auto_open_ui);
         assert!(resp.0.restart_required);
     }
 
@@ -1672,6 +1683,7 @@ mod tests {
                     log_level: Some("not-a-filter=[".to_string()),
                     log_to_file: None,
                     log_file_level: None,
+                    auto_open_ui: None,
                 }),
                 sam: None,
                 api: None,

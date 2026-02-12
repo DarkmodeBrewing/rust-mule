@@ -242,14 +242,25 @@
             </div>
             <div class="field">
               <label for="log-to-file">Log To File</label>
-            <select
-              id="log-to-file"
-              class="input"
-              x-model.boolean="form.logToFile"
-            >
-              <option :value="true">Enabled</option>
-              <option :value="false">Disabled</option>
-            </select>
+              <select
+                id="log-to-file"
+                class="input"
+                x-model.boolean="form.logToFile"
+              >
+                <option :value="true">Enabled</option>
+                <option :value="false">Disabled</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="auto-open-ui">Auto Open UI In Browser On Boot</label>
+              <select
+                id="auto-open-ui"
+                class="input"
+                x-model.boolean="form.autoOpenUi"
+              >
+                <option :value="true">Enabled</option>
+                <option :value="false">Disabled (Headless)</option>
+              </select>
             </div>
             <div class="flex gap-3 flex-wrap">
               <button

@@ -39,6 +39,7 @@ preferences_kad_path = "preferencesKad.dat"
 [general]
 log_level = "info"
 data_dir = "data"
+auto_open_ui = true
 
 [api]
 # Local HTTP API control plane (REST + SSE), always enabled.

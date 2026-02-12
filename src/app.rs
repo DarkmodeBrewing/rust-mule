@@ -9,8 +9,9 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
 };
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, mpsc, watch};
-use tokio::time::Duration;
+use tokio::time::{Duration, Instant};
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
     tracing::info!(
@@ -138,10 +139,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let (stx, etx) = crate::api::new_channels();
     let srx = stx.subscribe();
     let api_cfg = config.api.clone();
-    tracing::info!(
-        "rust-mule UI available at: http://localhost:{}",
-        api_cfg.port
-    );
+    let api_port = api_cfg.port;
+    tracing::info!("rust-mule UI available at: http://localhost:{}", api_port);
     let etx_for_server = etx.clone();
     let cmd_tx_for_server = kad_cmd_tx.clone();
     let api_runtime_config = config.clone();
@@ -161,6 +160,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             tracing::error!(error = %err, "api server stopped");
         }
     });
+    maybe_auto_open_ui(config.general.auto_open_ui, api_port, token_path.clone());
 
     let status_tx: Option<watch::Sender<Option<crate::kad::service::KadServiceStatus>>> = Some(stx);
     let status_events_tx: Option<broadcast::Sender<crate::kad::service::KadServiceStatus>> =
@@ -414,6 +414,98 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     }
 
     tracing::info!("shutting down gracefully");
+    Ok(())
+}
+
+fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {
+    if !enabled {
+        tracing::info!("UI auto-open disabled by config (general.auto_open_ui=false)");
+        return;
+    }
+
+    tokio::spawn(async move {
+        let url = format!("http://localhost:{port}/index.html");
+        let ready = wait_for_ui_bootstrap(port, &token_path, Duration::from_secs(30)).await;
+        if !ready {
+            tracing::warn!(
+                port,
+                path = %token_path.display(),
+                "UI auto-open skipped: API/UI/token did not become ready before timeout"
+            );
+            return;
+        }
+        if let Err(err) = open_url_in_default_browser(&url).await {
+            tracing::warn!(url = %url, error = %err, "failed to auto-open UI in browser");
+            return;
+        }
+        tracing::info!(url = %url, "opened UI in default browser");
+    });
+}
+
+async fn wait_for_ui_bootstrap(port: u16, token_path: &Path, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if !token_path.exists() {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            continue;
+        }
+
+        let api_ok = http_get_status(port, "/api/v1/health")
+            .await
+            .is_some_and(|s| s == 200);
+        let ui_ok = http_get_status(port, "/index.html")
+            .await
+            .is_some_and(|s| s == 200);
+        if api_ok && ui_ok {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    false
+}
+
+async fn http_get_status(port: u16, path: &str) -> Option<u16> {
+    let mut stream = tokio::net::TcpStream::connect((Ipv4Addr::LOCALHOST, port))
+        .await
+        .ok()?;
+    let req = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+    stream.write_all(req.as_bytes()).await.ok()?;
+
+    let mut buf = [0u8; 256];
+    let n = tokio::time::timeout(Duration::from_secs(2), stream.read(&mut buf))
+        .await
+        .ok()?
+        .ok()?;
+    let line_end = buf[..n].iter().position(|b| *b == b'\n')?;
+    let line = std::str::from_utf8(&buf[..line_end]).ok()?.trim();
+    let mut parts = line.split_whitespace();
+    let _http = parts.next()?;
+    parts.next()?.parse::<u16>().ok()
+}
+
+async fn open_url_in_default_browser(url: &str) -> anyhow::Result<()> {
+    #[cfg(target_os = "windows")]
+    let status = tokio::process::Command::new("cmd")
+        .arg("/C")
+        .arg("start")
+        .arg("")
+        .arg(url)
+        .status()
+        .await?;
+
+    #[cfg(target_os = "macos")]
+    let status = tokio::process::Command::new("open")
+        .arg(url)
+        .status()
+        .await?;
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let status = tokio::process::Command::new("xdg-open")
+        .arg(url)
+        .status()
+        .await?;
+
+    anyhow::ensure!(status.success(), "browser open command failed");
     Ok(())
 }
 

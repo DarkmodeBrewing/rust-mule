@@ -1009,6 +1009,7 @@ window.appSettings = function appSettings() {
       logLevel: '',
       logToFile: true,
       logFileLevel: '',
+      autoOpenUi: true,
     },
 
     get prettyStatus() {
@@ -1061,6 +1062,7 @@ window.appSettings = function appSettings() {
       this.form.logToFile = Boolean(this.settings?.general?.log_to_file);
       this.form.logFileLevel =
         this.settings?.general?.log_file_level || 'debug';
+      this.form.autoOpenUi = this.settings?.general?.auto_open_ui !== false;
     },
 
     async saveSettings() {
@@ -1073,6 +1075,7 @@ window.appSettings = function appSettings() {
             log_level: this.form.logLevel,
             log_to_file: this.form.logToFile,
             log_file_level: this.form.logFileLevel,
+            auto_open_ui: this.form.autoOpenUi,
           },
           sam: {
             host: this.form.samHost,

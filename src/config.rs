@@ -45,6 +45,9 @@ fn default_log_file_name() -> String {
 fn default_log_file_level() -> String {
     "debug".to_string()
 }
+fn default_auto_open_ui() -> bool {
+    true
+}
 fn default_api_host() -> String {
     "127.0.0.1".to_string()
 }
@@ -294,6 +297,7 @@ pub struct GeneralConfig {
     pub log_to_file: bool,
     pub log_file_name: String,
     pub log_file_level: String,
+    pub auto_open_ui: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -389,6 +393,7 @@ impl Default for GeneralConfig {
             log_to_file: default_log_to_file(),
             log_file_name: default_log_file_name(),
             log_file_level: default_log_file_level(),
+            auto_open_ui: default_auto_open_ui(),
         }
     }
 }

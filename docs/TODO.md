@@ -58,9 +58,9 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 - [x] Create start/overview page
 - [/] Create statistics page, use chart.js to draw statistical charts where needed (charts + controls implemented on `node_stats`; dedicated statistics page still open)
 - [x] Create the search form, leveraging Alpine.js
-- [ ] UI should be auto started in the current platforms default browser
-- [ ] Settings toggle to prevent auto open of UI should exist, to be able to run headless
-- [ ] Auto open must wait for the bootstrap of API and HTTP services, and the `/data/api.token` must exist
+- [x] UI should be auto started in the current platforms default browser
+- [x] Settings toggle to prevent auto open of UI should exist, to be able to run headless
+- [x] Auto open must wait for the bootstrap of API and HTTP services, and the `/data/api.token` must exist
 
 ## General
 

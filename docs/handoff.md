@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Implemented UI auto-open and headless toggle flow (initial UI milestone #1):
+  - Added `general.auto_open_ui` (default `true`) to runtime config/settings.
+  - Startup now conditionally auto-opens `http://localhost:<port>/index.html` in default browser.
+  - Auto-open is gated by readiness checks: token file exists, `/api/v1/health` returns 200, and `/index.html` returns 200 (timeout-protected).
+  - Added settings wiring so UI/API `GET/PATCH /api/v1/settings` reads/writes `general.auto_open_ui`.
+  - Added settings UI control: “Auto Open UI In Browser On Boot” with headless-disable option.
+  - Updated docs (`docs/TODO.md`, `docs/UI_DESIGN.md`, `docs/architecture.md`, `docs/api_curl.md`).
+- Decisions: Keep auto-open behavior best-effort and non-fatal; failures to launch browser only log warnings and do not affect backend startup.
+- Next steps: Run browser-based axe/Lighthouse pass and patch measurable UI issues; then normalize remaining docs wording for “initial UI version” completion state.
+- Change log: App can now launch the local UI automatically after API/UI/token readiness, and operators can disable this for headless runs via settings/config.
+
 - Status: Alpine binding best-practice sanity pass completed (second pass):
   - Re-scanned all `ui/*.html` Alpine bindings and `ui/assets/js/{app,helpers}.js`.
   - Verified no side-effectful function calls in display bindings (`x-text`, `x-bind`, `x-show`, `x-if`, `x-for`).

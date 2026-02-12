@@ -117,10 +117,12 @@ Notes:
 
 - `GET /api/v1/settings`
   - Returns API-backed settings snapshot (`general`, `sam`, `api`) read from in-memory config state.
+  - `general` currently includes: `log_level`, `log_to_file`, `log_file_level`, `auto_open_ui`.
   - Intended for settings page bootstrapping and refresh.
 
 - `PATCH /api/v1/settings`
   - Persists selected settings updates into `config.toml`.
+  - Supports toggling `general.auto_open_ui` for headless operation.
   - Validates host/port/log-filter inputs.
   - Response includes updated snapshot and `restart_required=true`.
 
