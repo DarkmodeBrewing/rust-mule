@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Documentation sync/normalization pass completed on `main`:
+  - Updated `README.md` API/UI auth flow to reflect current behavior:
+    - `/api/v1/session` issues `rm_session` cookie.
+    - `/api/v1/events` uses session-cookie auth.
+  - Normalized `docs/TODO.md`:
+    - marked clippy round completed,
+    - corrected settings endpoint paths to `/api/v1/settings`,
+    - marked docs alignment done,
+    - added remaining typed-error migration item for boundary/runtime layers.
+  - Updated `docs/API_DESIGN.md` to distinguish implemented auth/session model from forward-looking API ideas and removed stale SSE token-query framing.
+  - Added concrete next-priority execution plan in `docs/TASKS.md`.
+- Decisions: Keep `docs/API_DESIGN.md` as a mixed strategic + implemented view, but explicitly label forward-looking endpoints and defer executable examples to `docs/api_curl.md`.
+- Next steps: Execute `docs/TASKS.md` item #1 (finish typed-error migration in boundary/runtime layers).
+- Change log: Documentation now matches the current session-cookie SSE model, endpoint paths, and project priorities.
+
 - Status: Expanded subsystem-specific typed errors (second batch) on `feature/subsystem-typed-errors`:
   - Replaced `anyhow` in additional KAD/SAM subsystem modules with typed errors:
     - `src/kad/wire.rs` (`WireError`)

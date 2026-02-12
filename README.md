@@ -110,9 +110,9 @@ Then run each instance from its own directory (so it picks up that directory’s
 (cd run-b && ./rust-mule)
 ```
 
-## Local HTTP API (For Future GUI)
+## Local HTTP API (Control Plane + UI)
 
-There is a local HTTP API (REST + SSE) intended for the control plane and a future GUI.
+There is a local HTTP API (REST + SSE) used by the control plane and embedded UI.
 
 - Config: `[api]` in `config.toml`
 - Auth: bearer token stored in `data/api.token`
@@ -123,7 +123,10 @@ Quick curl test:
 ```bash
 TOKEN="$(cat data/api.token)"
 curl -sS -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/status
-curl -N  -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/events
+curl -i -sS -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:17835/api/v1/session
+
+# SSE uses session-cookie auth (rm_session), not bearer query/auth headers.
+curl -N -sS --cookie "rm_session=<session-id>" http://127.0.0.1:17835/api/v1/events
 
 # Enqueue a Kad2 search for sources of a fileID (16 bytes / 32 hex chars).
 curl -sS -H "Authorization: Bearer $TOKEN" \
@@ -142,8 +145,9 @@ UI bootstrap (dev):
 open http://127.0.0.1:17835/
 ```
 
-The overview page bootstraps a token via `GET /api/v1/dev/auth`, stores it in
-`sessionStorage`, fetches `/api/v1/status`, and subscribes to `/api/v1/events`.
+The auth bootstrap page (`/auth`) fetches a local bearer token via `GET /api/v1/dev/auth`,
+creates an HTTP-only session cookie via `POST /api/v1/session`, then redirects to `/index.html`.
+UI REST calls use bearer auth, while `/api/v1/events` uses the session cookie.
 
 ## Data Files
 

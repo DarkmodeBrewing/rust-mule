@@ -49,12 +49,12 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
   - [ ] Perhaps SVGs or images for logo/icons - not decided
   - [/] All static files (`.html`, `.js`, `.css` etc.) should be embedded into the application, and should be served via http over the same port on the api, protected by frontend session auth
 - [/] Routes: API is served from `/api/` base route, UI is served from `/` (folder: `/ui/<page>.html`) -> (`/ui/index.html`, `/ui/statistics.html`, `/ui/settings.html`, `/ui/search.html`, etc.)
-- [x] Bearer token should never be exposed in the UI (HTML, query params etc.), bootstrapping javascript should get it and store it in `sessionStorage` for usage in subsequent API requests (SSE now uses session-cookie auth, no token query param)
+- [x] Bearer token should never be exposed in the UI (HTML, query params etc.); bootstrap JS handles token/session setup, and SSE uses session-cookie auth (no token query param)
 - [ ] UI should leverage
   - [x] Start page / overview
   - [x] Search interface: File search by keywords
   - [x] Network status (Peers), with statistics (Network throughput, Live / Last seen (peers), streaming events (SSE))
-  - [x] Application settings (from config.toml) backed by the API (`PATCH: /api/settings`, `GET: /api/settings`)
+  - [x] Application settings (from config.toml) backed by the API (`PATCH: /api/v1/settings`, `GET: /api/v1/settings`)
 - [x] Create start/overview page
 - [/] Create statistics page, use chart.js to draw statistical charts where needed (charts + controls implemented on `node_stats`; dedicated statistics page still open)
 - [x] Create the search form, leveraging Alpine.js
@@ -66,7 +66,8 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 
 - [x] Clean up trace logging / file logging, want a more clean `INFO` log, hide `verbosity` behind `DEBUG` flag
   - [x] Never log keys or unredacted hashes
-- [ ] Do a `clippy` round on the complete repo
+- [x] Do a `clippy` round on the complete repo
+- [ ] Complete typed-error migration for boundary/runtime layers (`src/app.rs`, `src/main.rs`, `src/api/mod.rs`, `src/single_instance.rs`, selected `src/kad/service.rs` paths)
 - [ ] Memory pressure logging using `jmalloc`, and memory management
 - [ ] Memory pressure logs size of routing table, lookups etc. to have
 - [x] API should be mandatory, i.e. no config toggle to load the API, only port number should be configurable (since the API is the control plane)
@@ -77,7 +78,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
 
 ## Documentation
 
-- [ ] Make sure to align the documentation to the latest version
+- [x] Make sure to align the documentation to the latest version
 
 ## CLI
 

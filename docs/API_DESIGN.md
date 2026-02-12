@@ -15,6 +15,12 @@ The API is designed for:
 - later headless deployments behind TLS/reverse proxy/VPN
 - a lightweight UI (HTML + Alpine.js) with minimal client logic
 
+This document includes both:
+- currently implemented API behavior (`/api/v1` as of 2026-02-12), and
+- forward-looking endpoint ideas for later milestones.
+
+For executable endpoint usage, prefer `docs/api_curl.md`.
+
 ---
 
 ## Design Principles
@@ -44,12 +50,12 @@ This spec assumes **v1 in path**.
 - Keep it simple for localhost.
 - Avoid exposing mint-token endpoints to remote callers.
 
-### Token model
-- UI uses `Authorization: Bearer <token>` for REST endpoints.
-- **SSE** cannot send headers with native `EventSource`; options:
-  1) accept `?token=` query param for SSE **localhost-only**
-  2) use cookie-based session for SSE (later)
-  3) use WebSocket (later)
+### Token/session model (implemented)
+- UI bootstrap gets a local bearer token from `GET /api/v1/dev/auth` (loopback-only).
+- Browser session is established via `POST /api/v1/session` and `rm_session` HTTP-only cookie.
+- REST endpoints use `Authorization: Bearer <token>`.
+- SSE (`GET /api/v1/events`) uses session-cookie auth.
+- Token query parameters for SSE are not used.
 
 ### Endpoints
 - `GET /api/v1/dev/auth`
@@ -61,7 +67,7 @@ This spec assumes **v1 in path**.
 For remote/headless deployments prefer:
 - reverse proxy auth (Basic/OIDC) + upstream to rust-mule
 - VPN-only access with API bound to loopback
-- cookie sessions (if you want SSE without query token)
+- cookie sessions and/or upstream auth gateways
 
 ---
 
@@ -90,8 +96,8 @@ Represents a single run of a search with its own timeline and results.
 - `GET /api/v1/health`
   - returns `{ "status": "ok" }`
 
-- `GET /api/v1/version`
-  - returns `{ "name": "rust-mule", "version": "x.y.z", "commit": "..." }`
+- `GET /api/v1/version` (future)
+  - candidate endpoint for build/version metadata.
 
 ---
 
