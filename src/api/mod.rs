@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode},
     middleware,
     response::sse::{Event, Sse},
@@ -62,8 +62,10 @@ pub async fn serve(
         kad_cmd_tx,
     };
 
-    let app = Router::new()
+    // Canonical API surface.
+    let v1 = Router::new()
         .route("/health", get(health))
+        .route("/dev/auth", get(dev_auth))
         .route("/status", get(status))
         .route("/events", get(events))
         .route("/kad/peers", get(kad_peers))
@@ -80,13 +82,43 @@ pub async fn serve(
         .route("/kad/search_sources", post(kad_search_sources))
         .route("/kad/search_keyword", post(kad_search_keyword))
         .route("/kad/publish_source", post(kad_publish_source))
-        .route("/kad/publish_keyword", post(kad_publish_keyword))
+        .route("/kad/publish_keyword", post(kad_publish_keyword));
+
+    // Compatibility aliases (unversioned). Keep for now to avoid breaking existing callers.
+    let legacy = Router::new()
+        .route("/health", get(health))
+        .route("/dev/auth", get(dev_auth))
+        .route("/status", get(status))
+        .route("/events", get(events))
+        .route("/kad/peers", get(kad_peers))
+        .route("/debug/routing/summary", get(debug_routing_summary))
+        .route("/debug/routing/buckets", get(debug_routing_buckets))
+        .route("/debug/routing/nodes", get(debug_routing_nodes))
+        .route("/debug/lookup_once", post(debug_lookup_once))
+        .route("/debug/probe_peer", post(debug_probe_peer))
+        .route("/kad/sources/:file_id_hex", get(kad_sources))
+        .route(
+            "/kad/keyword_results/:keyword_id_hex",
+            get(kad_keyword_results),
+        )
+        .route("/kad/search_sources", post(kad_search_sources))
+        .route("/kad/search_keyword", post(kad_search_keyword))
+        .route("/kad/publish_source", post(kad_publish_source))
+        .route("/kad/publish_keyword", post(kad_publish_keyword));
+
+    let app = Router::new()
+        .nest("/api/v1", v1)
+        .merge(legacy)
         .with_state(state.clone())
         .layer(middleware::from_fn_with_state(state, auth_mw));
 
     tracing::info!(addr = %addr, "api server listening");
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 
@@ -532,6 +564,24 @@ struct HealthResponse {
     ok: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct DevAuthResponse {
+    token: String,
+}
+
+async fn dev_auth(
+    State(state): State<ApiState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+) -> Result<Json<DevAuthResponse>, StatusCode> {
+    if !is_loopback_addr(&addr) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(Json(DevAuthResponse {
+        token: state.token.clone(),
+    }))
+}
+
 async fn status(State(state): State<ApiState>) -> Result<Json<KadServiceStatus>, StatusCode> {
     let Some(s) = (*state.status_rx.borrow()).clone() else {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
@@ -570,7 +620,7 @@ async fn auth_mw(
     next: middleware::Next,
 ) -> Result<axum::response::Response, StatusCode> {
     // Allow health checks without auth (useful for local dev).
-    if req.uri().path() == "/health" {
+    if is_auth_exempt_path(req.uri().path()) {
         return Ok(next.run(req).await);
     }
 
@@ -588,4 +638,41 @@ fn bearer_token(headers: &HeaderMap) -> Option<String> {
         .ok()?;
     let auth = auth.strip_prefix("Bearer ")?;
     Some(auth.to_string())
+}
+
+fn is_loopback_addr(addr: &SocketAddr) -> bool {
+    addr.ip().is_loopback()
+}
+
+fn is_auth_exempt_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/health" | "/dev/auth" | "/api/v1/health" | "/api/v1/dev/auth"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn detects_loopback_addresses() {
+        let v4 = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1234);
+        let v6 = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 1234);
+        let other = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 1234);
+
+        assert!(is_loopback_addr(&v4));
+        assert!(is_loopback_addr(&v6));
+        assert!(!is_loopback_addr(&other));
+    }
+
+    #[test]
+    fn auth_exempt_paths_include_v1_and_legacy_health_and_dev_auth() {
+        assert!(is_auth_exempt_path("/api/v1/health"));
+        assert!(is_auth_exempt_path("/api/v1/dev/auth"));
+        assert!(is_auth_exempt_path("/health"));
+        assert!(is_auth_exempt_path("/dev/auth"));
+        assert!(!is_auth_exempt_path("/api/v1/status"));
+    }
 }

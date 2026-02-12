@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/debug_routing_buckets.sh [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  GET /debug/routing/buckets
+  GET /api/v1/debug/routing/buckets
 
 Options:
   --base-url URL       Default: http://127.0.0.1:17835
@@ -35,4 +35,4 @@ fi
 
 curl -sS \
   -H "Authorization: Bearer $TOKEN" \
-  "$BASE_URL/debug/routing/buckets"
+  "$BASE_URL/api/v1/debug/routing/buckets"

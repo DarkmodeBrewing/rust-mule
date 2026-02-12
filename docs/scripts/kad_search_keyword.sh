@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/kad_search_keyword.sh (--query "words..." | --keyword-id-hex HEX) [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  POST /kad/search_keyword
+  POST /api/v1/kad/search_keyword
 
 Options:
   --query TEXT         Search query (iMule-style: we hash the first extracted word)
@@ -55,4 +55,4 @@ curl -sS \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "$BODY" \
-  "$BASE_URL/kad/search_keyword"
+  "$BASE_URL/api/v1/kad/search_keyword"

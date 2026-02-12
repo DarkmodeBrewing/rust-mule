@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/kad_keyword_results_get.sh --keyword-id-hex HEX [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  GET /kad/keyword_results/:keyword_id_hex
+  GET /api/v1/kad/keyword_results/:keyword_id_hex
 
 Options:
   --keyword-id-hex HEX  32 hex chars (16 bytes)
@@ -42,5 +42,5 @@ if [[ -z "$TOKEN" ]]; then
   TOKEN="$(cat "$TOKEN_FILE")"
 fi
 
-curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/kad/keyword_results/$KEYWORD_ID_HEX"
+curl -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/kad/keyword_results/$KEYWORD_ID_HEX"
 

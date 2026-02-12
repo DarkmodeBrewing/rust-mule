@@ -126,36 +126,37 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     // Command channel used by the (future) GUI/API to instruct the Kad service (search/publish/etc).
     let (kad_cmd_tx, kad_cmd_rx) = mpsc::channel(128);
 
-    // Optional local HTTP API (REST + SSE) for the future GUI.
+    // Local HTTP API (REST + SSE) for control plane and future GUI.
     //
-    // We keep this off by default and require a bearer token stored under `data/`.
-    let mut status_tx: Option<watch::Sender<Option<crate::kad::service::KadServiceStatus>>> = None;
-    let mut status_events_tx: Option<broadcast::Sender<crate::kad::service::KadServiceStatus>> =
-        None;
-
-    if config.api.enabled {
-        let token_path = data_dir.join("api.token");
-        let token = crate::api::token::load_or_create_token(&token_path)
-            .await
-            .context("failed to load/create api.token")?;
-        tracing::info!(path = %token_path.display(), "api token ready");
-
-        let (stx, etx) = crate::api::new_channels();
-        let srx = stx.subscribe();
-        let api_cfg = config.api.clone();
-        let etx_for_server = etx.clone();
-        let cmd_tx_for_server = kad_cmd_tx.clone();
-        tokio::spawn(async move {
-            if let Err(err) =
-                crate::api::serve(&api_cfg, token, srx, etx_for_server, cmd_tx_for_server).await
-            {
-                tracing::error!(error = %err, "api server stopped");
-            }
-        });
-
-        status_tx = Some(stx);
-        status_events_tx = Some(etx);
+    // This is always on and requires a bearer token stored under `data/`.
+    if let Some(enabled) = config.api.deprecated_enabled {
+        tracing::warn!(
+            configured = enabled,
+            "config option api.enabled is deprecated and ignored; API is always enabled"
+        );
     }
+    let token_path = data_dir.join("api.token");
+    let token = crate::api::token::load_or_create_token(&token_path)
+        .await
+        .context("failed to load/create api.token")?;
+    tracing::info!(path = %token_path.display(), "api token ready");
+
+    let (stx, etx) = crate::api::new_channels();
+    let srx = stx.subscribe();
+    let api_cfg = config.api.clone();
+    let etx_for_server = etx.clone();
+    let cmd_tx_for_server = kad_cmd_tx.clone();
+    tokio::spawn(async move {
+        if let Err(err) =
+            crate::api::serve(&api_cfg, token, srx, etx_for_server, cmd_tx_for_server).await
+        {
+            tracing::error!(error = %err, "api server stopped");
+        }
+    });
+
+    let status_tx: Option<watch::Sender<Option<crate::kad::service::KadServiceStatus>>> = Some(stx);
+    let status_events_tx: Option<broadcast::Sender<crate::kad::service::KadServiceStatus>> =
+        Some(etx);
 
     let nodes_path = resolve_path(&config.general.data_dir, &config.kad.bootstrap_nodes_path);
     let preferred_nodes_path = nodes_path.clone();

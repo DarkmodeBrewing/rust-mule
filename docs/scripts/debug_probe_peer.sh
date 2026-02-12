@@ -6,10 +6,10 @@ usage() {
 Usage: docs/scripts/debug_probe_peer.sh [options]
 
 Calls:
-  POST /debug/probe_peer
+  POST /api/v1/debug/probe_peer
 
 Required:
-  --udp-dest-b64 STR     Peer UDP destination (base64, from /kad/peers)
+  --udp-dest-b64 STR     Peer UDP destination (base64, from /api/v1/kad/peers)
   --keyword-id-hex HEX   16-byte hex KadID (32 hex chars)
   --file-id-hex HEX      16-byte hex KadID (32 hex chars)
   --filename NAME        File name for publish
@@ -70,4 +70,4 @@ curl -sS \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "$BODY" \
-  "$BASE_URL/debug/probe_peer"
+  "$BASE_URL/api/v1/debug/probe_peer"

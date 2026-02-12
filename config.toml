@@ -41,8 +41,7 @@ log_level = "info"
 data_dir = "data"
 
 [api]
-# Local HTTP API for the future GUI (REST + SSE).
+# Local HTTP API control plane (REST + SSE), always enabled.
 # By default we bind to 127.0.0.1 and require a bearer token stored in `data/api.token`.
-enabled = true
 host = "127.0.0.1"
 port = 17835

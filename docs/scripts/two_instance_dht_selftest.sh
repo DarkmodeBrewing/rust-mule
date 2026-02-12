@@ -45,7 +45,7 @@ Options:
   --wait-sources-secs N    Default: 15
   --poll-interval-secs N   Default: 10 (used for keyword result polling)
   --pause-secs N           Default: 20
-  --debug-lookup           Trigger one /debug/lookup_once per instance (default: off)
+  --debug-lookup           Trigger one /api/v1/debug/lookup_once per instance (default: off)
   --peers-snapshot MODE    one of: each|first|none. Default: each
   --routing-snapshot MODE  one of: each|first|end|none. Default: each
 EOF
@@ -524,7 +524,7 @@ for ((i=1; i<=ROUNDS; i++)); do
     log "Search keyword on A by query='$QUERY_A' (fallback)"
     docs/scripts/kad_search_keyword.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" --query "$QUERY_A" >/dev/null
     sleep "$WAIT_SEARCH_SECS"
-    log "NOTE: keyword_id_hex unknown; use /kad/search_keyword response to fetch results"
+    log "NOTE: keyword_id_hex unknown; use /api/v1/kad/search_keyword response to fetch results"
   fi
 
   status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"
@@ -580,7 +580,7 @@ for ((i=1; i<=ROUNDS; i++)); do
     log "Search keyword on B by query='$QUERY_B' (fallback)"
     docs/scripts/kad_search_keyword.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" --query "$QUERY_B" >/dev/null
     sleep "$WAIT_SEARCH_SECS"
-    log "NOTE: keyword_id_hex unknown; use /kad/search_keyword response to fetch results"
+    log "NOTE: keyword_id_hex unknown; use /api/v1/kad/search_keyword response to fetch results"
   fi
 
   status_snapshot "A" "$A_BASE_URL" "$A_TOKEN_FILE"

@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/kad_search_sources.sh --file-id-hex HEX [--file-size N] [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  POST /kad/search_sources
+  POST /api/v1/kad/search_sources
 
 Options:
   --file-id-hex HEX    32 hex chars (16 bytes)
@@ -49,5 +49,5 @@ curl -sS \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d "{\"file_id_hex\":\"$FILE_ID_HEX\",\"file_size\":$FILE_SIZE}" \
-  "$BASE_URL/kad/search_sources"
+  "$BASE_URL/api/v1/kad/search_sources"
 

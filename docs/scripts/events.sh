@@ -6,7 +6,7 @@ usage() {
 Usage: docs/scripts/events.sh [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  GET /events   (auth required, SSE stream)
+  GET /api/v1/events   (auth required, SSE stream)
 
 Options:
   --base-url URL       Default: http://127.0.0.1:17835
@@ -34,5 +34,5 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 # -N: disable buffering for streaming
-curl -N -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/events"
+curl -N -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/events"
 
