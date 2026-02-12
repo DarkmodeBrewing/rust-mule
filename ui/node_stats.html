@@ -96,6 +96,10 @@
         <div class="card">
           <div class="flex gap-3 flex-wrap">
             <h1>Node Stats</h1>
+            <span
+              class="badge"
+              x-text="connected ? 'sse: connected' : 'sse: disconnected'"
+            ></span>
             <button
               class="btn ml-auto"
               type="button"
@@ -106,6 +110,37 @@
             </button>
           </div>
           <p class="mt-3" x-show="error" x-text="error"></p>
+        </div>
+
+        <div class="card">
+          <div class="flex gap-3 flex-wrap">
+            <h2>Chart Controls</h2>
+            <button
+              class="btn ml-auto"
+              type="button"
+              @click="toggleHistoryPause()"
+            >
+              <span
+                x-text="historyPaused ? 'Resume Charts' : 'Pause Charts'"
+              ></span>
+            </button>
+            <button class="btn" type="button" @click="resetHistory()">
+              Reset History
+            </button>
+          </div>
+          <div class="field mt-3">
+            <label for="chart-window">Time Window (samples)</label>
+            <select
+              id="chart-window"
+              class="input"
+              x-model.number="historyWindow"
+              @change="updateCharts()"
+            >
+              <template x-for="n in historyWindows" :key="n">
+                <option :value="n" x-text="n"></option>
+              </template>
+            </select>
+          </div>
         </div>
 
         <div class="grid grid-3">

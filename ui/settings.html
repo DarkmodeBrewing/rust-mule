@@ -97,6 +97,11 @@
           <p>
             Configure runtime settings persisted to <code>config.toml</code>.
           </p>
+          <div class="flex gap-3 flex-wrap mt-3">
+            <button class="btn" type="button" @click="logoutSession()">
+              Logout Session
+            </button>
+          </div>
           <p class="mt-3" x-show="error" x-text="error"></p>
           <p class="mt-3" x-show="notice" x-text="notice"></p>
         </div>

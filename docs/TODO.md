@@ -56,7 +56,7 @@ If any design documents (`docs/UI_DESIGN.md`, `docs/API_DESIGN.md`) contain task
   - [x] Network status (Peers), with statistics (Network throughput, Live / Last seen (peers), streaming events (SSE))
   - [x] Application settings (from config.toml) backed by the API (`PATCH: /api/settings`, `GET: /api/settings`)
 - [x] Create start/overview page
-- [/] Create statistics page, use chart.js to draw statistical charts where needed (initial charts implemented on `node_stats`)
+- [/] Create statistics page, use chart.js to draw statistical charts where needed (charts + controls implemented on `node_stats`; dedicated statistics page still open)
 - [x] Create the search form, leveraging Alpine.js
 - [ ] UI should be auto started in the current platforms default browser
 - [ ] Settings toggle to prevent auto open of UI should exist, to be able to run headless

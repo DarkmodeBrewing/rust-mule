@@ -12,7 +12,13 @@ use axum::{
 use futures_util::Stream;
 use include_dir::{Dir, include_dir};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, convert::Infallible, net::SocketAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio_stream::wrappers::BroadcastStream;
 use tracing_subscriber::EnvFilter;
@@ -31,6 +37,7 @@ use crate::{
 pub mod token;
 
 static UI_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/ui");
+const SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -39,7 +46,7 @@ pub struct ApiState {
     status_events_tx: broadcast::Sender<KadServiceStatus>,
     kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
     config: Arc<tokio::sync::Mutex<Config>>,
-    sessions: Arc<tokio::sync::Mutex<HashSet<String>>>,
+    sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
 }
 
 pub fn new_channels() -> (
@@ -71,14 +78,31 @@ pub async fn serve(
         status_events_tx,
         kad_cmd_tx,
         config: Arc::new(tokio::sync::Mutex::new(app_config)),
-        sessions: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
+        sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
 
+    let app = build_app(state.clone())
+        .layer(middleware::from_fn(cors_mw))
+        .layer(middleware::from_fn_with_state(state, auth_mw));
+
+    tracing::info!(addr = %addr, "api server listening");
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
+    Ok(())
+}
+
+fn build_app(state: ApiState) -> Router<()> {
     // Canonical API surface.
     let v1 = Router::new()
         .route("/health", get(health))
         .route("/dev/auth", get(dev_auth))
         .route("/session", post(create_session))
+        .route("/session/check", get(session_check))
+        .route("/session/logout", post(session_logout))
         .route("/status", get(status))
         .route("/events", get(events))
         .route("/settings", get(settings_get).patch(settings_patch))
@@ -104,7 +128,7 @@ pub async fn serve(
         .route("/kad/publish_source", post(kad_publish_source))
         .route("/kad/publish_keyword", post(kad_publish_keyword));
 
-    let app = Router::new()
+    Router::new()
         .route("/", get(root_index_redirect))
         .route("/auth", get(ui_auth))
         .route("/index.html", get(ui_index))
@@ -114,18 +138,7 @@ pub async fn serve(
         .route("/ui/assets/*path", get(ui_asset))
         .fallback(get(ui_fallback))
         .nest("/api/v1", v1)
-        .with_state(state.clone())
-        .layer(middleware::from_fn(cors_mw))
-        .layer(middleware::from_fn_with_state(state, auth_mw));
-
-    tracing::info!(addr = %addr, "api server listening");
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await?;
-    Ok(())
+        .with_state(state)
 }
 
 #[derive(Debug, Deserialize)]
@@ -928,14 +941,33 @@ async fn dev_auth(
 
 async fn create_session(State(state): State<ApiState>) -> Result<impl IntoResponse, StatusCode> {
     let session_id = generate_session_id()?;
-    let cookie = build_session_cookie(&session_id);
+    let cookie = build_session_cookie(&session_id, SESSION_TTL);
     {
         let mut sessions = state.sessions.lock().await;
-        sessions.insert(session_id);
+        cleanup_expired_sessions(&mut sessions, Instant::now());
+        sessions.insert(session_id, Instant::now() + SESSION_TTL);
     }
 
     Ok((
         [(header::SET_COOKIE, cookie)],
+        Json(SessionResponse { ok: true }),
+    ))
+}
+
+async fn session_check(State(_state): State<ApiState>) -> Json<SessionResponse> {
+    Json(SessionResponse { ok: true })
+}
+
+async fn session_logout(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    if let Some(session_id) = session_cookie(&headers) {
+        let mut sessions = state.sessions.lock().await;
+        sessions.remove(&session_id);
+    }
+    Ok((
+        [(header::SET_COOKIE, clear_session_cookie())],
         Json(SessionResponse { ok: true }),
     ))
 }
@@ -1034,6 +1066,13 @@ async fn auth_mw(
         return Err(StatusCode::UNAUTHORIZED);
     }
 
+    if path == "/api/v1/session/check" || path == "/api/v1/session/logout" {
+        if has_valid_session(req.headers(), &state).await {
+            return Ok(next.run(req).await);
+        }
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
     if path.starts_with("/api/") {
         if is_api_bearer_exempt_path(path) {
             return Ok(next.run(req).await);
@@ -1091,12 +1130,32 @@ async fn has_valid_session(headers: &HeaderMap, state: &ApiState) -> bool {
     let Some(session_id) = session_cookie(headers) else {
         return false;
     };
-    let sessions = state.sessions.lock().await;
-    sessions.contains(&session_id)
+    let mut sessions = state.sessions.lock().await;
+    let now = Instant::now();
+    cleanup_expired_sessions(&mut sessions, now);
+    match sessions.get(&session_id) {
+        Some(expiry) if *expiry > now => true,
+        Some(_) => {
+            sessions.remove(&session_id);
+            false
+        }
+        None => false,
+    }
 }
 
-fn build_session_cookie(session_id: &str) -> String {
-    format!("rm_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=28800")
+fn cleanup_expired_sessions(sessions: &mut HashMap<String, Instant>, now: Instant) {
+    sessions.retain(|_, expiry| *expiry > now);
+}
+
+fn build_session_cookie(session_id: &str, ttl: Duration) -> String {
+    format!(
+        "rm_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+        ttl.as_secs()
+    )
+}
+
+fn clear_session_cookie() -> String {
+    "rm_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0".to_string()
 }
 
 fn generate_session_id() -> Result<String, StatusCode> {
@@ -1261,8 +1320,11 @@ fn content_type_for_path(path: &std::path::Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use tokio::sync::{broadcast, mpsc, watch};
+    use tower::util::ServiceExt as _;
 
     fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         let (_status_tx, status_rx) = watch::channel(None);
@@ -1273,8 +1335,14 @@ mod tests {
             status_events_tx,
             kad_cmd_tx,
             config: Arc::new(tokio::sync::Mutex::new(Config::default())),
-            sessions: Arc::new(tokio::sync::Mutex::new(HashSet::new())),
+            sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
+    }
+
+    fn test_app(state: ApiState) -> Router<()> {
+        build_app(state.clone())
+            .layer(middleware::from_fn(cors_mw))
+            .layer(middleware::from_fn_with_state(state, auth_mw))
     }
 
     #[test]
@@ -1311,6 +1379,14 @@ mod tests {
             HeaderValue::from_static("a=1; rm_session=session123; x=y"),
         );
         assert_eq!(session_cookie(&headers).as_deref(), Some("session123"));
+    }
+
+    #[test]
+    fn session_cookie_ttl_and_clear_cookie_headers_are_well_formed() {
+        let cookie = build_session_cookie("abc", Duration::from_secs(60));
+        assert!(cookie.contains("rm_session=abc"));
+        assert!(cookie.contains("Max-Age=60"));
+        assert!(clear_session_cookie().contains("Max-Age=0"));
     }
 
     #[test]
@@ -1548,5 +1624,79 @@ mod tests {
         )
         .await;
         assert!(matches!(resp, Err(StatusCode::BAD_REQUEST)));
+    }
+
+    #[tokio::test]
+    async fn unauthenticated_ui_route_redirects_to_auth() {
+        let (tx, _rx) = mpsc::channel(1);
+        let state = test_state(tx);
+        let app = test_app(state);
+        let req = Request::builder()
+            .uri("/index.html")
+            .method(Method::GET)
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::SEE_OTHER);
+        let location = resp
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert_eq!(location, "/auth");
+    }
+
+    #[tokio::test]
+    async fn authenticated_ui_route_with_session_cookie_succeeds() {
+        let (tx, _rx) = mpsc::channel(1);
+        let state = test_state(tx);
+        {
+            let mut sessions = state.sessions.lock().await;
+            sessions.insert(
+                "session-ok".to_string(),
+                Instant::now() + Duration::from_secs(60),
+            );
+        }
+        let app = test_app(state);
+        let req = Request::builder()
+            .uri("/index.html")
+            .method(Method::GET)
+            .header(header::COOKIE, "rm_session=session-ok")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn events_rejects_bearer_only_but_accepts_session_cookie() {
+        let (tx, _rx) = mpsc::channel(1);
+        let state = test_state(tx);
+        {
+            let mut sessions = state.sessions.lock().await;
+            sessions.insert(
+                "events-session".to_string(),
+                Instant::now() + Duration::from_secs(60),
+            );
+        }
+        let app = test_app(state);
+
+        let bearer_req = Request::builder()
+            .uri("/api/v1/events")
+            .method(Method::GET)
+            .header(header::AUTHORIZATION, "Bearer test-token")
+            .body(Body::empty())
+            .unwrap();
+        let bearer_resp = app.clone().oneshot(bearer_req).await.unwrap();
+        assert_eq!(bearer_resp.status(), StatusCode::UNAUTHORIZED);
+
+        let cookie_req = Request::builder()
+            .uri("/api/v1/events")
+            .method(Method::GET)
+            .header(header::COOKIE, "rm_session=events-session")
+            .body(Body::empty())
+            .unwrap();
+        let cookie_resp = app.oneshot(cookie_req).await.unwrap();
+        assert_eq!(cookie_resp.status(), StatusCode::OK);
     }
 }

@@ -101,6 +101,17 @@ export function openStatusEventStream(onStatus, onError) {
       onError?.(`bad status payload: ${String(err)}`);
     }
   });
-  es.onerror = () => onError?.('events stream disconnected');
+  es.onerror = async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/session/check`);
+      if (resp.status === 401 || resp.status === 403) {
+        window.location.replace('/auth');
+        return;
+      }
+    } catch (_err) {
+      // ignore probe failures; surface generic disconnect below
+    }
+    onError?.('events stream disconnected');
+  };
   return es;
 }

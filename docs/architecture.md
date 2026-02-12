@@ -70,7 +70,17 @@ Notes:
 - `POST /api/v1/session`
   - Bearer auth required.
   - Issues `Set-Cookie: rm_session=...; HttpOnly; SameSite=Strict; Path=/`.
+  - Session TTL currently defaults to 8 hours.
   - Used by browser UI bootstrap so frontend routes and SSE can be session-authenticated.
+
+- `GET /api/v1/session/check`
+  - Session-cookie auth required.
+  - Returns `{ "ok": true }` when session is valid.
+  - Used by frontend to detect session expiry and redirect to `/auth`.
+
+- `POST /api/v1/session/logout`
+  - Session-cookie auth required.
+  - Invalidates current session server-side and clears `rm_session` cookie.
 
 - `GET /api/v1/health`
   - No auth.

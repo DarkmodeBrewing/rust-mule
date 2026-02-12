@@ -205,7 +205,7 @@ Main:
 - Implemented: frontend session-cookie auth for UI routes and SSE (`/api/v1/events`) without token query params.
 - Implemented: first chart set on `node_stats` (search hits over time, request/response rate, live-vs-idle peers).
 - Partial: broader statistics expansion and dedicated statistics page.
-- Open: frontend session lifecycle controls (logout/session expiry UX) and stronger session hardening for remote/headless mode.
+- Partial: frontend session lifecycle controls (session expiry redirect + logout endpoint/control implemented) and stronger session hardening for remote/headless mode.
 
 ## Implementation Notes
 

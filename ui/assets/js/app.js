@@ -438,7 +438,10 @@ window.appNodeStats = function appNodeStats() {
     sse: null,
     refreshTimer: null,
     charts: null,
-    historyMaxPoints: 60,
+    historyMaxPoints: 360,
+    historyWindow: 60,
+    historyPaused: false,
+    historyWindows: [20, 60, 180, 360],
     history: {
       labels: [],
       totalHits: [],
@@ -599,6 +602,10 @@ window.appNodeStats = function appNodeStats() {
       }
       this.lastRateSample = { ts: now, req, res };
 
+      if (this.historyPaused) {
+        return;
+      }
+
       const livePeers = this.peers.filter((p) => p.ui_state !== 'idle').length;
       const idlePeers = this.peers.length - livePeers;
 
@@ -738,9 +745,23 @@ window.appNodeStats = function appNodeStats() {
       if (!this.charts) {
         return;
       }
-      Object.values(this.charts).forEach((chart) => {
-        chart.update();
-      });
+      const n = Math.max(1, Number(this.historyWindow || 60));
+      const labels = this.history.labels.slice(-n);
+      this.charts.hits.data.labels = labels;
+      this.charts.hits.data.datasets[0].data = this.history.totalHits.slice(-n);
+      this.charts.rate.data.labels = labels;
+      this.charts.rate.data.datasets[0].data =
+        this.history.requestRate.slice(-n);
+      this.charts.rate.data.datasets[1].data =
+        this.history.responseRate.slice(-n);
+      this.charts.peers.data.labels = labels;
+      this.charts.peers.data.datasets[0].data =
+        this.history.livePeers.slice(-n);
+      this.charts.peers.data.datasets[1].data =
+        this.history.idlePeers.slice(-n);
+      this.charts.hits.update();
+      this.charts.rate.update();
+      this.charts.peers.update();
     },
 
     destroyCharts() {
@@ -749,6 +770,21 @@ window.appNodeStats = function appNodeStats() {
       }
       Object.values(this.charts).forEach((chart) => chart.destroy());
       this.charts = null;
+    },
+
+    toggleHistoryPause() {
+      this.historyPaused = !this.historyPaused;
+    },
+
+    resetHistory() {
+      this.history.labels = [];
+      this.history.totalHits = [];
+      this.history.requestRate = [];
+      this.history.responseRate = [];
+      this.history.livePeers = [];
+      this.history.idlePeers = [];
+      this.lastRateSample = null;
+      this.updateCharts();
     },
   };
 };
@@ -954,6 +990,17 @@ window.appSettings = function appSettings() {
       } finally {
         this.saving = false;
       }
+    },
+
+    async logoutSession() {
+      this.error = '';
+      this.notice = '';
+      try {
+        await apiPost('/session/logout', {});
+      } catch (_err) {
+        // continue with redirect even if backend already considers session invalid
+      }
+      window.location.replace('/auth');
     },
   };
 };

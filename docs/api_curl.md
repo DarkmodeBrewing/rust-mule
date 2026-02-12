@@ -36,6 +36,18 @@ For subsequent commands that require session auth (SSE/UI), use:
 COOKIE=(--cookie "rm_session=<session-id>")
 ```
 
+## Session Check (Cookie Auth)
+
+```bash
+curl -sS "${COOKIE[@]}" "$BASE_URL/api/v1/session/check" | jq .
+```
+
+## Session Logout (Cookie Auth)
+
+```bash
+curl -sS -X POST "${COOKIE[@]}" "$BASE_URL/api/v1/session/logout" | jq .
+```
+
 ## Health
 
 ```bash

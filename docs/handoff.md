@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Completed next UI/API security+UX batch (in requested order):
+  - Session lifecycle hardening:
+    - Added `GET /api/v1/session/check` (session-cookie auth).
+    - Added `POST /api/v1/session/logout` (session-cookie auth, clears cookie + invalidates server session).
+    - Added session TTL handling (8h) with expiry cleanup on session create/validate.
+    - Updated frontend SSE helper to probe `/api/v1/session/check` on stream errors and redirect to `/auth` on expired/invalid session.
+    - Added visible UI logout control in settings (`Logout Session`) calling `POST /api/v1/session/logout` and redirecting to `/auth`.
+  - Middleware integration tests (full-router):
+    - `unauthenticated_ui_route_redirects_to_auth`
+    - `authenticated_ui_route_with_session_cookie_succeeds`
+    - `events_rejects_bearer_only_but_accepts_session_cookie`
+  - Chart UX polish on `node_stats`:
+    - Added chart controls: pause/resume sampling, reset history, and sample-window selector.
+    - Increased history buffer depth and made chart rendering window configurable.
+  - Added `build_app()` router constructor to enable handler+middleware integration tests without booting a TCP server.
+  - Updated docs (`docs/architecture.md`, `docs/api_curl.md`, `docs/UI_DESIGN.md`, `docs/TODO.md`) for new session endpoints/behavior and chart controls status.
+  - Ran Prettier on changed UI files and ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Implemented session check/logout + TTL cleanup, added middleware auth integration coverage, and shipped chart interaction controls in node stats.
 - CSS normalization pass completed for variable/units discipline:
   - Moved remaining shared `base.css` size literals into reusable vars in `ui/assets/css/layout.css`:
     - container width, glow dimensions, badge/button/table sizing, log max-height.
@@ -294,6 +312,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Session auth policy now includes explicit lifecycle endpoints:
+  - `session` issue (bearer), `session/check` validate (cookie), `session/logout` revoke (cookie).
+  - Session validation performs lazy expiry cleanup; unauthenticated/expired frontend flows redirect to `/auth`.
 - CSS policy tightened for shared UI styles: prefer variable-driven sizing and relative units; reserve `px` for border/hairline tokens.
 - Place first operational charts on `node_stats` to pair routing/node data with live trend context before introducing a dedicated statistics page.
 - Auth split for v1 local UI:
@@ -352,6 +373,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Next Steps (2026-02-10)
 
+- Consider periodic background cleanup for expired sessions (currently lazy cleanup on create/validate).
+- Add optional “session expires in” UI indicator if a session metadata endpoint is introduced.
 - Expand chart interactions/usability:
   - Add legend toggles and chart tooltips formatting for rates and hit counts.
   - Add pause/reset controls for time-series buffers.
