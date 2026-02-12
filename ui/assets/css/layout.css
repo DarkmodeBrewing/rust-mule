@@ -17,4 +17,18 @@
 
   /* Border */
   --border: 1px;
+
+  /* App shell layout */
+  --layout-shell-sidebar-width: 20rem;
+  --layout-shell-min-height: 100vh;
+  --layout-sidebar-height: 100vh;
+
+  /* List items */
+  --layout-list-item-pad-y: 0.625rem;
+  --layout-list-item-pad-x: 0.75rem;
+
+  /* Search state colors */
+  --state-running: #7dd3fc;
+  --state-idle: #fcd34d;
+  --state-done: #86efac;
 }

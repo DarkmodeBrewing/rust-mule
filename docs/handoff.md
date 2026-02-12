@@ -8,6 +8,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Moved `index.html` inline styles into shared CSS:
+  - Removed `<style>` block from `ui/index.html`.
+  - Added reusable shell/sidebar/search-state classes in `ui/assets/css/base.css`.
+  - Added layout/state CSS variables in `ui/assets/css/layout.css` and referenced them from base styles.
+- Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after CSS/layout refactor (`cargo test` passed; existing clippy warnings unchanged).
 - Updated `ui/index.html` layout to match UI design spec shell:
   - Added persistent sidebar (primary nav + search thread list + new search control).
   - Added main search overview sections (header/actions, KPIs, progress, results, activity/logs).
@@ -95,6 +100,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Enforce no inline `<style>` blocks in UI HTML; shared styles must live under `ui/assets/css/`.
+- Keep sizing/spacing/state tokens in `ui/assets/css/layout.css` and consume them from component/layout rules in `ui/assets/css/base.css`.
 - Keep `index.html` as a single-shell page aligned to the chat-style dashboard design, even before full search API wiring exists.
 - Serve the in-repo UI skeleton from the Rust backend (single local control-plane origin).
 - Keep browser auth bootstrap development-only and loopback-only via `/api/v1/dev/auth`.
@@ -149,6 +156,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Change Log
 
+- 2026-02-12: Remove inline styles from `ui/index.html`; move reusable shell/search layout rules to `ui/assets/css/base.css`; define layout/state CSS vars in `ui/assets/css/layout.css`; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Redesign `ui/index.html` into the UI spec shell (sidebar + search-overview main panel), preserving existing Alpine status/token/SSE wiring; run fmt/clippy/test (tests pass; existing clippy warnings unchanged).
 - 2026-02-12: Serve UI skeleton from backend (`/`, `/ui`, `/ui/:page`, `/ui/assets/*`) with safe path validation and static content handling; allow SSE query-token auth for `/api/v1/events`; add related tests and update UI JS/HTML/docs (`src/api/mod.rs`, `ui/*`, `README.md`, `docs/architecture.md`, `docs/TODO.md`).
 - 2026-02-12: Run `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` after UI/bootstrap work (tests pass; existing clippy warnings unchanged).

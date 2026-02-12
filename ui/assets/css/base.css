@@ -192,3 +192,60 @@ a:hover {
 [x-cloak] {
   display: none !important;
 }
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--layout-shell-sidebar-width) minmax(0, 1fr);
+  gap: var(--s-4);
+  min-height: var(--layout-shell-min-height);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: var(--layout-sidebar-height);
+  overflow: auto;
+}
+
+.nav-list,
+.search-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+
+.search-item {
+  border: var(--line) solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--layout-list-item-pad-y) var(--layout-list-item-pad-x);
+  background: var(--panel-2);
+}
+
+.state-running {
+  color: var(--state-running);
+}
+
+.state-idle {
+  color: var(--state-idle);
+}
+
+.state-done {
+  color: var(--state-done);
+}
+
+.main-scroll {
+  min-width: 0;
+}
+
+@media (max-width: 60rem) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: static;
+    height: auto;
+  }
+}

@@ -11,64 +11,6 @@
     <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/colors-light.css">
     <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/color-dark.css">
     <link rel="stylesheet" type="text/css" media="screen" href="/ui/assets/css/base.css">
-    <style>
-        .shell {
-            display: grid;
-            grid-template-columns: 320px minmax(0, 1fr);
-            gap: var(--s-4);
-            min-height: 100vh;
-        }
-
-        .sidebar {
-            position: sticky;
-            top: 0;
-            height: 100vh;
-            overflow: auto;
-        }
-
-        .nav-list,
-        .search-list {
-            list-style: none;
-            margin: 0;
-            padding: 0;
-            display: grid;
-            gap: var(--s-2);
-        }
-
-        .search-item {
-            border: var(--line) solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 10px 12px;
-            background: var(--panel-2);
-        }
-
-        .state-running {
-            color: #7dd3fc;
-        }
-
-        .state-idle {
-            color: #fcd34d;
-        }
-
-        .state-done {
-            color: #86efac;
-        }
-
-        .main-scroll {
-            min-width: 0;
-        }
-
-        @media (max-width: 960px) {
-            .shell {
-                grid-template-columns: 1fr;
-            }
-
-            .sidebar {
-                position: static;
-                height: auto;
-            }
-        }
-    </style>
     <script defer src="/ui/assets/js/alpine.min.js"></script>
     <script type="module" src="/ui/assets/js/app.js"></script>
 </head>
