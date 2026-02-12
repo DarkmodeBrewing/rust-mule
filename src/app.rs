@@ -138,6 +138,10 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let (stx, etx) = crate::api::new_channels();
     let srx = stx.subscribe();
     let api_cfg = config.api.clone();
+    tracing::info!(
+        "rust-mule UI available at: http://localhost:{}",
+        api_cfg.port
+    );
     let etx_for_server = etx.clone();
     let cmd_tx_for_server = kad_cmd_tx.clone();
     tokio::spawn(async move {

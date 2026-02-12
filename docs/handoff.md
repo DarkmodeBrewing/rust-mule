@@ -8,6 +8,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Added explicit UI startup message on boot in `src/app.rs`:
+  - Logs `rust-mule UI available at: http://localhost:<port>` right before API server task spawn.
+  - Uses configured `api.port` so users get a direct URL immediately during startup.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (`cargo test` passed; existing clippy warnings unchanged).
+- Change log: Startup now emits a clear local UI URL message for quick operator discovery.
 - Added SPA fallback behavior for unknown browser routes:
   - Added router fallback handler in `src/api/mod.rs` that redirects unknown non-API/non-asset paths to `/` (serving embedded `index.html`).
   - Redirect target is always `/`, so arbitrary query parameters on unknown paths are dropped.
@@ -213,6 +218,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Decisions (2026-02-10)
 
+- Operator UX: always log a copy-pasteable localhost UI URL at startup.
 - Route-fallback policy: treat unknown non-API, non-asset browser paths as SPA entry points and redirect to `/`; keep unknown `/api/*` and `/ui/assets/*` as 404.
 - Serve UI from binary-embedded assets (`include_dir`) instead of runtime disk reads to guarantee deploy-time asset completeness.
 - Alpine template bindings should be declarative and side-effect free; compute display-only classes/labels in controller state/getters before render.
