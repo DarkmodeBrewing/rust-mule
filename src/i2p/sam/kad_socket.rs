@@ -1,6 +1,7 @@
 use crate::i2p::sam::datagram_tcp::SamDatagramTcp;
-use crate::i2p::sam::{SamDatagramRecv, SamDatagramSendOpts, SamDatagramSocket};
-use anyhow::Result;
+use crate::i2p::sam::{SamDatagramRecv, SamDatagramSendOpts, SamDatagramSocket, SamError};
+
+type Result<T> = std::result::Result<T, SamError>;
 
 /// Minimal abstraction used by KAD code: "send a datagram" and "receive a datagram".
 ///
@@ -21,21 +22,18 @@ impl SamKadSocket {
 
     pub async fn send_to(&mut self, destination: &str, payload: &[u8]) -> Result<()> {
         match self {
-            Self::UdpForward(sock) => sock
-                .send_to(destination, payload, SamDatagramSendOpts::default())
-                .await
-                .map_err(anyhow::Error::new),
-            Self::Tcp(sock) => sock
-                .send_to(destination, payload)
-                .await
-                .map_err(anyhow::Error::new),
+            Self::UdpForward(sock) => {
+                sock.send_to(destination, payload, SamDatagramSendOpts::default())
+                    .await
+            }
+            Self::Tcp(sock) => sock.send_to(destination, payload).await,
         }
     }
 
     pub async fn recv(&mut self) -> Result<SamDatagramRecv> {
         match self {
-            Self::UdpForward(sock) => sock.recv().await.map_err(anyhow::Error::new),
-            Self::Tcp(sock) => sock.recv().await.map_err(anyhow::Error::new),
+            Self::UdpForward(sock) => sock.recv().await,
+            Self::Tcp(sock) => sock.recv().await,
         }
     }
 }

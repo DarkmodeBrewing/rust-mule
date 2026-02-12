@@ -1,5 +1,29 @@
 use crate::kad::KadId;
-use anyhow::{Result, bail};
+
+pub type Result<T> = std::result::Result<T, UdpCryptoError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UdpCryptoError {
+    Random(String),
+    InvalidPacket(String),
+}
+
+impl std::fmt::Display for UdpCryptoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Random(msg) => write!(f, "{msg}"),
+            Self::InvalidPacket(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for UdpCryptoError {}
+
+macro_rules! crypto_bail {
+    ($($arg:tt)*) => {
+        return Err(UdpCryptoError::InvalidPacket(format!($($arg)*)))
+    };
+}
 
 // From iMule `EncryptedDatagramSocket.cpp`.
 const CRYPT_HEADER_WITHOUTPADDING: usize = 8;
@@ -35,7 +59,7 @@ pub fn encrypt_kad_packet(
 ) -> Result<Vec<u8>> {
     let mut random_key_part = [0u8; 2];
     getrandom::getrandom(&mut random_key_part)
-        .map_err(|e| anyhow::anyhow!("failed to generate random key part: {e}"))?;
+        .map_err(|e| UdpCryptoError::Random(format!("failed to generate random key part: {e}")))?;
 
     // Key = MD5( targetKadIdCrypt(16) || randomKeyPart(2) )
     let mut key_data = [0u8; 18];
@@ -91,7 +115,7 @@ pub fn encrypt_kad_packet_with_receiver_key(
 ) -> Result<Vec<u8>> {
     let mut random_key_part = [0u8; 2];
     getrandom::getrandom(&mut random_key_part)
-        .map_err(|e| anyhow::anyhow!("failed to generate random key part: {e}"))?;
+        .map_err(|e| UdpCryptoError::Random(format!("failed to generate random key part: {e}")))?;
 
     // Key = MD5( receiverVerifyKey(4 le) || randomKeyPart(2) )
     let mut key_data = [0u8; 6];
@@ -171,9 +195,9 @@ pub fn decrypt_kad_packet(
     }
 
     // Might be obfuscated. Try KAD(NodeID) and KAD(ReceiverKey) variants (skip ED2K).
-    let random_key_part = buf
-        .get(1..3)
-        .ok_or_else(|| anyhow::anyhow!("obfuscated packet too short for key part"))?;
+    let random_key_part = buf.get(1..3).ok_or_else(|| {
+        UdpCryptoError::InvalidPacket("obfuscated packet too short for key part".to_string())
+    })?;
 
     // Try 0: KAD packet with NodeID as key.
     if let Ok(d) = try_decrypt_kad_with_node_id(buf, my_kad_id, random_key_part) {
@@ -211,7 +235,7 @@ fn try_decrypt_kad_with_receiver_key(
 
 fn decrypt_kad_with_key(buf: &[u8], key: &[u8; 16]) -> Result<DecryptedKad> {
     if buf.len() < CRYPT_HEADER_WITHOUTPADDING + 8 {
-        bail!("obfuscated packet too short");
+        crypto_bail!("obfuscated packet too short");
     }
 
     let mut rc4 = Rc4::new(key);
@@ -222,7 +246,7 @@ fn decrypt_kad_with_key(buf: &[u8], key: &[u8; 16]) -> Result<DecryptedKad> {
     rc4.apply(&mut magic);
     let magic = u32::from_le_bytes(magic);
     if magic != MAGICVALUE_UDP_SYNC_CLIENT {
-        bail!("magic mismatch");
+        crypto_bail!("magic mismatch");
     }
 
     // PadLen (1 byte)
@@ -237,7 +261,7 @@ fn decrypt_kad_with_key(buf: &[u8], key: &[u8; 16]) -> Result<DecryptedKad> {
 
     let verify_off = CRYPT_HEADER_WITHOUTPADDING + pad_len;
     if buf.len() < verify_off + 8 {
-        bail!("missing verify keys");
+        crypto_bail!("missing verify keys");
     }
 
     // Verify keys (each 4 bytes)
@@ -252,7 +276,7 @@ fn decrypt_kad_with_key(buf: &[u8], key: &[u8; 16]) -> Result<DecryptedKad> {
 
     let payload_off = verify_off + 8;
     if payload_off > buf.len() {
-        bail!("payload offset past buffer end");
+        crypto_bail!("payload offset past buffer end");
     }
     let mut payload = buf[payload_off..].to_vec();
     rc4.apply(&mut payload);
@@ -287,7 +311,7 @@ fn choose_semi_random_marker(kad_recv_key_used: bool) -> Result<u8> {
     for _ in 0..128 {
         let mut b = [0u8; 1];
         getrandom::getrandom(&mut b)
-            .map_err(|e| anyhow::anyhow!("failed generating marker byte: {e}"))?;
+            .map_err(|e| UdpCryptoError::Random(format!("failed generating marker byte: {e}")))?;
         let mut m = b[0];
 
         // For KAD packets, marker bit 0 must be 0.

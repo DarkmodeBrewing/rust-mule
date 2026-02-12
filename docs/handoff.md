@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Expanded subsystem-specific typed errors (second batch) on `feature/subsystem-typed-errors`:
+  - Replaced `anyhow` in additional KAD/SAM subsystem modules with typed errors:
+    - `src/kad/wire.rs` (`WireError`)
+    - `src/kad/packed.rs` (`InflateError`)
+    - `src/kad/udp_crypto.rs` (`UdpCryptoError`)
+    - `src/kad/udp_key.rs` (`UdpKeyError`)
+    - `src/kad/bootstrap.rs` (`BootstrapError`)
+    - `src/i2p/sam/keys.rs` (`SamKeysError`)
+    - `src/i2p/sam/kad_socket.rs` now returns `Result<_, SamError>` directly.
+  - Kept app/main/api as the top-level error aggregation boundary.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 60 tests).
+- Decisions: Typed errors were added first in protocol/parsing/crypto and SAM helper modules where error provenance matters most; orchestration layers remain unchanged for now.
+- Next steps: Remaining `anyhow` usage is concentrated in boundary/runtime modules (`src/app.rs`, `src/main.rs`, `src/api/mod.rs`, `src/single_instance.rs`, `src/kad/service.rs`, and bin tools) and can be migrated incrementally if full typed coverage is required.
+- Change log: KAD wire/deflate/UDP-crypto/bootstrap and SAM keys/socket now emit concrete typed errors rather than `anyhow`.
+
 - Status: Implemented subsystem-specific typed errors on `feature/subsystem-typed-errors`:
   - Replaced internal `anyhow` usage with typed error enums + local `Result` aliases in:
     - `src/config.rs`
