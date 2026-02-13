@@ -90,6 +90,12 @@ fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
     out
 }
 
+fn i2p_dest_hash_prefix(dest: &[u8; I2P_DEST_LEN]) -> u32 {
+    let mut h = [0u8; 4];
+    h.copy_from_slice(&dest[..4]);
+    u32::from_le_bytes(h)
+}
+
 fn closest_kad2_contacts(
     known: impl IntoIterator<Item = ImuleNode>,
     target: KadId,
@@ -101,7 +107,7 @@ fn closest_kad2_contacts(
         if n.kad_version == 0 {
             continue;
         }
-        if u32::from_le_bytes(n.udp_dest[0..4].try_into().unwrap()) == exclude_dest_hash {
+        if i2p_dest_hash_prefix(&n.udp_dest) == exclude_dest_hash {
             continue;
         }
         candidates.push(n);
@@ -131,7 +137,7 @@ fn closest_kad1_contacts(
         if n.kad_version == 0 {
             continue;
         }
-        if u32::from_le_bytes(n.udp_dest[0..4].try_into().unwrap()) == exclude_dest_hash {
+        if i2p_dest_hash_prefix(&n.udp_dest) == exclude_dest_hash {
             continue;
         }
         candidates.push(n);
@@ -277,7 +283,11 @@ pub async fn bootstrap(
 
         let from_dest_raw = crate::i2p::b64::decode(&recv.from_destination).ok();
         let from_hash = match &from_dest_raw {
-            Some(b) if b.len() >= 4 => u32::from_le_bytes(b[0..4].try_into().unwrap()),
+            Some(b) if b.len() >= 4 => {
+                let mut h = [0u8; 4];
+                h.copy_from_slice(&b[..4]);
+                u32::from_le_bytes(h)
+            }
             _ => 0,
         };
 

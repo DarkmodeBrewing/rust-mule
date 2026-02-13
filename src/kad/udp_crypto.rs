@@ -299,10 +299,18 @@ pub fn udp_verify_key(kad_udp_key_secret: u32, target_hash: u32) -> u32 {
     buf[4..].copy_from_slice(&kad_udp_key_secret.to_le_bytes());
     let h = md5(&buf);
 
-    let a = u32::from_le_bytes(h[0..4].try_into().unwrap());
-    let b = u32::from_le_bytes(h[4..8].try_into().unwrap());
-    let c = u32::from_le_bytes(h[8..12].try_into().unwrap());
-    let d = u32::from_le_bytes(h[12..16].try_into().unwrap());
+    let mut a = [0u8; 4];
+    let mut b = [0u8; 4];
+    let mut c = [0u8; 4];
+    let mut d = [0u8; 4];
+    a.copy_from_slice(&h[0..4]);
+    b.copy_from_slice(&h[4..8]);
+    c.copy_from_slice(&h[8..12]);
+    d.copy_from_slice(&h[12..16]);
+    let a = u32::from_le_bytes(a);
+    let b = u32::from_le_bytes(b);
+    let c = u32::from_le_bytes(c);
+    let d = u32::from_le_bytes(d);
 
     ((a ^ b ^ c ^ d) % 0xFFFF_FFFE) + 1
 }

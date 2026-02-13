@@ -8,6 +8,107 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Implemented organic source-flow observability upgrades on `feature/kad-imule-parity-deep-pass` (requested implementation of steps 2 and 3):
+  - Added source batch outcome accounting in `src/kad/service.rs` for both send paths:
+    - search batches: `source_search_batch_{candidates,skipped_version,sent,send_fail}`
+    - publish batches: `source_publish_batch_{candidates,skipped_version,sent,send_fail}`
+  - Batch counters are emitted in status payload (`KadServiceStatus`) and logged in send-batch INFO events.
+  - Added per-file source probe tracker state (`source_probe_by_file`) with first-send/first-response timestamps and rolling result counts.
+  - Added aggregate status counters for probe timing/results:
+    - `source_probe_first_publish_responses`
+    - `source_probe_first_search_responses`
+    - `source_probe_search_results_total`
+    - `source_probe_publish_latency_ms_total`
+    - `source_probe_search_latency_ms_total`
+  - Wired response-side tracking:
+    - on source `PUBLISH_RES` reception, record first publish response latency per file
+    - on `SEARCH_RES` keyed to tracked source files, record first search response latency and per-response returned source counts
+  - Added unit test:
+    - `kad::service::tests::source_probe_tracks_first_send_response_latency_and_results`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 67 tests).
+- Decisions: Keep probe tracking lightweight/in-memory and bounded (`SOURCE_PROBE_MAX_TRACKED_FILES = 2048`) with aggregate latency totals in status for immediate triage without introducing persistence or heavy histograms.
+- Next steps: Build fresh `mule-a`/`mule-b` artifacts and run repeated non-forced A/B rounds to quantify organic success rate and latency percentiles using the new batch/probe counters.
+- Change log: Source send-path selection/success/failure and per-file response timing are now directly measurable from status + logs.
+
+- Status: Implemented source-path diagnostics follow-up on `feature/kad-imule-parity-deep-pass` (requested items 1 and 2):
+  - Added receive-edge KAD inbound instrumentation in `src/kad/service.rs`:
+    - `event="kad_inbound_packet"` for every decrypted+parsed inbound packet with:
+      - opcode hex + opcode name
+      - dispatch target label
+      - payload length
+      - obfuscation/verify-key context
+    - `event="kad_inbound_drop"` with explicit reasons:
+      - `request_rate_limited`
+      - `unrequested_response`
+      - `unhandled_opcode`
+  - Cross-checked source opcode constants/layouts against iMule reference (`source_ref`):
+    - `src/include/protocol/kad2/Client2Client/UDP.h`
+    - `src/kademlia/net/KademliaUDPListener.cpp` (`Process2SearchSourceRequest`, `Process2PublishSourceRequest`)
+  - Added wire-compat regression tests in `src/kad/wire.rs`:
+    - `kad2_source_opcode_values_match_imule`
+    - `kad2_search_source_req_layout_matches_imule`
+    - `kad2_publish_source_req_layout_has_required_source_tags`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 66 tests).
+- Decisions: Keep diagnostics at `DEBUG` level (not INFO) to preserve operability while enabling precise packet-path triage during A/B probes.
+- Next steps: Build fresh `mule-a`/`mule-b` artifacts and rerun forced `debug/probe_peer` A<->B; inspect new `kad_inbound_packet`/`kad_inbound_drop` events to pinpoint whether source opcodes arrive and where they are dropped.
+- Change log: KAD service now emits deterministic receive-edge opcode/drop telemetry, and source opcode/layout compatibility with iMule is explicitly tested.
+
+- Status: Extended debug peer probing on `feature/kad-imule-parity-deep-pass` to include source-path packets in addition to keyword packets:
+  - `src/kad/service.rs` `debug_probe_peer(...)` now sends:
+    - `KADEMLIA2_SEARCH_SOURCE_REQ` (for peers `kad_version >= 3`)
+    - `KADEMLIA2_PUBLISH_SOURCE_REQ` (for peers `kad_version >= 4`)
+  - Existing probe sends remain unchanged:
+    - `KADEMLIA2_HELLO_REQ`
+    - `KADEMLIA2_SEARCH_KEY_REQ`
+    - `KADEMLIA2_PUBLISH_KEY_REQ`
+  - Probe debug log now reports source probe send booleans:
+    - `sent_search_source`
+    - `sent_publish_source`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 63 tests).
+- Decisions: Keep source probe sends version-gated to align with existing source batch behavior and avoid forcing unsupported opcodes on low-version peers.
+- Next steps: Rebuild `mule-a`/`mule-b` binaries and re-run forced `debug/probe_peer` A->B and B->A; then verify inbound source counters/events (`recv_*_source_*`, `source_store_update`, `source_store_query`) move from zero.
+- Change log: `POST /api/v1/debug/probe_peer` can now directly exercise source request paths, enabling deterministic source-path diagnostics.
+
+- Status: Added targeted source-store observability on `feature/kad-imule-parity-deep-pass` and validated via extended two-instance selftest:
+  - `src/kad/service.rs` now tracks and reports source lifecycle counters in `kad_status_detail`:
+    - `recv_search_source_decode_failures`
+    - `source_search_hits` / `source_search_misses`
+    - `source_search_results_served`
+    - `recv_publish_source_decode_failures`
+    - `sent_publish_source_ress`
+    - `new_store_source_entries`
+  - Added source store gauges in status payload:
+    - `source_store_files`
+    - `source_store_entries_total`
+  - Added structured source observability logs:
+    - `event=source_store_update` on inbound `PUBLISH_SOURCE_REQ` store attempts
+    - `event=source_store_query` on served `SEARCH_SOURCE_REQ` responses
+  - Added unit test coverage:
+    - `kad::service::tests::build_status_reports_source_store_totals`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 63 tests).
+- Decisions: Keep observability additive and low-risk (counters + logs) without changing protocol behavior yet; use this pass to isolate source replication/search breakpoints before logic changes.
+- Next steps: Re-run targeted A/B probe and inspect new counters/events (`source_store_update`, `source_store_query`, `new_store_source_entries`, `source_store_*`) to identify exact source-path failure stage.
+- Change log: Source publish/search/store lifecycle now has explicit service-side counters and logs suitable for direct A/B diagnostics.
+
+- Status: Completed deep KAD parity hardening pass against iMule reference (`source_ref`) on `feature/kad-imule-parity-deep-pass`:
+  - Added PacketTracking-style request/response correlation in `src/kad/service.rs`:
+    - track outgoing KAD request opcodes with 180s TTL,
+    - drop unrequested inbound response packets (bootstrap/hello/res/search/publish/pong shapes).
+  - Added per-peer inbound KAD request flood limiting in `src/kad/service.rs` (iMule-inspired limits by opcode family).
+  - Added service-mode handling for inbound `KADEMLIA2_BOOTSTRAP_REQ` and reply path:
+    - introduced `encode_kad2_bootstrap_res(...)` in `src/kad/wire.rs`,
+    - service now responds with self+routing contacts, encrypted with receiver-key flow when applicable.
+  - Removed remaining runtime brittle byte-slice `unwrap` conversions in:
+    - `src/kad/bootstrap.rs`
+    - `src/kad/udp_crypto.rs` (`udp_verify_key` path)
+  - Added tests in `src/kad/service.rs`:
+    - tracked out-request matching behavior,
+    - inbound request flood-limit behavior.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 62 tests).
+- Decisions: Keep implementation Rust-native (simple explicit tracker + hash-map counters) while matching iMule behavior intent (tracked responses, anti-flood request gating, bootstrap response semantics) without copying C++ structure.
+- Next steps: Optional follow-up parity pass can tighten ACK/challenge semantics further by emulating more of iMule `PacketTracking::LegacyChallenge` behavior for edge peers.
+- Change log: KAD service now behaves closer to iMule for bootstrap responsiveness, response legitimacy checks, and inbound request flood resistance.
+
 - Status: Completed panic-hardening follow-up for sanity findings (items 1..4) on `main`:
   - `src/logging.rs`: removed panic-on-poison in warning throttle lock path; now recovers poisoned mutex state and logs a warning.
   - `src/app.rs`: removed runtime `unwrap()` conversions for destination hash/array extraction; switched to explicit copy logic.
