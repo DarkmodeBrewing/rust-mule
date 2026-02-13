@@ -74,11 +74,11 @@
         <h3 class="mt-4" id="primary-navigation-title">Navigation</h3>
         <nav aria-labelledby="primary-navigation-title">
           <ul class="nav-list mt-3">
-          <li><a href="/ui">Overview</a></li>
-          <li><a href="/ui/search">Searches</a></li>
-          <li><a href="/ui/node_stats">Nodes / Routing</a></li>
+            <li><a href="/ui">Overview</a></li>
+            <li><a href="/ui/search">Searches</a></li>
+            <li><a href="/ui/node_stats">Nodes / Routing</a></li>
             <li><a href="/ui/log" aria-current="page">Logs</a></li>
-          <li><a href="/ui/settings">Settings</a></li>
+            <li><a href="/ui/settings">Settings</a></li>
           </ul>
         </nav>
 
@@ -163,7 +163,12 @@
 
         <div class="card">
           <h2>Event Log</h2>
-          <div class="log mt-3" role="log" aria-live="polite" aria-atomic="false">
+          <div
+            class="log mt-3"
+            role="log"
+            aria-live="polite"
+            aria-atomic="false"
+          >
             <template x-if="logEntries.length === 0">
               <p>No events yet.</p>
             </template>

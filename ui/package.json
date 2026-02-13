@@ -5,9 +5,12 @@
   "scripts": {
     "test:ui:smoke": "playwright test",
     "test:ui:smoke:headed": "playwright test --headed",
-    "test:ui:smoke:debug": "playwright test --debug"
+    "test:ui:smoke:debug": "playwright test --debug",
+    "format": "prettier --write \"../ui/**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\"",
+    "format:check": "prettier --check \"../ui/**/*.{ts,tsx,js,jsx,json,css,scss,md,html}\""
   },
   "devDependencies": {
-    "@playwright/test": "^1.52.0"
+    "@playwright/test": "^1.52.0",
+    "prettier": "^3.8.1"
   }
 }
