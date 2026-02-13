@@ -8,6 +8,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Added targeted source-store observability on `feature/kad-imule-parity-deep-pass` and validated via extended two-instance selftest:
+  - `src/kad/service.rs` now tracks and reports source lifecycle counters in `kad_status_detail`:
+    - `recv_search_source_decode_failures`
+    - `source_search_hits` / `source_search_misses`
+    - `source_search_results_served`
+    - `recv_publish_source_decode_failures`
+    - `sent_publish_source_ress`
+    - `new_store_source_entries`
+  - Added source store gauges in status payload:
+    - `source_store_files`
+    - `source_store_entries_total`
+  - Added structured source observability logs:
+    - `event=source_store_update` on inbound `PUBLISH_SOURCE_REQ` store attempts
+    - `event=source_store_query` on served `SEARCH_SOURCE_REQ` responses
+  - Added unit test coverage:
+    - `kad::service::tests::build_status_reports_source_store_totals`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 63 tests).
+- Decisions: Keep observability additive and low-risk (counters + logs) without changing protocol behavior yet; use this pass to isolate source replication/search breakpoints before logic changes.
+- Next steps: Re-run targeted A/B probe and inspect new counters/events (`source_store_update`, `source_store_query`, `new_store_source_entries`, `source_store_*`) to identify exact source-path failure stage.
+- Change log: Source publish/search/store lifecycle now has explicit service-side counters and logs suitable for direct A/B diagnostics.
+
 - Status: Completed deep KAD parity hardening pass against iMule reference (`source_ref`) on `feature/kad-imule-parity-deep-pass`:
   - Added PacketTracking-style request/response correlation in `src/kad/service.rs`:
     - track outgoing KAD request opcodes with 180s TTL,

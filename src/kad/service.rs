@@ -289,6 +289,10 @@ struct KadServiceStats {
 
     sent_search_source_reqs: u64,
     recv_search_source_reqs: u64,
+    recv_search_source_decode_failures: u64,
+    source_search_hits: u64,
+    source_search_misses: u64,
+    source_search_results_served: u64,
     recv_search_ress: u64,
     search_results: u64,
     new_sources: u64,
@@ -311,6 +315,9 @@ struct KadServiceStats {
 
     sent_publish_source_reqs: u64,
     recv_publish_source_reqs: u64,
+    recv_publish_source_decode_failures: u64,
+    sent_publish_source_ress: u64,
+    new_store_source_entries: u64,
     recv_publish_ress: u64,
 }
 
@@ -342,6 +349,10 @@ pub struct KadServiceStatus {
 
     pub sent_search_source_reqs: u64,
     pub recv_search_source_reqs: u64,
+    pub recv_search_source_decode_failures: u64,
+    pub source_search_hits: u64,
+    pub source_search_misses: u64,
+    pub source_search_results_served: u64,
     pub recv_search_ress: u64,
     pub search_results: u64,
     pub new_sources: u64,
@@ -357,6 +368,8 @@ pub struct KadServiceStatus {
 
     pub store_keyword_keywords: usize,
     pub store_keyword_hits_total: usize,
+    pub source_store_files: usize,
+    pub source_store_entries_total: usize,
 
     pub recv_publish_key_reqs: u64,
     pub recv_publish_key_decode_failures: u64,
@@ -369,6 +382,9 @@ pub struct KadServiceStatus {
 
     pub sent_publish_source_reqs: u64,
     pub recv_publish_source_reqs: u64,
+    pub recv_publish_source_decode_failures: u64,
+    pub sent_publish_source_ress: u64,
+    pub new_store_source_entries: u64,
     pub recv_publish_ress: u64,
 }
 
@@ -1018,6 +1034,36 @@ mod tests {
             KADEMLIA2_REQ,
             now + Duration::from_secs(61)
         ));
+    }
+
+    #[test]
+    fn build_status_reports_source_store_totals() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let started = Instant::now();
+
+        let file_a = KadId([1u8; 16]);
+        let file_b = KadId([2u8; 16]);
+        let source_a = KadId([3u8; 16]);
+        let source_b = KadId([4u8; 16]);
+        let source_c = KadId([5u8; 16]);
+
+        svc.sources_by_file
+            .entry(file_a)
+            .or_default()
+            .insert(source_a, [11u8; I2P_DEST_LEN]);
+        svc.sources_by_file
+            .entry(file_a)
+            .or_default()
+            .insert(source_b, [12u8; I2P_DEST_LEN]);
+        svc.sources_by_file
+            .entry(file_b)
+            .or_default()
+            .insert(source_c, [13u8; I2P_DEST_LEN]);
+
+        let st = build_status(&mut svc, started);
+        assert_eq!(st.source_store_files, 2);
+        assert_eq!(st.source_store_entries_total, 3);
     }
 }
 
@@ -3148,6 +3194,7 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
     let keyword_hits_total = svc.keyword_hits_total;
     let store_keyword_keywords = svc.keyword_store_by_keyword.len();
     let store_keyword_hits_total = svc.keyword_store_total;
+    let (source_store_files, source_store_entries_total) = source_store_totals(svc);
     let w = svc.stats_window;
     svc.stats_window = KadServiceStats::default();
 
@@ -3177,6 +3224,10 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
 
         sent_search_source_reqs: w.sent_search_source_reqs,
         recv_search_source_reqs: w.recv_search_source_reqs,
+        recv_search_source_decode_failures: w.recv_search_source_decode_failures,
+        source_search_hits: w.source_search_hits,
+        source_search_misses: w.source_search_misses,
+        source_search_results_served: w.source_search_results_served,
         recv_search_ress: w.recv_search_ress,
         search_results: w.search_results,
         new_sources: w.new_sources,
@@ -3192,6 +3243,8 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
 
         store_keyword_keywords,
         store_keyword_hits_total,
+        source_store_files,
+        source_store_entries_total,
 
         recv_publish_key_reqs: w.recv_publish_key_reqs,
         recv_publish_key_decode_failures: w.recv_publish_key_decode_failures,
@@ -3204,8 +3257,17 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
 
         sent_publish_source_reqs: w.sent_publish_source_reqs,
         recv_publish_source_reqs: w.recv_publish_source_reqs,
+        recv_publish_source_decode_failures: w.recv_publish_source_decode_failures,
+        sent_publish_source_ress: w.sent_publish_source_ress,
+        new_store_source_entries: w.new_store_source_entries,
         recv_publish_ress: w.recv_publish_ress,
     }
+}
+
+fn source_store_totals(svc: &KadService) -> (usize, usize) {
+    let files = svc.sources_by_file.len();
+    let entries = svc.sources_by_file.values().map(BTreeMap::len).sum();
+    (files, entries)
 }
 
 fn publish_status(
@@ -3239,6 +3301,8 @@ fn publish_status(
         keyword_hits_total = st.keyword_hits_total,
         store_keyword_keywords = st.store_keyword_keywords,
         store_keyword_hits_total = st.store_keyword_hits_total,
+        source_store_files = st.source_store_files,
+        source_store_entries_total = st.source_store_entries_total,
         verified_pct,
         buckets_empty = summary.buckets_empty,
         bucket_fill_min = summary.bucket_fill_min,
@@ -3272,6 +3336,10 @@ fn publish_status(
         evicted = st.evicted,
         sent_search_source_reqs = st.sent_search_source_reqs,
         recv_search_source_reqs = st.recv_search_source_reqs,
+        recv_search_source_decode_failures = st.recv_search_source_decode_failures,
+        source_search_hits = st.source_search_hits,
+        source_search_misses = st.source_search_misses,
+        source_search_results_served = st.source_search_results_served,
         recv_search_ress = st.recv_search_ress,
         search_results = st.search_results,
         new_sources = st.new_sources,
@@ -3285,6 +3353,8 @@ fn publish_status(
         keyword_hits_total = st.keyword_hits_total,
         store_keyword_keywords = st.store_keyword_keywords,
         store_keyword_hits_total = st.store_keyword_hits_total,
+        source_store_files = st.source_store_files,
+        source_store_entries_total = st.source_store_entries_total,
         recv_publish_key_reqs = st.recv_publish_key_reqs,
         recv_publish_key_decode_failures = st.recv_publish_key_decode_failures,
         sent_publish_key_ress = st.sent_publish_key_ress,
@@ -3295,6 +3365,9 @@ fn publish_status(
         evicted_store_keyword_keywords = st.evicted_store_keyword_keywords,
         sent_publish_source_reqs = st.sent_publish_source_reqs,
         recv_publish_source_reqs = st.recv_publish_source_reqs,
+        recv_publish_source_decode_failures = st.recv_publish_source_decode_failures,
+        sent_publish_source_ress = st.sent_publish_source_ress,
+        new_store_source_entries = st.new_store_source_entries,
         recv_publish_ress = st.recv_publish_ress,
         verified_pct,
         buckets_empty = summary.buckets_empty,
@@ -4073,6 +4146,7 @@ async fn handle_inbound(
             let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
+                    svc.stats_window.recv_publish_source_decode_failures += 1;
                     tracing::debug!(
                         error = %err,
                         from = %crate::i2p::b64::short(&from_dest_b64),
@@ -4088,15 +4162,28 @@ async fn handle_inbound(
                 "recv PUBLISH_SOURCE_REQ"
             );
 
+            let mut inserted = false;
             if let Some(raw) = &from_dest_raw
                 && raw.len() == I2P_DEST_LEN
             {
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
-                svc.sources_by_file
+                inserted = svc
+                    .sources_by_file
                     .entry(req.file)
                     .or_default()
-                    .insert(req.source, udp_dest);
+                    .insert(req.source, udp_dest)
+                    .is_none();
+                if inserted {
+                    svc.stats_window.new_store_source_entries += 1;
+                }
+            } else {
+                tracing::debug!(
+                    from = %crate::i2p::b64::short(&from_dest_b64),
+                    file = %crate::logging::redact_hex(&req.file.to_hex_lower()),
+                    source = %crate::logging::redact_hex(&req.source.to_hex_lower()),
+                    "skipping source store insert (missing/invalid sender destination bytes)"
+                );
             }
 
             let count = svc
@@ -4104,6 +4191,18 @@ async fn handle_inbound(
                 .get(&req.file)
                 .map(|m| m.len() as u32)
                 .unwrap_or(0);
+            let (source_store_files, source_store_entries_total) = source_store_totals(svc);
+            tracing::info!(
+                event = "source_store_update",
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                file = %crate::logging::redact_hex(&req.file.to_hex_lower()),
+                source = %crate::logging::redact_hex(&req.source.to_hex_lower()),
+                inserted,
+                file_sources = count,
+                source_store_files,
+                source_store_entries_total,
+                "source store update from PUBLISH_SOURCE_REQ"
+            );
 
             let res_payload = encode_kad2_publish_res_for_source(req.file, count, count, 0);
             let res_plain = KadPacket::encode(KADEMLIA2_PUBLISH_RES, &res_payload);
@@ -4119,6 +4218,7 @@ async fn handle_inbound(
             };
 
             let _ = sock.send_to(&from_dest_b64, &out).await;
+            svc.stats_window.sent_publish_source_ress += 1;
         }
 
         KADEMLIA2_SEARCH_KEY_REQ => {
@@ -4184,6 +4284,7 @@ async fn handle_inbound(
             let req = match decode_kad2_search_source_req(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
+                    svc.stats_window.recv_search_source_decode_failures += 1;
                     tracing::debug!(
                         error = %err,
                         from = %crate::i2p::b64::short(&from_dest_b64),
@@ -4200,6 +4301,11 @@ async fn handle_inbound(
                 "recv SEARCH_SOURCE_REQ"
             );
 
+            let total_sources_for_file = svc
+                .sources_by_file
+                .get(&req.target)
+                .map(BTreeMap::len)
+                .unwrap_or(0);
             let results = svc
                 .sources_by_file
                 .get(&req.target)
@@ -4211,6 +4317,24 @@ async fn handle_inbound(
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
+            let returned = results.len();
+            if returned > 0 {
+                svc.stats_window.source_search_hits += 1;
+            } else {
+                svc.stats_window.source_search_misses += 1;
+            }
+            svc.stats_window.source_search_results_served += returned as u64;
+            tracing::info!(
+                event = "source_store_query",
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                file = %crate::logging::redact_hex(&req.target.to_hex_lower()),
+                start = req.start_position,
+                file_size = req.file_size,
+                available = total_sources_for_file,
+                returned,
+                hit = returned > 0,
+                "served SEARCH_SOURCE_REQ from source store"
+            );
 
             let payload = encode_kad2_search_res_sources(crypto.my_kad_id, req.target, &results);
             let plain = KadPacket::encode(KADEMLIA2_SEARCH_RES, &payload);
@@ -4265,6 +4389,7 @@ async fn handle_inbound(
                     let m = svc.sources_by_file.entry(res.key).or_default();
                     if m.insert(r.answer, dest).is_none() {
                         inserted_sources += 1;
+                        svc.stats_window.new_store_source_entries += 1;
                     }
                     continue;
                 }
