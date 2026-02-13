@@ -1395,8 +1395,10 @@ fn content_type_for_path(path: &std::path::Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::Body;
-    use axum::http::Request;
+    use crate::kad::service::KadKeywordHitOrigin;
+    use axum::body::{Body, to_bytes};
+    use axum::http::{Method, Request};
+    use serde_json::Value;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
     use tokio::sync::{broadcast, mpsc, watch};
     use tower::util::ServiceExt as _;
@@ -1419,6 +1421,95 @@ mod tests {
         build_app(state.clone())
             .layer(middleware::from_fn(cors_mw))
             .layer(middleware::from_fn_with_state(state, auth_mw))
+    }
+
+    fn sample_status() -> KadServiceStatus {
+        KadServiceStatus {
+            uptime_secs: 120,
+            routing: 10,
+            live: 3,
+            live_10m: 2,
+            pending: 1,
+            sent_reqs: 1,
+            recv_ress: 1,
+            res_contacts: 0,
+            dropped_undecipherable: 0,
+            dropped_unparsable: 0,
+            recv_hello_reqs: 0,
+            sent_bootstrap_reqs: 0,
+            recv_bootstrap_ress: 0,
+            bootstrap_contacts: 0,
+            sent_hellos: 0,
+            recv_hello_ress: 0,
+            sent_hello_acks: 0,
+            recv_hello_acks: 0,
+            hello_ack_skipped_no_sender_key: 0,
+            timeouts: 0,
+            new_nodes: 0,
+            evicted: 0,
+            sent_search_source_reqs: 1,
+            recv_search_source_reqs: 1,
+            recv_search_source_decode_failures: 0,
+            source_search_hits: 1,
+            source_search_misses: 0,
+            source_search_results_served: 1,
+            recv_search_ress: 1,
+            search_results: 1,
+            new_sources: 1,
+            sent_search_key_reqs: 0,
+            recv_search_key_reqs: 0,
+            keyword_results: 1,
+            new_keyword_results: 1,
+            evicted_keyword_hits: 0,
+            evicted_keyword_keywords: 0,
+            keyword_keywords_tracked: 1,
+            keyword_hits_total: 1,
+            store_keyword_keywords: 1,
+            store_keyword_hits_total: 1,
+            source_store_files: 1,
+            source_store_entries_total: 1,
+            recv_publish_key_reqs: 0,
+            recv_publish_key_decode_failures: 0,
+            sent_publish_key_ress: 0,
+            sent_publish_key_reqs: 0,
+            recv_publish_key_ress: 0,
+            new_store_keyword_hits: 0,
+            evicted_store_keyword_hits: 0,
+            evicted_store_keyword_keywords: 0,
+            sent_publish_source_reqs: 1,
+            recv_publish_source_reqs: 1,
+            recv_publish_source_decode_failures: 0,
+            sent_publish_source_ress: 1,
+            new_store_source_entries: 1,
+            recv_publish_ress: 1,
+            source_search_batch_candidates: 8,
+            source_search_batch_skipped_version: 1,
+            source_search_batch_sent: 6,
+            source_search_batch_send_fail: 1,
+            source_publish_batch_candidates: 6,
+            source_publish_batch_skipped_version: 1,
+            source_publish_batch_sent: 4,
+            source_publish_batch_send_fail: 1,
+            source_probe_first_publish_responses: 1,
+            source_probe_first_search_responses: 1,
+            source_probe_search_results_total: 1,
+            source_probe_publish_latency_ms_total: 10,
+            source_probe_search_latency_ms_total: 20,
+        }
+    }
+
+    fn authorized_api_get(path: &str) -> Request<Body> {
+        Request::builder()
+            .uri(path)
+            .method(Method::GET)
+            .header(header::AUTHORIZATION, "Bearer test-token")
+            .body(Body::empty())
+            .unwrap()
+    }
+
+    async fn response_json(resp: axum::response::Response) -> Value {
+        let body = to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
     }
 
     #[test]
@@ -1865,5 +1956,187 @@ mod tests {
 
         let _ = tokio::fs::remove_file(&token_path).await;
         let _ = tokio::fs::remove_dir(&test_dir).await;
+    }
+
+    #[tokio::test]
+    async fn ui_api_contract_endpoints_return_expected_shapes() {
+        let (kad_tx, mut kad_rx) = mpsc::channel(16);
+        let (status_tx, status_rx) = watch::channel(Some(sample_status()));
+        let (status_events_tx, _status_events_rx) = broadcast::channel(16);
+        let state = ApiState {
+            token: Arc::new(tokio::sync::RwLock::new("test-token".to_string())),
+            token_path: Arc::new(PathBuf::from("data/api.token")),
+            status_rx,
+            status_events_tx,
+            kad_cmd_tx: kad_tx,
+            config: Arc::new(tokio::sync::Mutex::new(Config::default())),
+            sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        };
+        // Keep sender alive.
+        let _status_tx_guard = status_tx;
+
+        let search_id_hex = "00112233445566778899aabbccddeeff".to_string();
+        let keyword_id = KadId::from_hex(&search_id_hex).unwrap();
+
+        let responder = tokio::spawn(async move {
+            while let Some(cmd) = kad_rx.recv().await {
+                match cmd {
+                    KadServiceCommand::GetKeywordSearches { respond_to } => {
+                        let _ = respond_to.send(vec![KadKeywordSearchInfo {
+                            search_id_hex: search_id_hex.clone(),
+                            keyword_id_hex: search_id_hex.clone(),
+                            state: "running".to_string(),
+                            created_secs_ago: 5,
+                            hits: 1,
+                            want_search: true,
+                            publish_enabled: false,
+                            got_publish_ack: false,
+                        }]);
+                    }
+                    KadServiceCommand::GetKeywordResults {
+                        keyword,
+                        respond_to,
+                    } => {
+                        assert_eq!(keyword, keyword_id);
+                        let _ = respond_to.send(vec![KadKeywordHit {
+                            file_id: KadId::from_hex("ffeeddccbbaa00998877665544332211").unwrap(),
+                            filename: "demo-file.bin".to_string(),
+                            file_size: 1234,
+                            file_type: Some("Pro".to_string()),
+                            publish_info: Some(1),
+                            origin: KadKeywordHitOrigin::Network,
+                        }]);
+                    }
+                    KadServiceCommand::GetPeers { respond_to } => {
+                        let _ = respond_to.send(vec![KadPeerInfo {
+                            kad_id_hex: search_id_hex.clone(),
+                            udp_dest_b64: "dest".repeat(129),
+                            udp_dest_short: "dest...".to_string(),
+                            kad_version: 8,
+                            verified: true,
+                            udp_key: 1,
+                            udp_key_ip: 2,
+                            failures: 0,
+                            peer_agent: Some("rust-mule".to_string()),
+                            last_seen_secs_ago: 1,
+                            last_inbound_secs_ago: Some(2),
+                            last_queried_secs_ago: Some(3),
+                            last_bootstrap_secs_ago: Some(4),
+                            last_hello_secs_ago: Some(5),
+                        }]);
+                    }
+                    other => panic!("unexpected command: {other:?}"),
+                }
+            }
+        });
+
+        let app = test_app(state);
+
+        let status_resp = app
+            .clone()
+            .oneshot(authorized_api_get("/api/v1/status"))
+            .await
+            .unwrap();
+        assert_eq!(status_resp.status(), StatusCode::OK);
+        let status_json = response_json(status_resp).await;
+        assert!(status_json.get("routing").and_then(Value::as_u64).is_some());
+        assert!(
+            status_json
+                .get("source_search_batch_sent")
+                .and_then(Value::as_u64)
+                .is_some()
+        );
+        assert!(
+            status_json
+                .get("source_probe_search_latency_ms_total")
+                .and_then(Value::as_u64)
+                .is_some()
+        );
+
+        let searches_resp = app
+            .clone()
+            .oneshot(authorized_api_get("/api/v1/searches"))
+            .await
+            .unwrap();
+        assert_eq!(searches_resp.status(), StatusCode::OK);
+        let searches_json = response_json(searches_resp).await;
+        let searches = searches_json
+            .get("searches")
+            .and_then(Value::as_array)
+            .unwrap();
+        assert_eq!(searches.len(), 1);
+        assert_eq!(
+            searches[0].get("search_id_hex").and_then(Value::as_str),
+            Some("00112233445566778899aabbccddeeff")
+        );
+
+        let details_resp = app
+            .clone()
+            .oneshot(authorized_api_get(
+                "/api/v1/searches/00112233445566778899aabbccddeeff",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(details_resp.status(), StatusCode::OK);
+        let details_json = response_json(details_resp).await;
+        assert!(details_json.get("search").is_some());
+        assert_eq!(
+            details_json
+                .get("hits")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(details_json["hits"][0]["origin"].as_str(), Some("network"));
+
+        let keyword_results_resp = app
+            .clone()
+            .oneshot(authorized_api_get(
+                "/api/v1/kad/keyword_results/00112233445566778899aabbccddeeff",
+            ))
+            .await
+            .unwrap();
+        assert_eq!(keyword_results_resp.status(), StatusCode::OK);
+        let keyword_results_json = response_json(keyword_results_resp).await;
+        assert_eq!(
+            keyword_results_json["keyword_id_hex"].as_str(),
+            Some("00112233445566778899aabbccddeeff")
+        );
+        assert_eq!(
+            keyword_results_json
+                .get("hits")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+
+        let peers_resp = app
+            .clone()
+            .oneshot(authorized_api_get("/api/v1/kad/peers"))
+            .await
+            .unwrap();
+        assert_eq!(peers_resp.status(), StatusCode::OK);
+        let peers_json = response_json(peers_resp).await;
+        assert_eq!(
+            peers_json
+                .get("peers")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(peers_json["peers"][0]["kad_version"].as_u64(), Some(8));
+
+        let settings_resp = app
+            .clone()
+            .oneshot(authorized_api_get("/api/v1/settings"))
+            .await
+            .unwrap();
+        assert_eq!(settings_resp.status(), StatusCode::OK);
+        let settings_json = response_json(settings_resp).await;
+        assert!(settings_json.get("settings").is_some());
+        assert!(settings_json.get("restart_required").is_some());
+
+        drop(app);
+        responder.abort();
     }
 }

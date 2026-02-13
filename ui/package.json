@@ -1,0 +1,13 @@
+{
+  "name": "rust-mule-ui-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ui:smoke": "playwright test",
+    "test:ui:smoke:headed": "playwright test --headed",
+    "test:ui:smoke:debug": "playwright test --debug"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}

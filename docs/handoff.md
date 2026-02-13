@@ -8,6 +8,32 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Added UI/API contract assurance scaffolding on `feature/kad-imule-parity-deep-pass`:
+  - Added router-level UI contract test in `src/api/mod.rs`:
+    - `ui_api_contract_endpoints_return_expected_shapes`
+    - validates response shape invariants for UI-critical endpoints:
+      - `GET /api/v1/status`
+      - `GET /api/v1/searches`
+      - `GET /api/v1/searches/:search_id`
+      - `GET /api/v1/kad/keyword_results/:keyword_id_hex`
+      - `GET /api/v1/kad/peers`
+      - `GET /api/v1/settings`
+  - Added endpoint coverage map:
+    - `docs/ui_api_contract_map.md` (UI sections -> endpoint -> required fields/behavior).
+  - Added Playwright smoke test scaffold for UI pages:
+    - `ui/package.json`
+    - `ui/playwright.config.mjs`
+    - `ui/tests/e2e/smoke.spec.mjs`
+    - `ui/tests/README.md`
+  - Updated `.gitignore` for UI test artifacts:
+    - `/ui/node_modules`
+    - `/ui/test-results`
+    - `/ui/playwright-report`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep browser smoke tests as an opt-in local workflow (Node/Playwright) while enforcing API response contracts in Rust tests to keep CI lightweight and deterministic.
+- Next steps: When soak run completes, execute `ui` Playwright smoke against the same running node and add failures (if any) as actionable API/UI contract regressions.
+- Change log: UI-critical API response shape checks are now executable, documented, and paired with a runnable browser smoke suite scaffold.
+
 - Status: Implemented organic source-flow observability upgrades on `feature/kad-imule-parity-deep-pass` (requested implementation of steps 2 and 3):
   - Added source batch outcome accounting in `src/kad/service.rs` for both send paths:
     - search batches: `source_search_batch_{candidates,skipped_version,sent,send_fail}`
