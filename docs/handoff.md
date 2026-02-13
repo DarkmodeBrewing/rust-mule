@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Implemented organic source-flow observability upgrades on `feature/kad-imule-parity-deep-pass` (requested implementation of steps 2 and 3):
+  - Added source batch outcome accounting in `src/kad/service.rs` for both send paths:
+    - search batches: `source_search_batch_{candidates,skipped_version,sent,send_fail}`
+    - publish batches: `source_publish_batch_{candidates,skipped_version,sent,send_fail}`
+  - Batch counters are emitted in status payload (`KadServiceStatus`) and logged in send-batch INFO events.
+  - Added per-file source probe tracker state (`source_probe_by_file`) with first-send/first-response timestamps and rolling result counts.
+  - Added aggregate status counters for probe timing/results:
+    - `source_probe_first_publish_responses`
+    - `source_probe_first_search_responses`
+    - `source_probe_search_results_total`
+    - `source_probe_publish_latency_ms_total`
+    - `source_probe_search_latency_ms_total`
+  - Wired response-side tracking:
+    - on source `PUBLISH_RES` reception, record first publish response latency per file
+    - on `SEARCH_RES` keyed to tracked source files, record first search response latency and per-response returned source counts
+  - Added unit test:
+    - `kad::service::tests::source_probe_tracks_first_send_response_latency_and_results`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 67 tests).
+- Decisions: Keep probe tracking lightweight/in-memory and bounded (`SOURCE_PROBE_MAX_TRACKED_FILES = 2048`) with aggregate latency totals in status for immediate triage without introducing persistence or heavy histograms.
+- Next steps: Build fresh `mule-a`/`mule-b` artifacts and run repeated non-forced A/B rounds to quantify organic success rate and latency percentiles using the new batch/probe counters.
+- Change log: Source send-path selection/success/failure and per-file response timing are now directly measurable from status + logs.
+
 - Status: Implemented source-path diagnostics follow-up on `feature/kad-imule-parity-deep-pass` (requested items 1 and 2):
   - Added receive-edge KAD inbound instrumentation in `src/kad/service.rs`:
     - `event="kad_inbound_packet"` for every decrypted+parsed inbound packet with:

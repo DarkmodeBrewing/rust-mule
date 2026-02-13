@@ -319,6 +319,21 @@ struct KadServiceStats {
     sent_publish_source_ress: u64,
     new_store_source_entries: u64,
     recv_publish_ress: u64,
+
+    source_search_batch_candidates: u64,
+    source_search_batch_skipped_version: u64,
+    source_search_batch_sent: u64,
+    source_search_batch_send_fail: u64,
+    source_publish_batch_candidates: u64,
+    source_publish_batch_skipped_version: u64,
+    source_publish_batch_sent: u64,
+    source_publish_batch_send_fail: u64,
+
+    source_probe_first_publish_responses: u64,
+    source_probe_first_search_responses: u64,
+    source_probe_search_results_total: u64,
+    source_probe_publish_latency_ms_total: u64,
+    source_probe_search_latency_ms_total: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -386,6 +401,21 @@ pub struct KadServiceStatus {
     pub sent_publish_source_ress: u64,
     pub new_store_source_entries: u64,
     pub recv_publish_ress: u64,
+
+    pub source_search_batch_candidates: u64,
+    pub source_search_batch_skipped_version: u64,
+    pub source_search_batch_sent: u64,
+    pub source_search_batch_send_fail: u64,
+    pub source_publish_batch_candidates: u64,
+    pub source_publish_batch_skipped_version: u64,
+    pub source_publish_batch_sent: u64,
+    pub source_publish_batch_send_fail: u64,
+
+    pub source_probe_first_publish_responses: u64,
+    pub source_probe_first_search_responses: u64,
+    pub source_probe_search_results_total: u64,
+    pub source_probe_publish_latency_ms_total: u64,
+    pub source_probe_search_latency_ms_total: u64,
 }
 
 #[derive(Debug)]
@@ -563,6 +593,7 @@ pub struct KadService {
     routing: RoutingTable,
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
     sources_by_file: BTreeMap<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>,
+    source_probe_by_file: HashMap<KadId, SourceProbeState>,
     // Minimal (in-memory) keyword index: keyword hash -> (file ID -> hit state).
     keyword_hits_by_keyword: BTreeMap<KadId, BTreeMap<KadId, KeywordHitState>>,
     keyword_hits_total: usize,
@@ -593,6 +624,18 @@ pub struct KadService {
 struct KeywordHitState {
     hit: KadKeywordHit,
     last_seen: Instant,
+}
+
+#[derive(Debug, Clone)]
+struct SourceProbeState {
+    first_publish_sent_at: Option<Instant>,
+    first_search_sent_at: Option<Instant>,
+    first_publish_res_at: Option<Instant>,
+    first_search_res_at: Option<Instant>,
+    search_result_events: u64,
+    search_results_total: u64,
+    last_search_results: u64,
+    last_update: Instant,
 }
 
 #[derive(Debug, Clone)]
@@ -643,6 +686,7 @@ impl KadService {
         Self {
             routing: RoutingTable::new(my_id),
             sources_by_file: BTreeMap::new(),
+            source_probe_by_file: HashMap::new(),
             keyword_hits_by_keyword: BTreeMap::new(),
             keyword_hits_total: 0,
             keyword_interest: HashMap::new(),
@@ -1065,6 +1109,41 @@ mod tests {
         assert_eq!(st.source_store_files, 2);
         assert_eq!(st.source_store_entries_total, 3);
     }
+
+    #[test]
+    fn source_probe_tracks_first_send_response_latency_and_results() {
+        let (_tx, rx) = mpsc::channel(1);
+        let mut svc = KadService::new(KadId([0u8; 16]), rx);
+        let file = KadId([9u8; 16]);
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_millis(25);
+        let t2 = t0 + Duration::from_millis(40);
+        let t3 = t0 + Duration::from_millis(75);
+
+        mark_source_publish_sent(&mut svc, file, t0);
+        mark_source_search_sent(&mut svc, file, t1);
+        on_source_publish_response(&mut svc, file, "peer-a", t2);
+        on_source_search_response(&mut svc, file, "peer-a", 3, t3);
+
+        let st = svc
+            .source_probe_by_file
+            .get(&file)
+            .expect("probe state exists");
+        assert_eq!(st.search_result_events, 1);
+        assert_eq!(st.search_results_total, 3);
+        assert_eq!(st.last_search_results, 3);
+        assert!(st.first_publish_sent_at.is_some());
+        assert!(st.first_search_sent_at.is_some());
+        assert!(st.first_publish_res_at.is_some());
+        assert!(st.first_search_res_at.is_some());
+
+        let status = build_status(&mut svc, t0);
+        assert_eq!(status.source_probe_first_publish_responses, 1);
+        assert_eq!(status.source_probe_first_search_responses, 1);
+        assert_eq!(status.source_probe_search_results_total, 3);
+        assert_eq!(status.source_probe_publish_latency_ms_total, 40);
+        assert_eq!(status.source_probe_search_latency_ms_total, 50);
+    }
 }
 
 async fn handle_command(
@@ -1452,10 +1531,14 @@ async fn send_search_sources(
 
     let now = Instant::now();
     let peers = closest_peers_with_fallback(svc, file, 8, 3, 0);
+    let mut skipped_version = 0u64;
+    let mut sent = 0u64;
+    let mut send_fail = 0u64;
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 search source only for version >= 3.
         if p.kad_version < 3 {
+            skipped_version += 1;
             continue;
         }
         maybe_send_hello_to_peer(svc, sock, crypto, cfg, &p, now, hello_min).await?;
@@ -1468,14 +1551,25 @@ async fn send_search_sources(
                 to = %crate::i2p::b64::short(&p.udp_dest_b64()),
                 "failed sending SEARCH_SOURCE_REQ"
             );
+            send_fail += 1;
             continue;
         }
         svc.stats_window.sent_search_source_reqs += 1;
+        sent += 1;
+        mark_source_search_sent(svc, file, now);
     }
+    svc.stats_window.source_search_batch_candidates += sent + skipped_version + send_fail;
+    svc.stats_window.source_search_batch_skipped_version += skipped_version;
+    svc.stats_window.source_search_batch_sent += sent;
+    svc.stats_window.source_search_batch_send_fail += send_fail;
 
     tracing::info!(
         event = "send_search_source_req_batch",
         file = %crate::logging::redact_hex(&file.to_hex_lower()),
+        candidates = sent + skipped_version + send_fail,
+        skipped_version,
+        sent,
+        send_fail,
         "sent SEARCH_SOURCE_REQ"
     );
     Ok(())
@@ -1495,10 +1589,14 @@ async fn send_publish_source(
 
     let now = Instant::now();
     let peers = closest_peers_with_fallback(svc, file, 6, 4, 0);
+    let mut skipped_version = 0u64;
+    let mut sent = 0u64;
+    let mut send_fail = 0u64;
     let hello_min = Duration::from_secs(cfg.hello_min_interval_secs.max(60));
     for p in peers {
         // iMule uses Kad2 publish source only for version >= 4.
         if p.kad_version < 4 {
+            skipped_version += 1;
             continue;
         }
         maybe_send_hello_to_peer(svc, sock, crypto, cfg, &p, now, hello_min).await?;
@@ -1523,14 +1621,25 @@ async fn send_publish_source(
                 to = %crate::i2p::b64::short(&p.udp_dest_b64()),
                 "failed sending PUBLISH_SOURCE_REQ"
             );
+            send_fail += 1;
             continue;
         }
         svc.stats_window.sent_publish_source_reqs += 1;
+        sent += 1;
+        mark_source_publish_sent(svc, file, now);
     }
+    svc.stats_window.source_publish_batch_candidates += sent + skipped_version + send_fail;
+    svc.stats_window.source_publish_batch_skipped_version += skipped_version;
+    svc.stats_window.source_publish_batch_sent += sent;
+    svc.stats_window.source_publish_batch_send_fail += send_fail;
 
     tracing::info!(
         event = "send_publish_source_req_batch",
         file = %crate::logging::redact_hex(&file.to_hex_lower()),
+        candidates = sent + skipped_version + send_fail,
+        skipped_version,
+        sent,
+        send_fail,
         "sent PUBLISH_SOURCE_REQ"
     );
     Ok(())
@@ -2481,6 +2590,7 @@ async fn debug_probe_peer(
         } else {
             sent_search_source = true;
             svc.stats_window.sent_search_source_reqs += 1;
+            mark_source_search_sent(svc, file, now);
         }
     }
 
@@ -2509,6 +2619,7 @@ async fn debug_probe_peer(
         } else {
             sent_publish_source = true;
             svc.stats_window.sent_publish_source_reqs += 1;
+            mark_source_publish_sent(svc, file, now);
         }
     }
 
@@ -3365,6 +3476,21 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         sent_publish_source_ress: w.sent_publish_source_ress,
         new_store_source_entries: w.new_store_source_entries,
         recv_publish_ress: w.recv_publish_ress,
+
+        source_search_batch_candidates: w.source_search_batch_candidates,
+        source_search_batch_skipped_version: w.source_search_batch_skipped_version,
+        source_search_batch_sent: w.source_search_batch_sent,
+        source_search_batch_send_fail: w.source_search_batch_send_fail,
+        source_publish_batch_candidates: w.source_publish_batch_candidates,
+        source_publish_batch_skipped_version: w.source_publish_batch_skipped_version,
+        source_publish_batch_sent: w.source_publish_batch_sent,
+        source_publish_batch_send_fail: w.source_publish_batch_send_fail,
+
+        source_probe_first_publish_responses: w.source_probe_first_publish_responses,
+        source_probe_first_search_responses: w.source_probe_first_search_responses,
+        source_probe_search_results_total: w.source_probe_search_results_total,
+        source_probe_publish_latency_ms_total: w.source_probe_publish_latency_ms_total,
+        source_probe_search_latency_ms_total: w.source_probe_search_latency_ms_total,
     }
 }
 
@@ -3372,6 +3498,130 @@ fn source_store_totals(svc: &KadService) -> (usize, usize) {
     let files = svc.sources_by_file.len();
     let entries = svc.sources_by_file.values().map(BTreeMap::len).sum();
     (files, entries)
+}
+
+const SOURCE_PROBE_MAX_TRACKED_FILES: usize = 2048;
+
+fn source_probe_state_mut(
+    svc: &mut KadService,
+    file: KadId,
+    now: Instant,
+) -> &mut SourceProbeState {
+    if svc.source_probe_by_file.len() >= SOURCE_PROBE_MAX_TRACKED_FILES
+        && !svc.source_probe_by_file.contains_key(&file)
+        && let Some(oldest_key) = svc
+            .source_probe_by_file
+            .iter()
+            .min_by_key(|(_, st)| st.last_update)
+            .map(|(k, _)| *k)
+    {
+        svc.source_probe_by_file.remove(&oldest_key);
+    }
+    svc.source_probe_by_file
+        .entry(file)
+        .or_insert_with(|| SourceProbeState {
+            first_publish_sent_at: None,
+            first_search_sent_at: None,
+            first_publish_res_at: None,
+            first_search_res_at: None,
+            search_result_events: 0,
+            search_results_total: 0,
+            last_search_results: 0,
+            last_update: now,
+        })
+}
+
+fn mark_source_publish_sent(svc: &mut KadService, file: KadId, now: Instant) {
+    let st = source_probe_state_mut(svc, file, now);
+    if st.first_publish_sent_at.is_none() {
+        st.first_publish_sent_at = Some(now);
+    }
+    st.last_update = now;
+}
+
+fn mark_source_search_sent(svc: &mut KadService, file: KadId, now: Instant) {
+    let st = source_probe_state_mut(svc, file, now);
+    if st.first_search_sent_at.is_none() {
+        st.first_search_sent_at = Some(now);
+    }
+    st.last_update = now;
+}
+
+fn on_source_publish_response(
+    svc: &mut KadService,
+    file: KadId,
+    from_dest_b64: &str,
+    now: Instant,
+) {
+    let mut first_response = false;
+    let mut first_latency_ms = None;
+    {
+        let st = source_probe_state_mut(svc, file, now);
+        if st.first_publish_res_at.is_none() {
+            st.first_publish_res_at = Some(now);
+            first_response = true;
+            if let Some(sent_at) = st.first_publish_sent_at {
+                first_latency_ms = Some(now.saturating_duration_since(sent_at).as_millis() as u64);
+            }
+        }
+        st.last_update = now;
+    }
+    if first_response {
+        svc.stats_window.source_probe_first_publish_responses += 1;
+        if let Some(latency_ms) = first_latency_ms {
+            svc.stats_window.source_probe_publish_latency_ms_total += latency_ms;
+            tracing::info!(
+                event = "source_probe_publish_first_response",
+                from = %crate::i2p::b64::short(from_dest_b64),
+                file = %crate::logging::redact_hex(&file.to_hex_lower()),
+                latency_ms,
+                "source publish first response observed"
+            );
+        }
+    }
+}
+
+fn on_source_search_response(
+    svc: &mut KadService,
+    file: KadId,
+    from_dest_b64: &str,
+    returned_sources: u64,
+    now: Instant,
+) {
+    let mut first_response = false;
+    let mut first_latency_ms = None;
+    {
+        let st = source_probe_state_mut(svc, file, now);
+        if st.first_search_res_at.is_none() {
+            st.first_search_res_at = Some(now);
+            first_response = true;
+            if let Some(sent_at) = st.first_search_sent_at {
+                first_latency_ms = Some(now.saturating_duration_since(sent_at).as_millis() as u64);
+            }
+        }
+        st.search_result_events = st.search_result_events.saturating_add(1);
+        st.search_results_total = st.search_results_total.saturating_add(returned_sources);
+        st.last_search_results = returned_sources;
+        st.last_update = now;
+    }
+    if first_response {
+        svc.stats_window.source_probe_first_search_responses += 1;
+        if let Some(latency_ms) = first_latency_ms {
+            svc.stats_window.source_probe_search_latency_ms_total += latency_ms;
+            tracing::info!(
+                event = "source_probe_search_first_response",
+                from = %crate::i2p::b64::short(from_dest_b64),
+                file = %crate::logging::redact_hex(&file.to_hex_lower()),
+                latency_ms,
+                returned_sources,
+                "source search first response observed"
+            );
+        }
+    }
+    svc.stats_window.source_probe_search_results_total = svc
+        .stats_window
+        .source_probe_search_results_total
+        .saturating_add(returned_sources);
 }
 
 fn publish_status(
@@ -3473,6 +3723,19 @@ fn publish_status(
         sent_publish_source_ress = st.sent_publish_source_ress,
         new_store_source_entries = st.new_store_source_entries,
         recv_publish_ress = st.recv_publish_ress,
+        source_search_batch_candidates = st.source_search_batch_candidates,
+        source_search_batch_skipped_version = st.source_search_batch_skipped_version,
+        source_search_batch_sent = st.source_search_batch_sent,
+        source_search_batch_send_fail = st.source_search_batch_send_fail,
+        source_publish_batch_candidates = st.source_publish_batch_candidates,
+        source_publish_batch_skipped_version = st.source_publish_batch_skipped_version,
+        source_publish_batch_sent = st.source_publish_batch_sent,
+        source_publish_batch_send_fail = st.source_publish_batch_send_fail,
+        source_probe_first_publish_responses = st.source_probe_first_publish_responses,
+        source_probe_first_search_responses = st.source_probe_first_search_responses,
+        source_probe_search_results_total = st.source_probe_search_results_total,
+        source_probe_publish_latency_ms_total = st.source_probe_publish_latency_ms_total,
+        source_probe_search_latency_ms_total = st.source_probe_search_latency_ms_total,
         verified_pct,
         buckets_empty = summary.buckets_empty,
         bucket_fill_min = summary.bucket_fill_min,
@@ -4511,11 +4774,13 @@ async fn handle_inbound(
             let mut keyword_entries = 0u64;
             let mut inserted_sources = 0u64;
             let mut inserted_keywords = 0u64;
+            let mut source_results_in_packet = 0u64;
 
             for r in res.results {
                 if let Some(dest) = r.tags.best_udp_dest() {
                     // Source-style result: key = file ID, answer = source ID.
                     let m = svc.sources_by_file.entry(res.key).or_default();
+                    source_results_in_packet = source_results_in_packet.saturating_add(1);
                     if m.insert(r.answer, dest).is_none() {
                         inserted_sources += 1;
                         svc.stats_window.new_store_source_entries += 1;
@@ -4574,6 +4839,15 @@ async fn handle_inbound(
             }
             if inserted_keywords > 0 {
                 svc.stats_window.new_keyword_results += inserted_keywords;
+            }
+            if source_results_in_packet > 0 || svc.source_probe_by_file.contains_key(&res.key) {
+                on_source_search_response(
+                    svc,
+                    res.key,
+                    &from_dest_b64,
+                    source_results_in_packet,
+                    now,
+                );
             }
 
             if keyword_entries > 0 || inserted_sources > 0 {
@@ -4652,15 +4926,16 @@ async fn handle_inbound(
                         Ok(r) => r,
                         Err(err) => {
                             tracing::trace!(
-                                error = %err,
-                                from = %from_dest_b64,
-                                len = pkt.payload.len(),
-                                "unparsed KAD2 PUBLISH_RES (source)"
-                            );
+                                    error = %err,
+                                    from = %from_dest_b64,
+                                    len = pkt.payload.len(),
+                            "unparsed KAD2 PUBLISH_RES (source)"
+                                );
                             return Ok(());
                         }
                     };
                     svc.stats_window.recv_publish_ress += 1;
+                    on_source_publish_response(svc, res.file, &from_dest_b64, now);
                     tracing::debug!(
                         from = %crate::i2p::b64::short(&from_dest_b64),
                         file = %crate::logging::redact_hex(&res.file.to_hex_lower()),
