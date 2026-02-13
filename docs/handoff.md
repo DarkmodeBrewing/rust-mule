@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Extended debug peer probing on `feature/kad-imule-parity-deep-pass` to include source-path packets in addition to keyword packets:
+  - `src/kad/service.rs` `debug_probe_peer(...)` now sends:
+    - `KADEMLIA2_SEARCH_SOURCE_REQ` (for peers `kad_version >= 3`)
+    - `KADEMLIA2_PUBLISH_SOURCE_REQ` (for peers `kad_version >= 4`)
+  - Existing probe sends remain unchanged:
+    - `KADEMLIA2_HELLO_REQ`
+    - `KADEMLIA2_SEARCH_KEY_REQ`
+    - `KADEMLIA2_PUBLISH_KEY_REQ`
+  - Probe debug log now reports source probe send booleans:
+    - `sent_search_source`
+    - `sent_publish_source`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 63 tests).
+- Decisions: Keep source probe sends version-gated to align with existing source batch behavior and avoid forcing unsupported opcodes on low-version peers.
+- Next steps: Rebuild `mule-a`/`mule-b` binaries and re-run forced `debug/probe_peer` A->B and B->A; then verify inbound source counters/events (`recv_*_source_*`, `source_store_update`, `source_store_query`) move from zero.
+- Change log: `POST /api/v1/debug/probe_peer` can now directly exercise source request paths, enabling deterministic source-path diagnostics.
+
 - Status: Added targeted source-store observability on `feature/kad-imule-parity-deep-pass` and validated via extended two-instance selftest:
   - `src/kad/service.rs` now tracks and reports source lifecycle counters in `kad_status_detail`:
     - `recv_search_source_decode_failures`

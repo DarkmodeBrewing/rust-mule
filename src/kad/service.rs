@@ -2410,11 +2410,68 @@ async fn debug_probe_peer(
         svc.stats_window.sent_publish_key_reqs += 1;
     }
 
+    // Force source-path probing against a known peer to isolate source opcode handling.
+    let mut sent_search_source = false;
+    let mut sent_publish_source = false;
+
+    if peer.kad_version >= 3 {
+        let search_source_payload = encode_kad2_search_source_req(file, 0, file_size);
+        if let Err(err) = send_kad2_packet(
+            svc,
+            sock,
+            &peer,
+            crypto,
+            KADEMLIA2_SEARCH_SOURCE_REQ,
+            &search_source_payload,
+        )
+        .await
+        {
+            tracing::debug!(
+                error = %err,
+                to = %crate::i2p::b64::short(dest_b64),
+                "debug probe failed to send SEARCH_SOURCE_REQ"
+            );
+        } else {
+            sent_search_source = true;
+            svc.stats_window.sent_search_source_reqs += 1;
+        }
+    }
+
+    if peer.kad_version >= 4 {
+        let publish_source_payload = encode_kad2_publish_source_req(
+            file,
+            crypto.my_kad_id,
+            &crypto.my_dest,
+            Some(file_size),
+        );
+        if let Err(err) = send_kad2_packet(
+            svc,
+            sock,
+            &peer,
+            crypto,
+            KADEMLIA2_PUBLISH_SOURCE_REQ,
+            &publish_source_payload,
+        )
+        .await
+        {
+            tracing::debug!(
+                error = %err,
+                to = %crate::i2p::b64::short(dest_b64),
+                "debug probe failed to send PUBLISH_SOURCE_REQ"
+            );
+        } else {
+            sent_publish_source = true;
+            svc.stats_window.sent_publish_source_reqs += 1;
+        }
+    }
+
     tracing::debug!(
         to = %crate::i2p::b64::short(dest_b64),
         keyword = %crate::logging::redact_hex(&keyword.to_hex_lower()),
         file = %crate::logging::redact_hex(&file.to_hex_lower()),
-        "debug probe sent HELLO/SEARCH_KEY/PUBLISH_KEY"
+        sent_search_source,
+        sent_publish_source,
+        "debug probe sent HELLO/SEARCH_KEY/PUBLISH_KEY with source probes"
     );
 
     Ok(true)
