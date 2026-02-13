@@ -1930,6 +1930,53 @@ fn canonical_request_opcode(opcode: u8) -> Option<u8> {
     }
 }
 
+fn kad_opcode_name(opcode: u8) -> &'static str {
+    match opcode {
+        KADEMLIA_HELLO_REQ_DEPRECATED => "KADEMLIA_HELLO_REQ",
+        KADEMLIA_HELLO_RES_DEPRECATED => "KADEMLIA_HELLO_RES",
+        KADEMLIA_REQ_DEPRECATED => "KADEMLIA_REQ",
+        KADEMLIA_RES_DEPRECATED => "KADEMLIA_RES",
+        KADEMLIA2_BOOTSTRAP_REQ => "KADEMLIA2_BOOTSTRAP_REQ",
+        KADEMLIA2_BOOTSTRAP_RES => "KADEMLIA2_BOOTSTRAP_RES",
+        KADEMLIA2_HELLO_REQ => "KADEMLIA2_HELLO_REQ",
+        KADEMLIA2_HELLO_RES => "KADEMLIA2_HELLO_RES",
+        KADEMLIA2_REQ => "KADEMLIA2_REQ",
+        KADEMLIA2_HELLO_RES_ACK => "KADEMLIA2_HELLO_RES_ACK",
+        KADEMLIA2_RES => "KADEMLIA2_RES",
+        KADEMLIA2_SEARCH_KEY_REQ => "KADEMLIA2_SEARCH_KEY_REQ",
+        KADEMLIA2_SEARCH_SOURCE_REQ => "KADEMLIA2_SEARCH_SOURCE_REQ",
+        KADEMLIA2_SEARCH_RES => "KADEMLIA2_SEARCH_RES",
+        KADEMLIA2_PUBLISH_KEY_REQ => "KADEMLIA2_PUBLISH_KEY_REQ",
+        KADEMLIA2_PUBLISH_SOURCE_REQ => "KADEMLIA2_PUBLISH_SOURCE_REQ",
+        KADEMLIA2_PUBLISH_RES => "KADEMLIA2_PUBLISH_RES",
+        KADEMLIA2_PING => "KADEMLIA2_PING",
+        KADEMLIA2_PONG => "KADEMLIA2_PONG",
+        _ => "UNKNOWN",
+    }
+}
+
+fn kad_dispatch_target(opcode: u8) -> &'static str {
+    match opcode {
+        KADEMLIA_HELLO_REQ_DEPRECATED => "handle_kad1_hello_req",
+        KADEMLIA2_BOOTSTRAP_REQ => "handle_bootstrap_req",
+        KADEMLIA2_BOOTSTRAP_RES => "handle_bootstrap_res",
+        KADEMLIA2_HELLO_REQ => "handle_hello_req",
+        KADEMLIA2_HELLO_RES => "handle_hello_res",
+        KADEMLIA2_HELLO_RES_ACK => "handle_hello_res_ack",
+        KADEMLIA_REQ_DEPRECATED | KADEMLIA2_REQ => "handle_req",
+        KADEMLIA_RES_DEPRECATED | KADEMLIA2_RES => "handle_res",
+        KADEMLIA2_PING => "handle_ping",
+        KADEMLIA2_PONG => "handle_pong",
+        KADEMLIA2_PUBLISH_KEY_REQ => "handle_publish_key_req",
+        KADEMLIA2_PUBLISH_SOURCE_REQ => "handle_publish_source_req",
+        KADEMLIA2_SEARCH_KEY_REQ => "handle_search_key_req",
+        KADEMLIA2_SEARCH_SOURCE_REQ => "handle_search_source_req",
+        KADEMLIA2_SEARCH_RES => "handle_search_res",
+        KADEMLIA2_PUBLISH_RES => "handle_publish_res",
+        _ => "drop_unhandled_opcode",
+    }
+}
+
 fn track_outgoing_request(svc: &mut KadService, dest_b64: &str, opcode: u8, now: Instant) {
     let Some(request_opcode) = canonical_request_opcode(opcode) else {
         return;
@@ -3523,14 +3570,39 @@ async fn handle_inbound(
         }
     };
 
+    tracing::debug!(
+        event = "kad_inbound_packet",
+        from = %crate::i2p::b64::short(&from_dest_b64),
+        opcode = format_args!("0x{:02x}", pkt.opcode),
+        opcode_name = kad_opcode_name(pkt.opcode),
+        dispatch = kad_dispatch_target(pkt.opcode),
+        payload_len = pkt.payload.len(),
+        was_obfuscated = decrypted.was_obfuscated,
+        sender_verify_key = decrypted.sender_verify_key,
+        receiver_verify_key = decrypted.receiver_verify_key,
+        valid_receiver_key,
+        "received inbound KAD packet"
+    );
+
     if !inbound_request_allowed(svc, from_hash, pkt.opcode, now) {
+        tracing::debug!(
+            event = "kad_inbound_drop",
+            from = %crate::i2p::b64::short(&from_dest_b64),
+            opcode = format_args!("0x{:02x}", pkt.opcode),
+            opcode_name = kad_opcode_name(pkt.opcode),
+            reason = "request_rate_limited",
+            "dropped inbound KAD packet"
+        );
         return Ok(());
     }
     if !consume_tracked_out_request(svc, &from_dest_b64, pkt.opcode, pkt.payload.len(), now) {
-        tracing::trace!(
+        tracing::debug!(
+            event = "kad_inbound_drop",
             from = %crate::i2p::b64::short(&from_dest_b64),
             opcode = format_args!("0x{:02x}", pkt.opcode),
-            "dropping unrequested KAD response"
+            opcode_name = kad_opcode_name(pkt.opcode),
+            reason = "unrequested_response",
+            "dropped inbound KAD packet"
         );
         return Ok(());
     }
@@ -4609,11 +4681,14 @@ async fn handle_inbound(
         }
 
         other => {
-            tracing::trace!(
+            tracing::debug!(
+                event = "kad_inbound_drop",
                 opcode = format_args!("0x{other:02x}"),
                 from = %from_dest_b64,
                 len = pkt.payload.len(),
-                "received unhandled KAD2 packet"
+                opcode_name = kad_opcode_name(other),
+                reason = "unhandled_opcode",
+                "dropped inbound KAD packet"
             );
         }
     }

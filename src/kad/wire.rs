@@ -1517,4 +1517,62 @@ mod tests {
         // We might or might not have a parsed entry depending on where the truncation happened,
         // but keyword must be present so we can ACK.
     }
+
+    #[test]
+    fn kad2_source_opcode_values_match_imule() {
+        // Source reference: iMule `src/include/protocol/kad2/Client2Client/UDP.h`.
+        assert_eq!(KADEMLIA2_SEARCH_SOURCE_REQ, 0x15);
+        assert_eq!(KADEMLIA2_PUBLISH_SOURCE_REQ, 0x19);
+    }
+
+    #[test]
+    fn kad2_search_source_req_layout_matches_imule() {
+        let target = KadId([0x22; 16]);
+        let file_size = 0x0102_0304_0506_0708u64;
+        let payload = encode_kad2_search_source_req(target, 0x9123, file_size);
+
+        // iMule layout:
+        // <fileID u128><startPos u16 masked to 0x7FFF><fileSize u64 little-endian>
+        assert_eq!(payload.len(), 16 + 2 + 8);
+        assert_eq!(&payload[0..16], &target.to_crypt_bytes());
+        assert_eq!(&payload[16..18], &(0x1123u16).to_le_bytes());
+        assert_eq!(&payload[18..26], &file_size.to_le_bytes());
+
+        let parsed = decode_kad2_search_source_req(&payload).unwrap();
+        assert_eq!(parsed.target, target);
+        assert_eq!(parsed.start_position, 0x1123);
+        assert_eq!(parsed.file_size, file_size);
+    }
+
+    #[test]
+    fn kad2_publish_source_req_layout_has_required_source_tags() {
+        let file = KadId([0x33; 16]);
+        let source = KadId([0x44; 16]);
+        let udp_dest = [0x55; I2P_DEST_LEN];
+        let payload = encode_kad2_publish_source_req(file, source, &udp_dest, Some(123));
+
+        // iMule layout:
+        // <fileID u128><sourceID u128><taglist>
+        assert_eq!(&payload[0..16], &file.to_crypt_bytes());
+        assert_eq!(&payload[16..32], &source.to_crypt_bytes());
+        assert!(payload.len() > 32);
+
+        let taglist = &payload[32..];
+        assert_eq!(
+            taglist[0], 4,
+            "expected SOURCETYPE+SOURCEDEST+SOURCEUDEST+FILESIZE"
+        );
+
+        let sourcetype_tag = [TAGTYPE_UINT8 | 0x80, TAG_SOURCETYPE, 1];
+        assert!(
+            taglist
+                .windows(sourcetype_tag.len())
+                .any(|w| w == sourcetype_tag),
+            "missing TAG_SOURCETYPE in publish-source taglist"
+        );
+
+        let parsed_min = decode_kad2_publish_source_req_min(&payload).unwrap();
+        assert_eq!(parsed_min.file, file);
+        assert_eq!(parsed_min.source, source);
+    }
 }

@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Implemented source-path diagnostics follow-up on `feature/kad-imule-parity-deep-pass` (requested items 1 and 2):
+  - Added receive-edge KAD inbound instrumentation in `src/kad/service.rs`:
+    - `event="kad_inbound_packet"` for every decrypted+parsed inbound packet with:
+      - opcode hex + opcode name
+      - dispatch target label
+      - payload length
+      - obfuscation/verify-key context
+    - `event="kad_inbound_drop"` with explicit reasons:
+      - `request_rate_limited`
+      - `unrequested_response`
+      - `unhandled_opcode`
+  - Cross-checked source opcode constants/layouts against iMule reference (`source_ref`):
+    - `src/include/protocol/kad2/Client2Client/UDP.h`
+    - `src/kademlia/net/KademliaUDPListener.cpp` (`Process2SearchSourceRequest`, `Process2PublishSourceRequest`)
+  - Added wire-compat regression tests in `src/kad/wire.rs`:
+    - `kad2_source_opcode_values_match_imule`
+    - `kad2_search_source_req_layout_matches_imule`
+    - `kad2_publish_source_req_layout_has_required_source_tags`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 66 tests).
+- Decisions: Keep diagnostics at `DEBUG` level (not INFO) to preserve operability while enabling precise packet-path triage during A/B probes.
+- Next steps: Build fresh `mule-a`/`mule-b` artifacts and rerun forced `debug/probe_peer` A<->B; inspect new `kad_inbound_packet`/`kad_inbound_drop` events to pinpoint whether source opcodes arrive and where they are dropped.
+- Change log: KAD service now emits deterministic receive-edge opcode/drop telemetry, and source opcode/layout compatibility with iMule is explicitly tested.
+
 - Status: Extended debug peer probing on `feature/kad-imule-parity-deep-pass` to include source-path packets in addition to keyword packets:
   - `src/kad/service.rs` `debug_probe_peer(...)` now sends:
     - `KADEMLIA2_SEARCH_SOURCE_REQ` (for peers `kad_version >= 3`)
