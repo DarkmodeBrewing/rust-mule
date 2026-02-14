@@ -8,6 +8,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Fixed `nodes2.dat` download persistence path bug on `main`:
+  - In `try_download_nodes2_dat(...)` (`src/app.rs`), persistence previously hardcoded `./data/nodes.dat`.
+  - Updated function to accept an explicit output path and persist there.
+  - Call site now passes `preferred_nodes_path` (resolved from configured `general.data_dir` + `kad.bootstrap_nodes_path`).
+  - Parent directories are created for the configured output path before atomic write/rename.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep download behavior unchanged except for output path correctness; this remains a low-risk bug fix with no protocol changes.
+- Next steps: Optional: add a targeted unit/integration test around bootstrap download path resolution when `data_dir` is non-default.
+- Change log: `nodes2.dat` refresh now respects configured data directory/bootstrap path.
+
 - Status: Corrected misleading overview KPI labels in UI on `main`:
   - Updated `ui/index.html` labels to match actual status field semantics:
     - `routing`: `Peers Contacted` -> `Routing Nodes`

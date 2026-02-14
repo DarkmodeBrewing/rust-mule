@@ -404,6 +404,7 @@ pub async fn run(config: Config) -> AppResult<()> {
             config.sam.port,
             base_session_name,
             &keys.priv_key,
+            &preferred_nodes_path,
         )
         .await
         {
@@ -679,6 +680,7 @@ async fn try_download_nodes2_dat(
     sam_port: u16,
     base_session_name: &str,
     _priv_key: &str,
+    out: &Path,
 ) -> AppResult<Vec<crate::nodes::imule::ImuleNode>> {
     let url = "http://www.imule.i2p/nodes2.dat";
     let (host, port, path) = parse_http_url(url)?;
@@ -732,9 +734,10 @@ async fn try_download_nodes2_dat(
         )));
     }
 
-    // Persist to data/nodes.dat for reproducible future runs.
-    tokio::fs::create_dir_all("data").await.ok();
-    let out = Path::new("data").join("nodes.dat");
+    // Persist to configured bootstrap path for reproducible future runs.
+    if let Some(parent) = out.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
     let tmp = out.with_extension("tmp");
     tokio::fs::write(&tmp, &resp.body).await?;
     tokio::fs::rename(&tmp, &out).await?;
