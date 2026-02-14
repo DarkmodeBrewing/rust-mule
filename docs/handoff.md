@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added dedicated cross-platform build script folder on `main`:
+  - New canonical build location: `scripts/build/`.
+  - Added platform scripts:
+    - `scripts/build/build_linux_release.sh`
+    - `scripts/build/build_macos_release.sh`
+    - `scripts/build/build_windows_release.ps1`
+    - `scripts/build/build_windows_release.cmd`
+  - Added `scripts/build/README.md` with usage/output conventions.
+  - Kept backward compatibility by turning `docs/scripts/build_linux_release.sh` into a wrapper that delegates to `scripts/build/build_linux_release.sh`.
+  - Updated docs pointers in `README.md` and `docs/README.md`.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep build/release scripts outside `docs/` in a dedicated top-level `scripts/build/` folder; keep old Linux path callable as a shim to avoid breakage.
+- Next steps: Optional follow-up is a CI matrix job that runs each platform build script and verifies `dist/*` bundle naming/contents.
+- Change log: Cross-platform build scaffolding now exists with a canonical script location.
+
 - Status: Streamlined docs set and refreshed README entrypoint on `main`:
   - Rewrote `README.md` to reflect current behavior and include a clear documentation map.
   - Added `docs/README.md` as a documentation index.

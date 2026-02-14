@@ -12,3 +12,4 @@ Use this as the entrypoint for project documentation.
 - `TODO.md`: normalized backlog by subsystem.
 - `handoff.md`: rolling implementation log and continuation notes.
 - `scripts/`: operational helper scripts (selftest, soak, triage, endpoint helpers).
+- `../scripts/build/`: platform build/release bundle scripts.

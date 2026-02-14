@@ -59,7 +59,7 @@ cargo build --release --locked --bin rust-mule
 Packaging helper:
 
 ```bash
-docs/scripts/build_linux_release.sh
+scripts/build/build_linux_release.sh
 ```
 
 ## Two-Instance Local Test
@@ -102,6 +102,7 @@ Runtime state lives under `data/` (gitignored):
 
 ## Utility Scripts
 
+- `scripts/build/`: platform release bundle scripts (`linux`, `macos`, `windows`)
 - `docs/scripts/two_instance_dht_selftest.sh`: short two-instance validation
 - `docs/scripts/rust_mule_soak.sh`: long-running soak scaffold
 - `docs/scripts/soak_triage.sh`: soak archive triage summary
