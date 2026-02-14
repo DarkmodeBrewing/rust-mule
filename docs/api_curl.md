@@ -18,12 +18,12 @@ AUTH=(-H "Authorization: Bearer $TOKEN")
 JSON=(-H "Content-Type: application/json")
 ```
 
-## Dev Auth Token (Loopback Only)
+## Auth Bootstrap Token (Loopback Only)
 
-Requires `[api].enable_dev_auth_endpoint = true`.
+Requires `[api].auth_mode = "local_ui"`.
 
 ```bash
-curl -sS "$BASE_URL/api/v1/dev/auth" | jq .
+curl -sS "$BASE_URL/api/v1/auth/bootstrap" | jq .
 ```
 
 ## Create Frontend Session Cookie

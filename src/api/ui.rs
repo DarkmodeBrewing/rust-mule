@@ -24,8 +24,8 @@ pub(crate) async fn ui_auth() -> impl IntoResponse {
       (async () => {
         const status = document.getElementById('status');
         try {
-          const authResp = await fetch('/api/v1/dev/auth');
-          if (!authResp.ok) throw new Error('dev auth failed');
+          const authResp = await fetch('/api/v1/auth/bootstrap');
+          if (!authResp.ok) throw new Error('token bootstrap failed');
           const authData = await authResp.json();
           const sessResp = await fetch('/api/v1/session', {
             method: 'POST',

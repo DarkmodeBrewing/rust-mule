@@ -3,7 +3,8 @@ mod kad;
 mod settings;
 
 pub(crate) use core::{
-    create_session, dev_auth, events, health, session_check, session_logout, status, token_rotate,
+    auth_bootstrap, create_session, events, health, session_check, session_logout, status,
+    token_rotate,
 };
 pub(crate) use kad::{
     debug_lookup_once, debug_probe_peer, debug_routing_buckets, debug_routing_nodes,

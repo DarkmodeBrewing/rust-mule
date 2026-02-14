@@ -9,7 +9,7 @@ use std::{
 use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::{
-    config::{ApiConfig, Config, parse_api_bind_host},
+    config::{ApiAuthMode, ApiConfig, Config, parse_api_bind_host},
     kad::service::{KadServiceCommand, KadServiceStatus},
 };
 
@@ -66,7 +66,7 @@ pub struct ApiState {
     pub(crate) config: Arc<tokio::sync::Mutex<Config>>,
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
     pub(crate) enable_debug_endpoints: bool,
-    pub(crate) enable_dev_auth_endpoint: bool,
+    pub(crate) auth_mode: ApiAuthMode,
     pub(crate) rate_limit_enabled: bool,
     pub(crate) rate_limit_window: Duration,
     pub(crate) rate_limit_dev_auth_max: u32,
@@ -108,7 +108,7 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         config: Arc::new(tokio::sync::Mutex::new(deps.app_config)),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: cfg.enable_debug_endpoints,
-        enable_dev_auth_endpoint: cfg.enable_dev_auth_endpoint,
+        auth_mode: cfg.auth_mode,
         rate_limit_enabled: cfg.rate_limit_enabled,
         rate_limit_window: Duration::from_secs(cfg.rate_limit_window_secs.max(1)),
         rate_limit_dev_auth_max: cfg.rate_limit_dev_auth_max_per_window.max(1),

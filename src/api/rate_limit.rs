@@ -60,7 +60,7 @@ pub(crate) async fn rate_limit_mw(
 
 fn rate_limit_for_path(path: &str, method: &Method, state: &ApiState) -> Option<u32> {
     match (method, path) {
-        (&Method::GET, "/api/v1/dev/auth") => Some(state.rate_limit_dev_auth_max),
+        (&Method::GET, "/api/v1/auth/bootstrap") => Some(state.rate_limit_dev_auth_max),
         (&Method::POST, "/api/v1/session") => Some(state.rate_limit_session_max),
         (&Method::POST, "/api/v1/token/rotate") => Some(state.rate_limit_token_rotate_max),
         _ => None,

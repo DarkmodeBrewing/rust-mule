@@ -48,8 +48,8 @@ host = "127.0.0.1"
 port = 17835
 # Enable operational/debug endpoints under /api/v1/debug/*.
 enable_debug_endpoints = true
-# Enable loopback-only dev token bootstrap endpoint (/api/v1/dev/auth).
-enable_dev_auth_endpoint = true
+# Auth mode: `local_ui` enables token bootstrap endpoint (`/api/v1/auth/bootstrap`), `headless_remote` disables it.
+auth_mode = "local_ui"
 # Basic fixed-window rate limiting for high-value endpoints.
 rate_limit_enabled = true
 rate_limit_window_secs = 60

@@ -3,10 +3,10 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/docs/dev_auth.sh [--base-url URL]
+Usage: scripts/docs/auth_bootstrap.sh [--base-url URL]
 
 Calls:
-  GET /api/v1/dev/auth   (loopback-only, no auth)
+  GET /api/v1/auth/bootstrap   (loopback-only, no auth)
 
 Options:
   --base-url URL   Default: http://127.0.0.1:17835
@@ -23,5 +23,5 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-curl -sS "$BASE_URL/api/v1/dev/auth"
+curl -sS "$BASE_URL/api/v1/auth/bootstrap"
 

@@ -24,7 +24,7 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 
 3. **GUI**
    - Initial skeleton is wired and served by the backend at `/` and `/ui/...`.
-   - Current bootstrap flow fetches token via `GET /api/v1/dev/auth` (loopback-only), creates an HTTP-only frontend session via `POST /api/v1/session`, stores the token in `sessionStorage` for API calls, then uses:
+   - Current bootstrap flow fetches token via `GET /api/v1/auth/bootstrap` (loopback-only), creates an HTTP-only frontend session via `POST /api/v1/session`, stores the token in `sessionStorage` for API calls, then uses:
      - `GET /api/v1/status` for a snapshot
      - `GET /api/v1/events` for continuous updates
 
@@ -37,7 +37,7 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 - `[api].host` (default `127.0.0.1`)
 - `[api].port` (default `17835`)
 - `[api].enable_debug_endpoints` (default `true`)
-- `[api].enable_dev_auth_endpoint` (default `true`)
+- `[api].auth_mode` (default `local_ui`)
 - `[api].rate_limit_enabled` (default `true`)
 - `[api].rate_limit_window_secs` (default `60`)
 - `[api].rate_limit_dev_auth_max_per_window` (default `30`)
@@ -75,7 +75,7 @@ Notes:
 
 ### Endpoints
 
-- `GET /api/v1/dev/auth`
+- `GET /api/v1/auth/bootstrap`
   - No auth.
   - Loopback-only.
   - Subject to API rate limiting when enabled.

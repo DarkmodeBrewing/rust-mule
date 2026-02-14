@@ -15,14 +15,14 @@ export async function bootstrapToken() {
     return existing;
   }
 
-  const res = await fetch(`${API_BASE}/dev/auth`);
+  const res = await fetch(`${API_BASE}/auth/bootstrap`);
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`dev auth failed: ${res.status} ${body}`);
+    throw new Error(`auth bootstrap failed: ${res.status} ${body}`);
   }
   const data = await res.json();
   if (!data?.token) {
-    throw new Error('dev auth response missing token');
+    throw new Error('auth bootstrap response missing token');
   }
 
   setToken(data.token);

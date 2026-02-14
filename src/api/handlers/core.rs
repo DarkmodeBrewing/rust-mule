@@ -29,7 +29,7 @@ pub(crate) struct HealthResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct DevAuthResponse {
+pub(crate) struct AuthBootstrapResponse {
     pub(crate) token: String,
 }
 
@@ -48,15 +48,15 @@ pub(crate) async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
 
-pub(crate) async fn dev_auth(
+pub(crate) async fn auth_bootstrap(
     State(state): State<ApiState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-) -> Result<Json<DevAuthResponse>, StatusCode> {
+) -> Result<Json<AuthBootstrapResponse>, StatusCode> {
     if !is_loopback_addr(&addr) {
         return Err(StatusCode::FORBIDDEN);
     }
 
-    Ok(Json(DevAuthResponse {
+    Ok(Json(AuthBootstrapResponse {
         token: state.token.read().await.clone(),
     }))
 }

@@ -1,3 +1,4 @@
+use crate::config::ApiAuthMode;
 use axum::{
     Router,
     routing::{get, post},
@@ -6,7 +7,7 @@ use axum::{
 use crate::api::{
     ApiState,
     handlers::{
-        create_session, debug_lookup_once, debug_probe_peer, dev_auth, events, health,
+        auth_bootstrap, create_session, debug_lookup_once, debug_probe_peer, events, health,
         kad_keyword_results, kad_peers, kad_publish_keyword, kad_publish_source,
         kad_search_keyword, kad_search_sources, kad_sources, search_delete, search_details,
         search_stop, searches, session_check, session_logout, settings_get, settings_patch, status,
@@ -41,8 +42,8 @@ pub(crate) fn build_app(state: ApiState) -> Router<()> {
         .route("/kad/search_keyword", post(kad_search_keyword))
         .route("/kad/publish_source", post(kad_publish_source))
         .route("/kad/publish_keyword", post(kad_publish_keyword));
-    if state.enable_dev_auth_endpoint {
-        v1 = v1.route("/dev/auth", get(dev_auth));
+    if matches!(state.auth_mode, ApiAuthMode::LocalUi) {
+        v1 = v1.route("/auth/bootstrap", get(auth_bootstrap));
     }
     if state.enable_debug_endpoints {
         v1 = v1

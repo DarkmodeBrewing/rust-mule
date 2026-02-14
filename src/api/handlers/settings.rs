@@ -4,7 +4,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     api::ApiState,
-    config::{Config, parse_api_bind_host},
+    config::{ApiAuthMode, Config, parse_api_bind_host},
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,7 +27,7 @@ pub(crate) struct SettingsApi {
     pub(crate) host: String,
     pub(crate) port: u16,
     pub(crate) enable_debug_endpoints: bool,
-    pub(crate) enable_dev_auth_endpoint: bool,
+    pub(crate) auth_mode: ApiAuthMode,
     pub(crate) rate_limit_enabled: bool,
     pub(crate) rate_limit_window_secs: u64,
     pub(crate) rate_limit_dev_auth_max_per_window: u32,
@@ -79,7 +79,7 @@ pub(crate) struct SettingsPatchApi {
     #[serde(default)]
     pub(crate) enable_debug_endpoints: Option<bool>,
     #[serde(default)]
-    pub(crate) enable_dev_auth_endpoint: Option<bool>,
+    pub(crate) auth_mode: Option<ApiAuthMode>,
     #[serde(default)]
     pub(crate) rate_limit_enabled: Option<bool>,
     #[serde(default)]
@@ -120,7 +120,7 @@ impl SettingsPayload {
                 host: cfg.api.host.clone(),
                 port: cfg.api.port,
                 enable_debug_endpoints: cfg.api.enable_debug_endpoints,
-                enable_dev_auth_endpoint: cfg.api.enable_dev_auth_endpoint,
+                auth_mode: cfg.api.auth_mode,
                 rate_limit_enabled: cfg.api.rate_limit_enabled,
                 rate_limit_window_secs: cfg.api.rate_limit_window_secs,
                 rate_limit_dev_auth_max_per_window: cfg.api.rate_limit_dev_auth_max_per_window,
@@ -200,8 +200,8 @@ pub(crate) fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest
         if let Some(enable_debug_endpoints) = api.enable_debug_endpoints {
             cfg.api.enable_debug_endpoints = enable_debug_endpoints;
         }
-        if let Some(enable_dev_auth_endpoint) = api.enable_dev_auth_endpoint {
-            cfg.api.enable_dev_auth_endpoint = enable_dev_auth_endpoint;
+        if let Some(auth_mode) = api.auth_mode {
+            cfg.api.auth_mode = auth_mode;
         }
         if let Some(rate_limit_enabled) = api.rate_limit_enabled {
             cfg.api.rate_limit_enabled = rate_limit_enabled;

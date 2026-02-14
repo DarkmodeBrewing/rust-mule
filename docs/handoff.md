@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Replaced `/api/v1/dev/auth` with core bootstrap endpoint and auth-mode gating on `main` (no backward compatibility route):
+  - Added `api.auth_mode` enum config (`local_ui` | `headless_remote`) in `src/config.rs` and `config.toml`.
+  - Removed `enable_dev_auth_endpoint` from runtime config/state/settings API.
+  - New endpoint path is `GET /api/v1/auth/bootstrap` (loopback-only).
+  - Endpoint is available only when `api.auth_mode = "local_ui"`; it is not registered in `headless_remote` mode.
+  - Updated bearer-exempt logic to use `auth_mode` and new path.
+  - Updated rate limiter target path to `/api/v1/auth/bootstrap`.
+  - Updated UI bootstrap fetch paths:
+    - inline `/auth` bootstrap page in `src/api/ui.rs`
+    - `ui/assets/js/helpers.js`
+  - Renamed helper script to `scripts/docs/auth_bootstrap.sh` and updated docs references.
+  - Updated docs (`README.md`, `docs/architecture.md`, `docs/API_DESIGN.md`, `docs/ui_api_contract_map.md`, `docs/api_curl.md`).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 71 tests).
+- Decisions: Treat token bootstrap as core local-UI behavior under `/api/v1/auth/bootstrap`; use auth mode, not endpoint-specific toggle flags.
+- Next steps: Optional follow-up is to surface `auth_mode` explicitly in settings UI with explanatory copy for local UI vs headless remote operations.
+- Change log: Auth bootstrap route naming and availability now align with core-vs-mode semantics.
+
 - Status: Added minimal API rate-limiting middleware on `main`:
   - New `[api]` config keys:
     - `rate_limit_enabled`

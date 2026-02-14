@@ -10,7 +10,7 @@ use std::{
 
 use axum::http::{HeaderMap, Method, StatusCode, header};
 
-use crate::api::ApiState;
+use crate::{api::ApiState, config::ApiAuthMode};
 
 pub(crate) async fn auth_mw(
     axum::extract::State(state): axum::extract::State<ApiState>,
@@ -41,7 +41,7 @@ pub(crate) async fn auth_mw(
     }
 
     if path.starts_with("/api/") {
-        if is_api_bearer_exempt_path(path, state.enable_dev_auth_endpoint) {
+        if is_api_bearer_exempt_path(path, state.auth_mode) {
             return Ok(next.run(req).await);
         }
         let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
@@ -72,8 +72,9 @@ pub(crate) fn is_loopback_addr(addr: &SocketAddr) -> bool {
     addr.ip().is_loopback()
 }
 
-pub(crate) fn is_api_bearer_exempt_path(path: &str, enable_dev_auth_endpoint: bool) -> bool {
-    path == "/api/v1/health" || (enable_dev_auth_endpoint && path == "/api/v1/dev/auth")
+pub(crate) fn is_api_bearer_exempt_path(path: &str, auth_mode: ApiAuthMode) -> bool {
+    path == "/api/v1/health"
+        || (auth_mode.allows_auth_bootstrap() && path == "/api/v1/auth/bootstrap")
 }
 
 pub(crate) fn is_frontend_exempt_path(path: &str) -> bool {

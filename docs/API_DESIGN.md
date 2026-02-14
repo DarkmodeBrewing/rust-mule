@@ -51,14 +51,14 @@ This spec assumes **v1 in path**.
 - Avoid exposing mint-token endpoints to remote callers.
 
 ### Token/session model (implemented)
-- UI bootstrap gets a local bearer token from `GET /api/v1/dev/auth` (loopback-only).
+- UI bootstrap gets a local bearer token from `GET /api/v1/auth/bootstrap` (loopback-only).
 - Browser session is established via `POST /api/v1/session` and `rm_session` HTTP-only cookie.
 - REST endpoints use `Authorization: Bearer <token>`.
 - SSE (`GET /api/v1/events`) uses session-cookie auth.
 - Token query parameters for SSE are not used.
 
 ### Endpoints
-- `GET /api/v1/dev/auth`
+- `GET /api/v1/auth/bootstrap`
   - **Loopback-only**
   - returns `{ "token": "..." }`
   - used by UI to bootstrap a local session
@@ -285,7 +285,7 @@ All events follow a consistent envelope:
 - Use standard HTTP codes:
   - 400 invalid request
   - 401 unauthorized
-  - 403 forbidden (non-loopback dev auth)
+  - 403 forbidden (non-loopback token bootstrap)
   - 404 not found
   - 409 conflict (already running, etc.)
   - 429 rate limit (optional)
@@ -317,7 +317,7 @@ All events follow a consistent envelope:
 ## Security Notes (Pragmatic)
 
 - Bind API to `127.0.0.1` by default.
-- `GET /api/v1/dev/auth` must be loopback-only.
+- `GET /api/v1/auth/bootstrap` must be loopback-only.
 - Do not put bearer tokens in URL query parameters; use header auth for REST and session cookies for SSE/UI.
 - For headless deployments:
   - keep API loopback-only and expose via VPN or reverse proxy with TLS + auth.

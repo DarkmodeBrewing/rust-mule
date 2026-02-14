@@ -38,13 +38,13 @@ rust-mule UI available at: http://localhost:<port>
 - Root URL redirects to `/index.html`.
 - UI routes require a frontend session cookie (`rm_session`).
 - `/auth` bootstraps the session by calling:
-  - `GET /api/v1/dev/auth` (loopback-only token bootstrap)
+  - `GET /api/v1/auth/bootstrap` (loopback-only token bootstrap)
   - `POST /api/v1/session` (sets `rm_session` cookie)
 - REST API calls use bearer auth (`Authorization: Bearer <token>`).
 - SSE (`GET /api/v1/events`) uses session-cookie auth.
 - Optional endpoint toggles:
   - `[api].enable_debug_endpoints = true|false` for `/api/v1/debug/*`
-  - `[api].enable_dev_auth_endpoint = true|false` for `/api/v1/dev/auth`
+  - `[api].auth_mode = "local_ui"|"headless_remote"` controls `/api/v1/auth/bootstrap` availability
 - Optional API rate limiting:
   - `[api].rate_limit_enabled = true|false`
   - `[api].rate_limit_window_secs`

@@ -7,7 +7,7 @@ If any required field changes, update UI controllers and tests in the same chang
 
 | UI usage | Endpoint | Required fields / behavior |
 | --- | --- | --- |
-| Auth bootstrap page (`/auth`) | `GET /api/v1/dev/auth` | JSON: `token` (string) |
+| Auth bootstrap page (`/auth`) | `GET /api/v1/auth/bootstrap` | JSON: `token` (string) |
 | Auth bootstrap page (`/auth`) | `POST /api/v1/session` | `200 OK`, sets `rm_session` cookie |
 | Sidebar session status | `GET /api/v1/session/check` | `200` when active, `401/403` when expired |
 | Sidebar logout | `POST /api/v1/session/logout` | `200`, clears `rm_session` cookie |

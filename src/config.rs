@@ -101,8 +101,8 @@ fn default_api_port() -> u16 {
 fn default_api_enable_debug_endpoints() -> bool {
     true
 }
-fn default_api_enable_dev_auth_endpoint() -> bool {
-    true
+fn default_api_auth_mode() -> ApiAuthMode {
+    ApiAuthMode::LocalUi
 }
 fn default_api_rate_limit_enabled() -> bool {
     true
@@ -382,18 +382,33 @@ pub struct ApiConfig {
     pub port: u16,
     /// Enables `/api/v1/debug/*` endpoints.
     pub enable_debug_endpoints: bool,
-    /// Enables `/api/v1/dev/auth` (loopback-only token bootstrap helper).
-    pub enable_dev_auth_endpoint: bool,
+    /// API auth mode:
+    /// - `local_ui`: enables local UI token bootstrap endpoint.
+    /// - `headless_remote`: disables local token bootstrap endpoint.
+    pub auth_mode: ApiAuthMode,
     /// Enables API rate limiting for selected high-value endpoints.
     pub rate_limit_enabled: bool,
     /// Shared fixed-window size in seconds.
     pub rate_limit_window_secs: u64,
-    /// Max requests per window for `GET /api/v1/dev/auth`.
+    /// Max requests per window for `GET /api/v1/auth/bootstrap`.
     pub rate_limit_dev_auth_max_per_window: u32,
     /// Max requests per window for `POST /api/v1/session`.
     pub rate_limit_session_max_per_window: u32,
     /// Max requests per window for `POST /api/v1/token/rotate`.
     pub rate_limit_token_rotate_max_per_window: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiAuthMode {
+    LocalUi,
+    HeadlessRemote,
+}
+
+impl ApiAuthMode {
+    pub fn allows_auth_bootstrap(self) -> bool {
+        matches!(self, Self::LocalUi)
+    }
 }
 
 impl Default for SamConfig {
@@ -491,7 +506,7 @@ impl Default for ApiConfig {
             host: default_api_host(),
             port: default_api_port(),
             enable_debug_endpoints: default_api_enable_debug_endpoints(),
-            enable_dev_auth_endpoint: default_api_enable_dev_auth_endpoint(),
+            auth_mode: default_api_auth_mode(),
             rate_limit_enabled: default_api_rate_limit_enabled(),
             rate_limit_window_secs: default_api_rate_limit_window_secs(),
             rate_limit_dev_auth_max_per_window: default_api_rate_limit_dev_auth_max_per_window(),
