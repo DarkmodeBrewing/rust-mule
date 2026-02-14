@@ -110,7 +110,7 @@ fn default_api_rate_limit_enabled() -> bool {
 fn default_api_rate_limit_window_secs() -> u64 {
     60
 }
-fn default_api_rate_limit_dev_auth_max_per_window() -> u32 {
+fn default_api_rate_limit_auth_bootstrap_max_per_window() -> u32 {
     30
 }
 fn default_api_rate_limit_session_max_per_window() -> u32 {
@@ -396,7 +396,8 @@ pub struct ApiConfig {
     /// Shared fixed-window size in seconds.
     pub rate_limit_window_secs: u64,
     /// Max requests per window for `GET /api/v1/auth/bootstrap`.
-    pub rate_limit_dev_auth_max_per_window: u32,
+    #[serde(alias = "rate_limit_dev_auth_max_per_window")]
+    pub rate_limit_auth_bootstrap_max_per_window: u32,
     /// Max requests per window for `POST /api/v1/session`.
     pub rate_limit_session_max_per_window: u32,
     /// Max requests per window for `POST /api/v1/token/rotate`.
@@ -514,7 +515,8 @@ impl Default for ApiConfig {
             auth_mode: default_api_auth_mode(),
             rate_limit_enabled: default_api_rate_limit_enabled(),
             rate_limit_window_secs: default_api_rate_limit_window_secs(),
-            rate_limit_dev_auth_max_per_window: default_api_rate_limit_dev_auth_max_per_window(),
+            rate_limit_auth_bootstrap_max_per_window:
+                default_api_rate_limit_auth_bootstrap_max_per_window(),
             rate_limit_session_max_per_window: default_api_rate_limit_session_max_per_window(),
             rate_limit_token_rotate_max_per_window:
                 default_api_rate_limit_token_rotate_max_per_window(),

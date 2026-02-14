@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Performed config-surface naming and documentation pass on `main`:
+  - Renamed API rate-limit config key for clarity:
+    - `rate_limit_dev_auth_max_per_window` -> `rate_limit_auth_bootstrap_max_per_window`.
+  - Added backward-compatible config parsing alias in `ApiConfig`:
+    - `#[serde(alias = "rate_limit_dev_auth_max_per_window")]`.
+  - Updated all runtime/settings references to the new name.
+  - Added inline comments in `config.toml` for all active/uncommented keys across:
+    - `[sam]`, `[kad]`, `[general]`, `[api]`.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 71 tests).
+- Decisions: Keep public config keys aligned with endpoint naming (`auth/bootstrap`) and maintain read-compat for recently renamed keys to avoid operator breakage.
+- Next steps: Optional follow-up is to normalize remaining legacy test names/messages still using `dev_auth` wording.
+- Change log: Config naming and inline documentation are now more consistent and self-descriptive.
+
 - Status: Removed user-facing `kad.udp_port` configurability while preserving config-file compatibility on `main`:
   - Removed `udp_port` from `KadConfig` public settings.
   - Added deprecated compatibility field in `KadConfig`:

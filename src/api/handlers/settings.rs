@@ -30,7 +30,7 @@ pub(crate) struct SettingsApi {
     pub(crate) auth_mode: ApiAuthMode,
     pub(crate) rate_limit_enabled: bool,
     pub(crate) rate_limit_window_secs: u64,
-    pub(crate) rate_limit_dev_auth_max_per_window: u32,
+    pub(crate) rate_limit_auth_bootstrap_max_per_window: u32,
     pub(crate) rate_limit_session_max_per_window: u32,
     pub(crate) rate_limit_token_rotate_max_per_window: u32,
 }
@@ -85,7 +85,7 @@ pub(crate) struct SettingsPatchApi {
     #[serde(default)]
     pub(crate) rate_limit_window_secs: Option<u64>,
     #[serde(default)]
-    pub(crate) rate_limit_dev_auth_max_per_window: Option<u32>,
+    pub(crate) rate_limit_auth_bootstrap_max_per_window: Option<u32>,
     #[serde(default)]
     pub(crate) rate_limit_session_max_per_window: Option<u32>,
     #[serde(default)]
@@ -123,7 +123,9 @@ impl SettingsPayload {
                 auth_mode: cfg.api.auth_mode,
                 rate_limit_enabled: cfg.api.rate_limit_enabled,
                 rate_limit_window_secs: cfg.api.rate_limit_window_secs,
-                rate_limit_dev_auth_max_per_window: cfg.api.rate_limit_dev_auth_max_per_window,
+                rate_limit_auth_bootstrap_max_per_window: cfg
+                    .api
+                    .rate_limit_auth_bootstrap_max_per_window,
                 rate_limit_session_max_per_window: cfg.api.rate_limit_session_max_per_window,
                 rate_limit_token_rotate_max_per_window: cfg
                     .api
@@ -150,7 +152,7 @@ pub(crate) fn validate_settings(cfg: &Config) -> Result<(), StatusCode> {
         return Err(StatusCode::BAD_REQUEST);
     }
     if cfg.api.rate_limit_window_secs == 0
-        || cfg.api.rate_limit_dev_auth_max_per_window == 0
+        || cfg.api.rate_limit_auth_bootstrap_max_per_window == 0
         || cfg.api.rate_limit_session_max_per_window == 0
         || cfg.api.rate_limit_token_rotate_max_per_window == 0
     {
@@ -209,8 +211,11 @@ pub(crate) fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest
         if let Some(rate_limit_window_secs) = api.rate_limit_window_secs {
             cfg.api.rate_limit_window_secs = rate_limit_window_secs;
         }
-        if let Some(rate_limit_dev_auth_max_per_window) = api.rate_limit_dev_auth_max_per_window {
-            cfg.api.rate_limit_dev_auth_max_per_window = rate_limit_dev_auth_max_per_window;
+        if let Some(rate_limit_auth_bootstrap_max_per_window) =
+            api.rate_limit_auth_bootstrap_max_per_window
+        {
+            cfg.api.rate_limit_auth_bootstrap_max_per_window =
+                rate_limit_auth_bootstrap_max_per_window;
         }
         if let Some(rate_limit_session_max_per_window) = api.rate_limit_session_max_per_window {
             cfg.api.rate_limit_session_max_per_window = rate_limit_session_max_per_window;

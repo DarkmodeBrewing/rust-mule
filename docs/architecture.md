@@ -40,7 +40,7 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 - `[api].auth_mode` (default `local_ui`)
 - `[api].rate_limit_enabled` (default `true`)
 - `[api].rate_limit_window_secs` (default `60`)
-- `[api].rate_limit_dev_auth_max_per_window` (default `30`)
+- `[api].rate_limit_auth_bootstrap_max_per_window` (default `30`)
 - `[api].rate_limit_session_max_per_window` (default `30`)
 - `[api].rate_limit_token_rotate_max_per_window` (default `10`)
 - `api.host` is validated as loopback-only (`localhost`, `127.0.0.1`, `::1`).

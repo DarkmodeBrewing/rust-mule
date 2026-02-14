@@ -44,7 +44,7 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         auth_mode: ApiAuthMode::LocalUi,
         rate_limit_enabled: true,
         rate_limit_window: Duration::from_secs(60),
-        rate_limit_dev_auth_max: 30,
+        rate_limit_auth_bootstrap_max: 30,
         rate_limit_session_max: 30,
         rate_limit_token_rotate_max: 10,
         rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -421,7 +421,7 @@ async fn settings_get_returns_config_snapshot() {
         cfg.api.auth_mode = ApiAuthMode::HeadlessRemote;
         cfg.api.rate_limit_enabled = true;
         cfg.api.rate_limit_window_secs = 90;
-        cfg.api.rate_limit_dev_auth_max_per_window = 12;
+        cfg.api.rate_limit_auth_bootstrap_max_per_window = 12;
         cfg.api.rate_limit_session_max_per_window = 13;
         cfg.api.rate_limit_token_rotate_max_per_window = 7;
         cfg.general.log_level = "info,rust_mule=debug".to_string();
@@ -440,7 +440,10 @@ async fn settings_get_returns_config_snapshot() {
     ));
     assert!(resp.0.settings.api.rate_limit_enabled);
     assert_eq!(resp.0.settings.api.rate_limit_window_secs, 90);
-    assert_eq!(resp.0.settings.api.rate_limit_dev_auth_max_per_window, 12);
+    assert_eq!(
+        resp.0.settings.api.rate_limit_auth_bootstrap_max_per_window,
+        12
+    );
     assert_eq!(resp.0.settings.api.rate_limit_session_max_per_window, 13);
     assert_eq!(
         resp.0.settings.api.rate_limit_token_rotate_max_per_window,
@@ -476,7 +479,7 @@ async fn settings_patch_updates_and_persists_config() {
                 auth_mode: Some(ApiAuthMode::HeadlessRemote),
                 rate_limit_enabled: Some(true),
                 rate_limit_window_secs: Some(60),
-                rate_limit_dev_auth_max_per_window: Some(30),
+                rate_limit_auth_bootstrap_max_per_window: Some(30),
                 rate_limit_session_max_per_window: Some(30),
                 rate_limit_token_rotate_max_per_window: Some(10),
             }),
@@ -494,7 +497,10 @@ async fn settings_patch_updates_and_persists_config() {
     ));
     assert!(resp.0.settings.api.rate_limit_enabled);
     assert_eq!(resp.0.settings.api.rate_limit_window_secs, 60);
-    assert_eq!(resp.0.settings.api.rate_limit_dev_auth_max_per_window, 30);
+    assert_eq!(
+        resp.0.settings.api.rate_limit_auth_bootstrap_max_per_window,
+        30
+    );
     assert_eq!(resp.0.settings.api.rate_limit_session_max_per_window, 30);
     assert_eq!(
         resp.0.settings.api.rate_limit_token_rotate_max_per_window,
@@ -539,7 +545,7 @@ async fn settings_patch_rejects_invalid_values() {
                 auth_mode: None,
                 rate_limit_enabled: None,
                 rate_limit_window_secs: None,
-                rate_limit_dev_auth_max_per_window: None,
+                rate_limit_auth_bootstrap_max_per_window: None,
                 rate_limit_session_max_per_window: None,
                 rate_limit_token_rotate_max_per_window: None,
             }),
@@ -565,7 +571,7 @@ async fn settings_patch_rejects_invalid_values() {
                 auth_mode: None,
                 rate_limit_enabled: Some(true),
                 rate_limit_window_secs: Some(0),
-                rate_limit_dev_auth_max_per_window: Some(0),
+                rate_limit_auth_bootstrap_max_per_window: Some(0),
                 rate_limit_session_max_per_window: Some(1),
                 rate_limit_token_rotate_max_per_window: Some(1),
             }),
@@ -742,7 +748,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         auth_mode: ApiAuthMode::LocalUi,
         rate_limit_enabled: true,
         rate_limit_window: Duration::from_secs(60),
-        rate_limit_dev_auth_max: 30,
+        rate_limit_auth_bootstrap_max: 30,
         rate_limit_session_max: 30,
         rate_limit_token_rotate_max: 10,
         rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
@@ -784,7 +790,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         auth_mode: ApiAuthMode::LocalUi,
         rate_limit_enabled: true,
         rate_limit_window: Duration::from_secs(60),
-        rate_limit_dev_auth_max: 30,
+        rate_limit_auth_bootstrap_max: 30,
         rate_limit_session_max: 30,
         rate_limit_token_rotate_max: 10,
         rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),

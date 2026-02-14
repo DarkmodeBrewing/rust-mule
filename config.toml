@@ -1,15 +1,25 @@
 [sam]
+# SAM bridge host (I2P router SAM API endpoint).
 host = "10.99.0.2"
+# SAM bridge TCP control port.
 port = 7656
+# SAM bridge UDP datagram port (used for `udp_forward` transport).
 udp_port = 7655
+# SAM session name (must be unique per running instance).
 session_name = "rust-mule"
+# Datagram transport: `tcp` (recommended) or `udp_forward`.
 datagram_transport = "tcp"
+# IP/host SAM should use to forward inbound UDP datagrams to this process.
 forward_host = "10.99.0.1"
+# Local UDP port for forwarded datagrams (`0` = auto-assign ephemeral).
 forward_port = 40000
+# Timeout (seconds) for SAM control channel operations.
 control_timeout_secs = 120
 
 [kad]
+# Runtime bootstrap nodes file path (relative to `general.data_dir` unless absolute).
 bootstrap_nodes_path = "nodes.dat"
+# KAD preferences file name (stores stable KadID).
 preferences_kad_path = "preferencesKad.dat"
 # Advanced KAD configs, use with caution
 # service_alpha = 8
@@ -36,22 +46,32 @@ preferences_kad_path = "preferencesKad.dat"
 # service_store_keyword_evict_age_secs = 1209600
 
 [general]
+# Stdout log filter (`tracing` EnvFilter syntax).
 log_level = "info"
+# Runtime data directory (tokens, keys, logs, nodes.dat, etc.).
 data_dir = "data"
+# Auto-open browser UI after API/UI readiness checks succeed.
 auto_open_ui = true
 
 [api]
 # Local HTTP API control plane (REST + SSE), always enabled.
 # By default we bind to 127.0.0.1 and require a bearer token stored in `data/api.token`.
+# API bind host (loopback-only).
 host = "127.0.0.1"
+# API bind port.
 port = 17835
 # Enable operational/debug endpoints under /api/v1/debug/*.
 enable_debug_endpoints = true
 # Auth mode: `local_ui` enables token bootstrap endpoint (`/api/v1/auth/bootstrap`), `headless_remote` disables it.
 auth_mode = "local_ui"
 # Basic fixed-window rate limiting for high-value endpoints.
+# Master toggle for API rate limiting.
 rate_limit_enabled = true
+# Fixed window size in seconds.
 rate_limit_window_secs = 60
-rate_limit_dev_auth_max_per_window = 30
+# Max `GET /api/v1/auth/bootstrap` requests per window per client.
+rate_limit_auth_bootstrap_max_per_window = 30
+# Max `POST /api/v1/session` requests per window per client.
 rate_limit_session_max_per_window = 30
+# Max `POST /api/v1/token/rotate` requests per window per client.
 rate_limit_token_rotate_max_per_window = 10

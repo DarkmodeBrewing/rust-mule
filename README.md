@@ -48,7 +48,7 @@ rust-mule UI available at: http://localhost:<port>
 - Optional API rate limiting:
   - `[api].rate_limit_enabled = true|false`
   - `[api].rate_limit_window_secs`
-  - `[api].rate_limit_dev_auth_max_per_window`
+  - `[api].rate_limit_auth_bootstrap_max_per_window`
   - `[api].rate_limit_session_max_per_window`
   - `[api].rate_limit_token_rotate_max_per_window`
 
