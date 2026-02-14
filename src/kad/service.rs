@@ -344,6 +344,11 @@ pub struct KadServiceStatus {
     pub live_10m: usize,
     pub pending: usize,
 
+    // UI compatibility aliases:
+    // - recv_req maps to sent_reqs (requests issued by this node)
+    // - recv_res maps to recv_ress (responses received by this node)
+    pub recv_req: u64,
+    pub recv_res: u64,
     pub sent_reqs: u64,
     pub recv_ress: u64,
     pub res_contacts: u64,
@@ -3419,6 +3424,8 @@ fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
         live,
         live_10m,
         pending,
+        recv_req: w.sent_reqs,
+        recv_res: w.recv_ress,
         sent_reqs: w.sent_reqs,
         recv_ress: w.recv_ress,
         res_contacts: w.res_contacts,

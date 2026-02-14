@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Fixed high-impact UI/API status-field mismatch on `main`:
+  - UI expected `recv_req` and `recv_res` in status payloads (REST + SSE), while API exposed `sent_reqs` and `recv_ress`.
+  - Added compatibility aliases directly in `KadServiceStatus`:
+    - `recv_req` (mirrors `sent_reqs`)
+    - `recv_res` (mirrors `recv_ress`)
+  - Wired aliases in status construction (`build_status`) so they are always populated.
+  - Extended API contract test `ui_api_contract_endpoints_return_expected_shapes` to assert:
+    - `recv_req` and `recv_res` exist
+    - alias values match `sent_reqs` and `recv_ress`.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Preserve existing canonical counters (`sent_reqs`, `recv_ress`) while adding aliases for UI compatibility; avoids breaking current dashboards and SSE consumers.
+- Next steps: Optional cleanup is to normalize UI naming to canonical fields in a later pass, then remove aliases when all consumers are updated.
+- Change log: Status API now exposes both canonical and UI-expected request/response counters.
+
 - Status: Added checked-in soak runner script on `main`:
   - New script: `docs/scripts/rust_mule_soak.sh`
   - Mirrors the long-run harness previously staged in `/tmp/rust_mule_soak.sh`.

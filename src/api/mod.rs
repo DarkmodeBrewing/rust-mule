@@ -1430,6 +1430,8 @@ mod tests {
             live: 3,
             live_10m: 2,
             pending: 1,
+            recv_req: 1,
+            recv_res: 1,
             sent_reqs: 1,
             recv_ress: 1,
             res_contacts: 0,
@@ -2040,6 +2042,26 @@ mod tests {
         assert_eq!(status_resp.status(), StatusCode::OK);
         let status_json = response_json(status_resp).await;
         assert!(status_json.get("routing").and_then(Value::as_u64).is_some());
+        assert!(
+            status_json
+                .get("recv_req")
+                .and_then(Value::as_u64)
+                .is_some()
+        );
+        assert!(
+            status_json
+                .get("recv_res")
+                .and_then(Value::as_u64)
+                .is_some()
+        );
+        assert_eq!(
+            status_json.get("recv_req").and_then(Value::as_u64),
+            status_json.get("sent_reqs").and_then(Value::as_u64)
+        );
+        assert_eq!(
+            status_json.get("recv_res").and_then(Value::as_u64),
+            status_json.get("recv_ress").and_then(Value::as_u64)
+        );
         assert!(
             status_json
                 .get("source_search_batch_sent")
