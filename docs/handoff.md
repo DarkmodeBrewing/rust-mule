@@ -8,6 +8,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Standardized and relaxed API command timeout policy on `main`:
+  - Added shared timeout constant:
+    - `API_CMD_TIMEOUT = 5s` in `src/api/mod.rs`.
+  - Replaced per-endpoint hardcoded `2s` timeouts in `src/api/handlers/kad.rs` with `API_CMD_TIMEOUT`.
+  - This applies to KAD command/oneshot-backed endpoints (`sources`, `keyword results`, searches, peers, routing debug, lookup/probe).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Use a single shared timeout for API command dispatch/response waits to avoid endpoint drift and reduce spurious gateway timeouts in slower I2P conditions.
+- Next steps: Optional follow-up can split timeout tiers (e.g. 3s read-only status vs 5s routing/debug) if operational data suggests different SLOs.
+- Change log: API command timeout is now centralized and increased from ad-hoc 2s values to 5s.
+
 - Status: Made session-cookie `Secure` policy explicit in auth code on `main`:
   - Added rationale comment in `src/api/auth.rs` (`build_session_cookie`) explaining why `Secure` is intentionally omitted for current HTTP loopback UI flow.
   - Documented future action in comment: add `Secure` when/if frontend serving moves to HTTPS.

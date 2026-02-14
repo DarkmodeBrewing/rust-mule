@@ -23,6 +23,7 @@ pub mod token;
 
 pub(crate) const SESSION_TTL: Duration = Duration::from_secs(8 * 60 * 60);
 const SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(5 * 60);
+pub(crate) const API_CMD_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub type ApiResult<T> = std::result::Result<T, ApiError>;
 

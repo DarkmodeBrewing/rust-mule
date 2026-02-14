@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::ApiState,
+    api::{API_CMD_TIMEOUT, ApiState},
     kad::{
         KadId, keyword,
         service::{
@@ -188,7 +188,7 @@ pub(crate) async fn kad_sources(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let sources = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let sources = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -223,7 +223,7 @@ pub(crate) async fn kad_keyword_results(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let hits = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let hits = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -256,7 +256,7 @@ pub(crate) async fn searches(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let searches = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let searches = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -279,7 +279,7 @@ pub(crate) async fn search_details(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let searches = tokio::time::timeout(std::time::Duration::from_secs(2), searches_rx)
+    let searches = tokio::time::timeout(API_CMD_TIMEOUT, searches_rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -299,7 +299,7 @@ pub(crate) async fn search_details(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let hits = tokio::time::timeout(std::time::Duration::from_secs(2), hits_rx)
+    let hits = tokio::time::timeout(API_CMD_TIMEOUT, hits_rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -334,7 +334,7 @@ pub(crate) async fn search_stop(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let stopped = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let stopped = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -359,7 +359,7 @@ pub(crate) async fn search_delete(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let deleted = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let deleted = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -380,7 +380,7 @@ pub(crate) async fn kad_peers(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let peers = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let peers = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -398,7 +398,7 @@ pub(crate) async fn debug_routing_summary(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let summary = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let summary = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -416,7 +416,7 @@ pub(crate) async fn debug_routing_buckets(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let buckets = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let buckets = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -441,7 +441,7 @@ pub(crate) async fn debug_routing_nodes(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let nodes = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let nodes = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -471,7 +471,7 @@ pub(crate) async fn debug_lookup_once(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let target_id = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let target_id = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -507,7 +507,7 @@ pub(crate) async fn debug_probe_peer(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let peer_found = tokio::time::timeout(std::time::Duration::from_secs(2), rx)
+    let peer_found = tokio::time::timeout(API_CMD_TIMEOUT, rx)
         .await
         .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
