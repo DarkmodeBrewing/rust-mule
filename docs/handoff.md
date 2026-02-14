@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Added soak triage helper script on `main`:
+  - New script: `docs/scripts/soak_triage.sh`
+  - Input: soak tarball (`/tmp/rust-mule-soak-*.tar.gz`)
+  - Output includes:
+    - completion signal (`stop requested` markers)
+    - round outcome metrics (total/success/success%, first+last success, max fail streak, last300 success)
+    - success source concentration (`source_id_hex` top list)
+    - key A/B status counters (`max` and `last` from `status.ndjson`)
+    - panic/fatal scan for `logs/a.out` and `logs/b.out`
+  - Validated against `/tmp/rust-mule-soak-20260214_101721.tar.gz`; reported metrics match prior manual triage.
+- Decisions: Keep soak triage tool POSIX shell + awk/grep only (no Python dependency) so it works in constrained environments.
+- Next steps: Optional follow-up can add CSV/JSON emit mode for CI ingestion if we want automatic baseline-vs-current comparisons.
+- Change log: Added `docs/scripts/soak_triage.sh` and validated report output on the latest soak archive.
+
 - Status: Added UI/API contract assurance scaffolding on `feature/kad-imule-parity-deep-pass`:
   - Added router-level UI contract test in `src/api/mod.rs`:
     - `ui_api_contract_endpoints_return_expected_shapes`
