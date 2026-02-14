@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: docs/scripts/kad_publish_keyword.sh (--query "words..." | --keyword-id-hex HEX) --file-id-hex HEX --filename NAME --file-size N [--file-type TYPE] [--base-url URL] [--token TOKEN] [--token-file PATH]
+Usage: scripts/docs/kad_publish_keyword.sh (--query "words..." | --keyword-id-hex HEX) --file-id-hex HEX --filename NAME --file-size N [--file-type TYPE] [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
   POST /api/v1/kad/publish_keyword

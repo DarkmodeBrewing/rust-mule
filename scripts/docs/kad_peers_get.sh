@@ -3,10 +3,10 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: docs/scripts/events.sh [--base-url URL] [--token TOKEN] [--token-file PATH]
+Usage: scripts/docs/kad_peers_get.sh [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
-  GET /api/v1/events   (auth required, SSE stream)
+  GET /api/v1/kad/peers
 
 Options:
   --base-url URL       Default: http://127.0.0.1:17835
@@ -33,6 +33,6 @@ if [[ -z "$TOKEN" ]]; then
   TOKEN="$(cat "$TOKEN_FILE")"
 fi
 
-# -N: disable buffering for streaming
-curl -N -sS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/events"
-
+curl -sS \
+  -H "Authorization: Bearer $TOKEN" \
+  "$BASE_URL/api/v1/kad/peers"

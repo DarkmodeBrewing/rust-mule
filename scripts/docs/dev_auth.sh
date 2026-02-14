@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: docs/scripts/dev_auth.sh [--base-url URL]
+Usage: scripts/docs/dev_auth.sh [--base-url URL]
 
 Calls:
   GET /api/v1/dev/auth   (loopback-only, no auth)

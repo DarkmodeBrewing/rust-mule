@@ -2,7 +2,7 @@
 
 This file collects `curl` commands for testing the local rust-mule HTTP API.
 
-For “one script per endpoint” wrappers, see `docs/scripts/`.
+For “one script per endpoint” wrappers, see `scripts/docs/`.
 
 Assumptions:
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Usage: docs/scripts/debug_probe_peer.sh [options]
+Usage: scripts/docs/debug_probe_peer.sh [options]
 
 Calls:
   POST /api/v1/debug/probe_peer

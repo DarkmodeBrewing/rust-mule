@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: docs/scripts/kad_keyword_results_get.sh --keyword-id-hex HEX [--base-url URL] [--token TOKEN] [--token-file PATH]
+Usage: scripts/docs/kad_keyword_results_get.sh --keyword-id-hex HEX [--base-url URL] [--token TOKEN] [--token-file PATH]
 
 Calls:
   GET /api/v1/kad/keyword_results/:keyword_id_hex

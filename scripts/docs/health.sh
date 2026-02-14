@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: docs/scripts/health.sh [--base-url URL]
+Usage: scripts/docs/health.sh [--base-url URL]
 
 Calls:
   GET /api/v1/health   (no auth)

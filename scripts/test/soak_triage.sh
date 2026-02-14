@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  docs/scripts/soak_triage.sh /path/to/rust-mule-soak-YYYYmmdd_HHMMSS.tar.gz
+  scripts/test/soak_triage.sh /path/to/rust-mule-soak-YYYYmmdd_HHMMSS.tar.gz
 
 Outputs:
   - run completion signal (stop requested vs abrupt ending)

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: docs/scripts/two_instance_dht_selftest.sh [options]
+Usage: scripts/test/two_instance_dht_selftest.sh [options]
 
 Runs a fair-ish two-instance test against mule-a and mule-b:
 
@@ -146,7 +146,7 @@ poll_keyword_results() {
     fi
 
     local json has_net
-    json="$(docs/scripts/kad_keyword_results_get.sh \
+    json="$(scripts/docs/kad_keyword_results_get.sh \
       --base-url "$base_url" \
       --token-file "$token_file" \
       --keyword-id-hex "$keyword_id_hex" 2>/dev/null || true)"
@@ -188,7 +188,7 @@ wait_for_warmup() {
     fi
 
     local s live live10 routing
-    s="$(docs/scripts/status.sh --base-url "$base_url" --token-file "$token_file" 2>/dev/null || true)"
+    s="$(scripts/docs/status.sh --base-url "$base_url" --token-file "$token_file" 2>/dev/null || true)"
     live10="$(extract_json_int_field "$s" live_10m)"
     live="$(extract_json_int_field "$s" live)"
     routing="$(extract_json_int_field "$s" routing)"
@@ -216,7 +216,7 @@ healthcheck() {
   local name="$1"
   local base_url="$2"
   log "Healthcheck $name ($base_url)"
-  docs/scripts/health.sh --base-url "$base_url" >/dev/null
+  scripts/docs/health.sh --base-url "$base_url" >/dev/null
 }
 
 status_snapshot() {
@@ -224,7 +224,7 @@ status_snapshot() {
   local base_url="$2"
   local token_file="$3"
   log "Status $name ($base_url)"
-  docs/scripts/status.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
+  scripts/docs/status.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
 }
 
@@ -240,7 +240,7 @@ publish_keyword() {
 
   log "Publish keyword on $name query='$query' file_id_hex=$file_id_hex filename='$filename' size=$file_size"
   if [[ -n "$file_type" ]]; then
-    docs/scripts/kad_publish_keyword.sh \
+    scripts/docs/kad_publish_keyword.sh \
       --base-url "$base_url" \
       --token-file "$token_file" \
       --query "$query" \
@@ -250,7 +250,7 @@ publish_keyword() {
       --file-type "$file_type" \
       | tee -a "$OUT_FILE"
   else
-    docs/scripts/kad_publish_keyword.sh \
+    scripts/docs/kad_publish_keyword.sh \
       --base-url "$base_url" \
       --token-file "$token_file" \
       --query "$query" \
@@ -269,7 +269,7 @@ search_keyword() {
   local keyword_id_hex="$4"
 
   log "Search keyword on $name keyword_id_hex=$keyword_id_hex"
-  docs/scripts/kad_search_keyword.sh \
+  scripts/docs/kad_search_keyword.sh \
     --base-url "$base_url" \
     --token-file "$token_file" \
     --keyword-id-hex "$keyword_id_hex" \
@@ -284,7 +284,7 @@ get_keyword_results() {
   local keyword_id_hex="$4"
 
   log "Get keyword results on $name keyword_id_hex=$keyword_id_hex"
-  docs/scripts/kad_keyword_results_get.sh \
+  scripts/docs/kad_keyword_results_get.sh \
     --base-url "$base_url" \
     --token-file "$token_file" \
     --keyword-id-hex "$keyword_id_hex" \
@@ -300,7 +300,7 @@ publish_source() {
   local file_size="$5"
 
   log "Publish source on $name file_id_hex=$file_id_hex size=$file_size"
-  docs/scripts/kad_publish_source.sh \
+  scripts/docs/kad_publish_source.sh \
     --base-url "$base_url" \
     --token-file "$token_file" \
     --file-id-hex "$file_id_hex" \
@@ -317,7 +317,7 @@ search_sources() {
   local file_size="$5"
 
   log "Search sources on $name file_id_hex=$file_id_hex size=$file_size"
-  docs/scripts/kad_search_sources.sh \
+  scripts/docs/kad_search_sources.sh \
     --base-url "$base_url" \
     --token-file "$token_file" \
     --file-id-hex "$file_id_hex" \
@@ -333,7 +333,7 @@ get_sources() {
   local file_id_hex="$4"
 
   log "Get sources on $name file_id_hex=$file_id_hex"
-  docs/scripts/kad_sources_get.sh \
+  scripts/docs/kad_sources_get.sh \
     --base-url "$base_url" \
     --token-file "$token_file" \
     --file-id-hex "$file_id_hex" \
@@ -356,7 +356,7 @@ peers_snapshot() {
   esac
 
   log "Peers $name ($base_url)"
-  bash docs/scripts/kad_peers_get.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/kad_peers_get.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
   PEERS_SNAPSHOT_DONE="1"
 }
@@ -385,7 +385,7 @@ routing_summary_snapshot() {
   fi
 
   log "Routing summary $name ($base_url)"
-  bash docs/scripts/debug_routing_summary.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/debug_routing_summary.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
   ROUTING_SNAPSHOT_DONE="1"
 }
@@ -400,7 +400,7 @@ routing_buckets_snapshot() {
   fi
 
   log "Routing buckets $name ($base_url)"
-  bash docs/scripts/debug_routing_buckets.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/debug_routing_buckets.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
   ROUTING_SNAPSHOT_DONE="1"
 }
@@ -411,7 +411,7 @@ debug_lookup_once() {
   local token_file="$3"
 
   log "Debug lookup $name ($base_url)"
-  bash docs/scripts/debug_lookup_once.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/debug_lookup_once.sh --base-url "$base_url" --token-file "$token_file" | tee -a "$OUT_FILE" || true
   append_blank_line
 }
 
@@ -522,7 +522,7 @@ for ((i=1; i<=ROUNDS; i++)); do
   else
     # Query-based fallback.
     log "Search keyword on A by query='$QUERY_A' (fallback)"
-    docs/scripts/kad_search_keyword.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" --query "$QUERY_A" >/dev/null
+    scripts/docs/kad_search_keyword.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" --query "$QUERY_A" >/dev/null
     sleep "$WAIT_SEARCH_SECS"
     log "NOTE: keyword_id_hex unknown; use /api/v1/kad/search_keyword response to fetch results"
   fi
@@ -578,7 +578,7 @@ for ((i=1; i<=ROUNDS; i++)); do
     poll_keyword_results "A" "$A_BASE_URL" "$A_TOKEN_FILE" "$KEY_B" "$WAIT_SEARCH_SECS" "$POLL_INTERVAL_SECS"
   else
     log "Search keyword on B by query='$QUERY_B' (fallback)"
-    docs/scripts/kad_search_keyword.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" --query "$QUERY_B" >/dev/null
+    scripts/docs/kad_search_keyword.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" --query "$QUERY_B" >/dev/null
     sleep "$WAIT_SEARCH_SECS"
     log "NOTE: keyword_id_hex unknown; use /api/v1/kad/search_keyword response to fetch results"
   fi
@@ -613,16 +613,16 @@ done
 
 if [[ "$ROUTING_SNAPSHOT" == "end" ]]; then
   log "Final routing summary A ($A_BASE_URL)"
-  bash docs/scripts/debug_routing_summary.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/debug_routing_summary.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" | tee -a "$OUT_FILE" || true
   append_blank_line
   log "Final routing summary B ($B_BASE_URL)"
-  bash docs/scripts/debug_routing_summary.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/debug_routing_summary.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" | tee -a "$OUT_FILE" || true
   append_blank_line
   log "Final routing buckets A ($A_BASE_URL)"
-  bash docs/scripts/debug_routing_buckets.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/debug_routing_buckets.sh --base-url "$A_BASE_URL" --token-file "$A_TOKEN_FILE" | tee -a "$OUT_FILE" || true
   append_blank_line
   log "Final routing buckets B ($B_BASE_URL)"
-  bash docs/scripts/debug_routing_buckets.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" | tee -a "$OUT_FILE" || true
+  bash scripts/docs/debug_routing_buckets.sh --base-url "$B_BASE_URL" --token-file "$B_TOKEN_FILE" | tee -a "$OUT_FILE" || true
   append_blank_line
 fi
 

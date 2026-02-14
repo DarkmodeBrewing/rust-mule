@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Moved operational scripts out of `docs/scripts` into top-level `scripts/` with explicit split:
+  - API/documentation helpers moved to `scripts/docs/`:
+    - `health/status/events`, KAD endpoint helpers, debug endpoint helpers, dev auth helper.
+  - Test harnesses moved to `scripts/test/`:
+    - `two_instance_dht_selftest.sh`
+    - `rust_mule_soak.sh`
+    - `soak_triage.sh`
+  - Removed legacy `docs/scripts/` directory and updated path references in scripts/docs:
+    - internal calls in `scripts/test/two_instance_dht_selftest.sh`
+    - usage/help text in moved scripts
+    - `README.md` and `docs/api_curl.md` pointers.
+- Decisions: Keep `scripts/build/` for build/release, `scripts/docs/` for endpoint helper wrappers, and `scripts/test/` for scenario/soak harnesses.
+- Next steps: Optional follow-up can add thin wrapper aliases for old `docs/scripts/*` paths if external automation still depends on them.
+- Change log: Script layout is now canonicalized under `/scripts` and split by intent (docs helpers vs tests).
+
 - Status: Added dedicated cross-platform build script folder on `main`:
   - New canonical build location: `scripts/build/`.
   - Added platform scripts:

@@ -5,14 +5,14 @@ set -euo pipefail
 # Default expects freshly built artifacts at ../../mule-a and ../../mule-b.
 #
 # Examples:
-#   docs/scripts/rust_mule_soak.sh start
-#   docs/scripts/rust_mule_soak.sh wait_ready
-#   docs/scripts/rust_mule_soak.sh soak 2000
-#   docs/scripts/rust_mule_soak.sh stop
-#   docs/scripts/rust_mule_soak.sh collect
+#   scripts/test/rust_mule_soak.sh start
+#   scripts/test/rust_mule_soak.sh wait_ready
+#   scripts/test/rust_mule_soak.sh soak 2000
+#   scripts/test/rust_mule_soak.sh stop
+#   scripts/test/rust_mule_soak.sh collect
 #
 # Run in background:
-#   nohup bash -lc 'cd /path/to/rust-mule && docs/scripts/rust_mule_soak.sh start && docs/scripts/rust_mule_soak.sh wait_ready && docs/scripts/rust_mule_soak.sh soak 2000' >/tmp/rust-mule-soak/runner.out 2>&1 &
+#   nohup bash -lc 'cd /path/to/rust-mule && scripts/test/rust_mule_soak.sh start && scripts/test/rust_mule_soak.sh wait_ready && scripts/test/rust_mule_soak.sh soak 2000' >/tmp/rust-mule-soak/runner.out 2>&1 &
 
 ROOT="${ROOT:-$PWD}"
 A_SRC="${A_SRC:-$ROOT/../../mule-a}"

@@ -103,7 +103,7 @@ Runtime state lives under `data/` (gitignored):
 ## Utility Scripts
 
 - `scripts/build/`: platform release bundle scripts (`linux`, `macos`, `windows`)
-- `docs/scripts/two_instance_dht_selftest.sh`: short two-instance validation
-- `docs/scripts/rust_mule_soak.sh`: long-running soak scaffold
-- `docs/scripts/soak_triage.sh`: soak archive triage summary
-- `docs/scripts/*.sh`: endpoint-focused debug helpers
+- `scripts/test/two_instance_dht_selftest.sh`: short two-instance validation
+- `scripts/test/rust_mule_soak.sh`: long-running soak scaffold
+- `scripts/test/soak_triage.sh`: soak archive triage summary
+- `scripts/docs/*.sh`: endpoint-focused debug helpers
