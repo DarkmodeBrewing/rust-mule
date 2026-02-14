@@ -16,10 +16,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - aborts readiness early on repeated `403` responses (token mismatch/wrong process)
     - separates detached stdout/stderr into `logs/runner.out` to avoid duplicate `runner.log` lines.
     - uses stricter multi-probe port detection (`ss` + `lsof` + TCP connect probes) before launch to catch occupied API ports reliably.
+    - `stop` now also scans `A_URL`/`B_URL` listen ports and terminates matching `rust-mule` listener PIDs if PID files are stale/missing.
   - `scripts/test/README.md` updated with the new safety behavior.
 - Decisions:
   - Prefer explicit preflight failure over implicit retries when ports are occupied.
   - Treat repeated readiness `403` as a hard test-environment mismatch signal.
+  - Keep stop fallback conservative: only kill listeners whose process cmdline contains `rust-mule`.
 - Next steps:
   - Re-run soak with the hardened script; verify `rounds.tsv` and `status.ndjson` are populated before long-run analysis.
   - If needed, add optional auto-port allocation mode in a later slice.

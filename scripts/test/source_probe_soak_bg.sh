@@ -131,6 +131,48 @@ verify_node_pid_context() {
   [[ "$cwd" == "$(readlink -f "$expected_dir")" ]]
 }
 
+port_listener_pids() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u
+    return 0
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp 2>/dev/null \
+      | awk -v p=":$port" '$4 ~ p {print $NF}' \
+      | sed -nE 's/.*pid=([0-9]+).*/\1/p' \
+      | sort -u
+    return 0
+  fi
+  return 1
+}
+
+kill_pid_if_rust_mule() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 0
+  [[ -d "/proc/$pid" ]] || return 0
+  local cmdline
+  cmdline="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+  if [[ "$cmdline" == *"rust-mule"* ]]; then
+    kill "$pid" 2>/dev/null || true
+    sleep 1
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+    log "killed rust-mule listener pid=$pid"
+  fi
+}
+
+stop_port_listeners() {
+  local a_port b_port pids pid
+  a_port="$(url_port "$A_URL")"
+  b_port="$(url_port "$B_URL")"
+  pids="$( { port_listener_pids "$a_port"; port_listener_pids "$b_port"; } 2>/dev/null | sort -u )"
+  for pid in $pids; do
+    kill_pid_if_rust_mule "$pid"
+  done
+}
+
 start_nodes() {
   ensure_ports_available
 
@@ -350,6 +392,7 @@ stop_runner() {
   fi
 
   stop_nodes
+  stop_port_listeners
   echo "stopped" >"$RUNNER_STATE_FILE"
   log "runner stop requested"
 }

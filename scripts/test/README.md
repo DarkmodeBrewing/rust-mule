@@ -24,6 +24,7 @@ Safety behavior:
 - Fails fast if `A_URL` or `B_URL` ports are already occupied.
 - Fails fast on repeated readiness `403` responses (likely token mismatch against an old process).
 - Verifies spawned node PIDs are running from the expected per-run directories.
+- `stop` also attempts to kill `rust-mule` listeners bound to `A_URL`/`B_URL` ports if PID files are stale.
 
 Defaults:
 - binaries: `../../mule-a/rust-mule` and `../../mule-b/rust-mule`
