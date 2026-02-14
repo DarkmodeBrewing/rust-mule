@@ -94,7 +94,7 @@ Represents a single run of a search with its own timeline and results.
 ### Health & Meta
 
 - `GET /api/v1/health`
-  - returns `{ "status": "ok" }`
+  - returns `{ "ok": true }`
 
 - `GET /api/v1/version` (future)
   - candidate endpoint for build/version metadata.
@@ -222,7 +222,7 @@ Two approaches:
 
 - `GET /api/v1/events`
   - SSE stream emitting JSON events
-  - localhost v1: allow `?token=...` (since `EventSource` can’t send headers)
+  - authenticated by `rm_session` HTTP-only cookie (session-cookie auth)
 
 ### Event envelope
 All events follow a consistent envelope:
@@ -318,7 +318,7 @@ All events follow a consistent envelope:
 
 - Bind API to `127.0.0.1` by default.
 - `GET /api/v1/dev/auth` must be loopback-only.
-- Avoid putting tokens in URLs except for localhost SSE; do not log full query strings.
+- Do not put bearer tokens in URL query parameters; use header auth for REST and session cookies for SSE/UI.
 - For headless deployments:
   - keep API loopback-only and expose via VPN or reverse proxy with TLS + auth.
 

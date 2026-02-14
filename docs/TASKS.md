@@ -2,18 +2,19 @@
 
 ## Current Priority
 
-1. KAD search/publish reliability pass (network-level verification).
+1. KAD organic reliability pass (search/publish under real peer variance).
+2. UI statistics follow-up (dedicated statistics page + richer chart controls).
+3. Operational hardening (memory-pressure visibility + headless runbook polish).
 
-Scope:
-- verify ACK behavior and retry/backoff tuning against live peers
-- validate `search_sources` and keyword search/publish success rates over longer runs
-- tighten metrics/logging around request->response conversion and timeout causes
+## Scope (Current Iteration)
 
-Why this is next:
-- typed-error migration is now complete across runtime and subsystem modules
-- remaining delivery risk is network behavior (timeouts, retries, peer variance), not error typing
+- quantify non-forced success/failure over soak runs
+- identify dominant timeout/drop buckets and close highest-impact gaps
+- keep UI/API contract checks updated as fields evolve
 
-Definition of done:
-- measurable improvement in successful search/publish round-trips over baseline
-- clear counters/log events for ACKs, retries, and timeout buckets
-- `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` pass
+## Definition Of Done
+
+- measurable improvement in search/publish round-trip success over baseline
+- clear status/log counters for timeout/retry/drop classes
+- `cargo fmt`, `cargo clippy --all-targets --all-features`, `cargo test` pass
+- documentation updated (`README.md`, `docs/TODO.md`, `docs/handoff.md`)

@@ -6,6 +6,23 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
+## Status (2026-02-14)
+
+- Status: Streamlined docs set and refreshed README entrypoint on `main`:
+  - Rewrote `README.md` to reflect current behavior and include a clear documentation map.
+  - Added `docs/README.md` as a documentation index.
+  - Normalized backlog docs:
+    - `docs/TODO.md` (focused subsystem backlog)
+    - `docs/TASKS.md` (current execution priorities and DoD)
+  - Corrected API design drift in `docs/API_DESIGN.md`:
+    - `/api/v1/health` response shape now documented as `{ \"ok\": true }`
+    - SSE auth documented as session-cookie based (no token query parameter)
+    - security note updated to avoid bearer tokens in query parameters.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep `README.md` as the top-level operator/developer entrypoint and keep deeper design/contract details in `/docs` with an explicit index.
+- Next steps: Keep `docs/ui_api_contract_map.md` and `docs/api_curl.md` updated whenever endpoint fields/routes change; continue prioritizing KAD organic reliability and UI statistics expansion.
+- Change log: Documentation set is now normalized and aligned with current API/UI/auth behavior.
+
 ## Status (2026-02-12)
 
 - Status: Standardized and relaxed API command timeout policy on `main`:
