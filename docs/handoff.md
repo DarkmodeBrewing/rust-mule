@@ -8,6 +8,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Made session-cookie `Secure` policy explicit in auth code on `main`:
+  - Added rationale comment in `src/api/auth.rs` (`build_session_cookie`) explaining why `Secure` is intentionally omitted for current HTTP loopback UI flow.
+  - Documented future action in comment: add `Secure` when/if frontend serving moves to HTTPS.
+  - Extended cookie test (`src/api/tests.rs`) to assert current behavior (`Secure` absent), making policy changes explicit and reviewable.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep cookie flags as `HttpOnly; SameSite=Strict` without `Secure` for current localhost HTTP mode, but require explicit code change when transport assumptions change.
+- Next steps: Optional: gate `Secure` on a future HTTPS/TLS config switch when frontend transport supports it.
+- Change log: Session-cookie security decision is now explicitly documented and test-enforced.
+
 - Status: Fixed implicit config persistence path and fragile API settings tests on `main`:
   - Added explicit config persistence API:
     - `Config::persist_to(path)` in `src/config.rs`

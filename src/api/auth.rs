@@ -116,6 +116,11 @@ pub(crate) fn cleanup_expired_sessions(sessions: &mut HashMap<String, Instant>, 
 }
 
 pub(crate) fn build_session_cookie(session_id: &str, ttl: Duration) -> String {
+    // Intentionally omit `Secure` for now:
+    // the local UI/auth flow runs over plain HTTP loopback (`http://127.0.0.1` / `localhost`).
+    // Browsers ignore `Secure` cookies on non-HTTPS origins, which would break session auth.
+    //
+    // If/when frontend serving moves to HTTPS, add `; Secure` here (and in clear_session_cookie).
     format!(
         "rm_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
         ttl.as_secs()

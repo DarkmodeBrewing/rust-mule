@@ -204,6 +204,7 @@ fn session_cookie_ttl_and_clear_cookie_headers_are_well_formed() {
     let cookie = auth::build_session_cookie("abc", Duration::from_secs(60));
     assert!(cookie.contains("rm_session=abc"));
     assert!(cookie.contains("Max-Age=60"));
+    assert!(!cookie.contains("Secure"));
     assert!(auth::clear_session_cookie().contains("Max-Age=0"));
 }
 
