@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Continued KAD service modularization with lookup + keyword logic extraction on `main` (no behavior change):
+  - Added `src/kad/service/lookup.rs` and moved lookup/refresh scheduler logic there:
+    - lookup queue seeding/progression (`tick_lookups`)
+    - bucket refresh scheduling (`tick_refresh`)
+    - lookup response integration (`handle_lookup_response`)
+    - distance/random target helpers used by the lookup pipeline.
+  - Added `src/kad/service/keyword.rs` and moved keyword cache/store lifecycle logic there:
+    - keyword interest tracking/capping
+    - keyword hit cache upsert/caps/eviction
+    - keyword store TTL/size-limit eviction
+    - maintenance helpers for keyword cache/store.
+  - `src/kad/service.rs` now delegates to `lookup`/`keyword` modules for these domains.
+  - Net effect:
+    - `src/kad/service.rs` reduced further to ~3519 LOC (from ~4116 after prior split, ~4979 originally).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests).
+- Decisions:
+  - Keep behavior-preserving wrappers/delegation during split to minimize regression risk.
+  - Prioritize extraction of cohesive domains (lookup + keyword lifecycle) before touching inbound packet handler.
+- Next steps:
+  - Next high-value split in `service.rs` is `handle_inbound` and related opcode handlers into `inbound.rs`.
+  - Optional follow-up: move source-probe bookkeeping/status helpers into `source_probe.rs`.
+- Change log: KAD service now has dedicated `lookup` and `keyword` modules; core file is materially smaller with unchanged test results.
+
 - Status: Split `src/kad/service.rs` into logical submodules on `main` (no behavior change):
   - Added `src/kad/service/types.rs`:
     - moved service-facing data/config/status/command types and related defaults:

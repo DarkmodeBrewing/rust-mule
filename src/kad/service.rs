@@ -30,6 +30,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{Duration, Instant, MissedTickBehavior, interval};
 
+mod keyword;
+mod lookup;
 mod routing_view;
 #[cfg(test)]
 mod tests;
@@ -644,19 +646,7 @@ fn start_lookup(
     alpha_override: Option<usize>,
     now: Instant,
 ) {
-    let task = LookupTask {
-        kind,
-        target,
-        started_at: now,
-        last_progress: now,
-        iteration: 0,
-        alpha_override,
-        queried: HashSet::new(),
-        inflight: HashSet::new(),
-        known: BTreeMap::new(),
-        new_nodes: 0,
-    };
-    svc.lookup_queue.push_back(task);
+    lookup::start_lookup_impl(svc, target, kind, alpha_override, now);
 }
 
 async fn send_search_sources(
@@ -1855,47 +1845,7 @@ fn touch_keyword_interest(
     keyword: KadId,
     now: Instant,
 ) {
-    svc.keyword_interest.insert(keyword, now);
-    enforce_keyword_interest_limit(svc, cfg);
-}
-
-fn enforce_keyword_interest_limit(svc: &mut KadService, cfg: &KadServiceConfig) {
-    let max_keywords = cfg.keyword_max_keywords;
-    if max_keywords == 0 {
-        // Treat 0 as "disable caching": drop everything.
-        let removed = drop_all_keywords(svc);
-        if removed.keywords > 0 || removed.hits > 0 {
-            svc.stats_window.evicted_keyword_keywords += removed.keywords as u64;
-            svc.stats_window.evicted_keyword_hits += removed.hits as u64;
-        }
-        return;
-    }
-
-    if svc.keyword_interest.len() <= max_keywords {
-        return;
-    }
-
-    let mut v = svc
-        .keyword_interest
-        .iter()
-        .map(|(k, t)| (*k, *t))
-        .collect::<Vec<_>>();
-    v.sort_by_key(|(_, t)| *t);
-
-    let mut idx = 0usize;
-    while svc.keyword_interest.len() > max_keywords && idx < v.len() {
-        let k = v[idx].0;
-        idx += 1;
-        svc.keyword_interest.remove(&k);
-        let removed_hits = drop_keyword_hits_only(svc, k);
-        svc.stats_window.evicted_keyword_keywords += 1;
-        svc.stats_window.evicted_keyword_hits += removed_hits as u64;
-    }
-}
-
-fn enforce_keyword_size_limits(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
-    enforce_keyword_per_keyword_caps_all(svc, cfg);
-    enforce_keyword_total_cap(svc, cfg, now);
+    keyword::touch_keyword_interest_impl(svc, cfg, keyword, now);
 }
 
 fn upsert_keyword_hit_cache(
@@ -1905,128 +1855,15 @@ fn upsert_keyword_hit_cache(
     keyword: KadId,
     hit: KadKeywordHit,
 ) {
-    if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&keyword) {
-        return;
-    }
-
-    let m = svc.keyword_hits_by_keyword.entry(keyword).or_default();
-    match m.get_mut(&hit.file_id) {
-        Some(st) => {
-            st.hit = hit;
-            st.last_seen = now;
-        }
-        None => {
-            m.insert(
-                hit.file_id,
-                KeywordHitState {
-                    hit,
-                    last_seen: now,
-                },
-            );
-            svc.keyword_hits_total = svc.keyword_hits_total.saturating_add(1);
-        }
-    }
-
-    enforce_keyword_size_limits(svc, cfg, now);
-}
-
-fn enforce_keyword_per_keyword_caps_all(svc: &mut KadService, cfg: &KadServiceConfig) {
-    let per = cfg.keyword_max_hits_per_keyword;
-    if per == 0 {
-        return;
-    }
-    let keys = svc
-        .keyword_hits_by_keyword
-        .keys()
-        .copied()
-        .collect::<Vec<_>>();
-    for k in keys {
-        prune_keyword_hits_per_keyword(svc, k, per);
-    }
+    keyword::upsert_keyword_hit_cache_impl(svc, cfg, now, keyword, hit);
 }
 
 fn enforce_keyword_per_keyword_cap(svc: &mut KadService, cfg: &KadServiceConfig, keyword: KadId) {
-    let per = cfg.keyword_max_hits_per_keyword;
-    if per == 0 {
-        return;
-    }
-    prune_keyword_hits_per_keyword(svc, keyword, per);
+    keyword::enforce_keyword_per_keyword_cap_impl(svc, cfg, keyword);
 }
 
 fn enforce_keyword_total_cap(svc: &mut KadService, cfg: &KadServiceConfig, _now: Instant) {
-    // Total cap. Evict oldest keywords by interest time first.
-    let max_total = cfg.keyword_max_total_hits;
-    if max_total == 0 || svc.keyword_hits_total <= max_total {
-        return;
-    }
-
-    let mut v = svc
-        .keyword_interest
-        .iter()
-        .map(|(k, t)| (*k, *t))
-        .collect::<Vec<_>>();
-    v.sort_by_key(|(_, t)| *t);
-
-    for (k, _) in v {
-        if svc.keyword_hits_total <= max_total {
-            break;
-        }
-        svc.keyword_interest.remove(&k);
-        let removed_hits = drop_keyword_hits_only(svc, k);
-        svc.stats_window.evicted_keyword_keywords += 1;
-        svc.stats_window.evicted_keyword_hits += removed_hits as u64;
-    }
-}
-
-fn prune_keyword_hits_per_keyword(svc: &mut KadService, keyword: KadId, max: usize) {
-    let Some(m) = svc.keyword_hits_by_keyword.get_mut(&keyword) else {
-        return;
-    };
-    if m.len() <= max {
-        return;
-    }
-
-    let mut entries = m
-        .iter()
-        .map(|(file_id, st)| (*file_id, st.last_seen))
-        .collect::<Vec<_>>();
-    entries.sort_by_key(|(_, t)| *t);
-
-    let to_remove = m.len().saturating_sub(max);
-    for (file_id, _) in entries.into_iter().take(to_remove) {
-        if m.remove(&file_id).is_some() {
-            svc.keyword_hits_total = svc.keyword_hits_total.saturating_sub(1);
-            svc.stats_window.evicted_keyword_hits += 1;
-        }
-    }
-
-    if m.is_empty() {
-        svc.keyword_hits_by_keyword.remove(&keyword);
-    }
-}
-
-fn drop_keyword_hits_only(svc: &mut KadService, keyword: KadId) -> usize {
-    if let Some(m) = svc.keyword_hits_by_keyword.remove(&keyword) {
-        let n = m.len();
-        svc.keyword_hits_total = svc.keyword_hits_total.saturating_sub(n);
-        return n;
-    }
-    0
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct KeywordDropCount {
-    keywords: usize,
-    hits: usize,
-}
-
-fn drop_all_keywords(svc: &mut KadService) -> KeywordDropCount {
-    let keywords = svc.keyword_hits_by_keyword.len();
-    let hits = svc.keyword_hits_total;
-    svc.keyword_hits_by_keyword.clear();
-    svc.keyword_hits_total = 0;
-    svc.keyword_interest.clear();
-    KeywordDropCount { keywords, hits }
+    keyword::enforce_keyword_total_cap_impl(svc, cfg, _now);
 }
 
 async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
@@ -2070,205 +1907,15 @@ async fn maintenance(svc: &mut KadService, cfg: &KadServiceConfig) {
 }
 
 fn maintain_keyword_cache(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
-    // Expire keyword interest.
-    let interest_ttl = Duration::from_secs(cfg.keyword_interest_ttl_secs.max(60));
-    let mut expired_keywords = Vec::<KadId>::new();
-    for (k, t) in &svc.keyword_interest {
-        if now.saturating_duration_since(*t) >= interest_ttl {
-            expired_keywords.push(*k);
-        }
-    }
-    for k in expired_keywords {
-        svc.keyword_interest.remove(&k);
-        let removed_hits = drop_keyword_hits_only(svc, k);
-        svc.stats_window.evicted_keyword_keywords += 1;
-        svc.stats_window.evicted_keyword_hits += removed_hits as u64;
-    }
-
-    // Expire stale hits (per-hit TTL).
-    let results_ttl = Duration::from_secs(cfg.keyword_results_ttl_secs.max(60));
-    let keys = svc
-        .keyword_hits_by_keyword
-        .keys()
-        .copied()
-        .collect::<Vec<_>>();
-    for k in keys {
-        // If we're requiring interest and we've dropped interest, drop any remaining hits.
-        if cfg.keyword_require_interest && !svc.keyword_interest.contains_key(&k) {
-            let removed_hits = drop_keyword_hits_only(svc, k);
-            svc.stats_window.evicted_keyword_keywords += 1;
-            svc.stats_window.evicted_keyword_hits += removed_hits as u64;
-            continue;
-        }
-
-        let Some(m) = svc.keyword_hits_by_keyword.get_mut(&k) else {
-            continue;
-        };
-        let mut to_remove = Vec::<KadId>::new();
-        for (file_id, st) in m.iter() {
-            if now.saturating_duration_since(st.last_seen) >= results_ttl {
-                to_remove.push(*file_id);
-            }
-        }
-        if !to_remove.is_empty() {
-            for file_id in to_remove {
-                if m.remove(&file_id).is_some() {
-                    svc.keyword_hits_total = svc.keyword_hits_total.saturating_sub(1);
-                    svc.stats_window.evicted_keyword_hits += 1;
-                }
-            }
-        }
-        if m.is_empty() {
-            svc.keyword_hits_by_keyword.remove(&k);
-        }
-    }
-
-    // Finally, enforce size caps.
-    enforce_keyword_interest_limit(svc, cfg);
-    enforce_keyword_size_limits(svc, cfg, now);
+    keyword::maintain_keyword_cache_impl(svc, cfg, now);
 }
 
 fn maintain_keyword_store(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
-    // TTL pruning: drop keyword->file entries we haven't seen for a while.
-    let ttl = Duration::from_secs(cfg.store_keyword_evict_age_secs.max(60));
-    let keys = svc
-        .keyword_store_by_keyword
-        .keys()
-        .copied()
-        .collect::<Vec<_>>();
-    for k in keys {
-        let Some(m) = svc.keyword_store_by_keyword.get_mut(&k) else {
-            continue;
-        };
-        let mut to_remove = Vec::<KadId>::new();
-        for (file_id, st) in m.iter() {
-            if now.saturating_duration_since(st.last_seen) >= ttl {
-                to_remove.push(*file_id);
-            }
-        }
-        if !to_remove.is_empty() {
-            for file_id in to_remove {
-                if m.remove(&file_id).is_some() {
-                    svc.keyword_store_total = svc.keyword_store_total.saturating_sub(1);
-                    svc.stats_window.evicted_store_keyword_hits += 1;
-                }
-            }
-        }
-        if m.is_empty() {
-            svc.keyword_store_by_keyword.remove(&k);
-            svc.stats_window.evicted_store_keyword_keywords += 1;
-        }
-    }
-
-    enforce_keyword_store_limits(svc, cfg, now);
+    keyword::maintain_keyword_store_impl(svc, cfg, now);
 }
 
 fn tick_refresh(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
-    let total = svc.routing.len();
-    let underpopulated = total < cfg.refresh_underpopulated_min_contacts;
-
-    let mut bucket_counts = vec![0usize; svc.routing.bucket_count()];
-    for st in svc.routing.snapshot_states() {
-        if let Some(idx) = svc.routing.bucket_index_for(KadId(st.node.client_id))
-            && idx < bucket_counts.len()
-        {
-            bucket_counts[idx] += 1;
-        }
-    }
-
-    let mut stale_buckets = Vec::new();
-    for (i, count) in bucket_counts
-        .iter()
-        .copied()
-        .enumerate()
-        .take(svc.routing.bucket_count())
-    {
-        let last_activity = svc.routing.bucket_last_activity(i);
-        let idle_secs = last_activity
-            .map(|t| now.saturating_duration_since(t).as_secs())
-            .unwrap_or(u64::MAX / 2);
-        let last_refresh = svc.routing.bucket_last_refresh(i);
-        let refresh_age = last_refresh
-            .map(|t| now.saturating_duration_since(t).as_secs())
-            .unwrap_or(u64::MAX / 2);
-        if idle_secs >= cfg.refresh_interval_secs && refresh_age >= cfg.refresh_interval_secs / 2 {
-            stale_buckets.push((i, idle_secs, count));
-        }
-    }
-
-    stale_buckets.sort_by_key(|v| std::cmp::Reverse(v.1));
-
-    if underpopulated
-        && now
-            .saturating_duration_since(svc.last_underpopulated_refresh)
-            .as_secs()
-            >= cfg.refresh_underpopulated_every_secs
-    {
-        let mut picked = 0usize;
-        for (bucket, idle, count) in stale_buckets
-            .iter()
-            .take(cfg.refresh_underpopulated_buckets_per_tick)
-        {
-            if count == &0 {
-                tracing::info!(
-                    bucket,
-                    idle_secs = *idle,
-                    bucket_counts = ?bucket_counts,
-                    "refreshing empty bucket (underpopulated)"
-                );
-            }
-            let target = random_id_in_bucket(svc.routing.my_id(), *bucket);
-            svc.routing.mark_bucket_refreshed(*bucket, now);
-            start_lookup(
-                svc,
-                target,
-                LookupKind::Refresh { bucket: *bucket },
-                Some(cfg.refresh_underpopulated_alpha.max(1)),
-                now,
-            );
-            picked += 1;
-            if picked >= cfg.refresh_underpopulated_buckets_per_tick {
-                break;
-            }
-        }
-        if picked > 0 {
-            svc.last_underpopulated_refresh = now;
-        }
-    }
-
-    if now
-        .saturating_duration_since(svc.last_refresh_tick)
-        .as_secs()
-        >= 1
-    {
-        let mut picked = 0usize;
-        for (bucket, idle, count) in stale_buckets.iter().take(cfg.refresh_buckets_per_tick) {
-            if count == &0 {
-                tracing::info!(
-                    bucket,
-                    idle_secs = *idle,
-                    bucket_counts = ?bucket_counts,
-                    "refreshing empty bucket"
-                );
-            }
-            let target = random_id_in_bucket(svc.routing.my_id(), *bucket);
-            svc.routing.mark_bucket_refreshed(*bucket, now);
-            start_lookup(
-                svc,
-                target,
-                LookupKind::Refresh { bucket: *bucket },
-                None,
-                now,
-            );
-            picked += 1;
-            if picked >= cfg.refresh_buckets_per_tick {
-                break;
-            }
-        }
-        if picked > 0 {
-            svc.last_refresh_tick = now;
-        }
-    }
+    lookup::tick_refresh_impl(svc, cfg, now);
 }
 
 async fn tick_lookups(
@@ -2277,145 +1924,7 @@ async fn tick_lookups(
     crypto: KadServiceCrypto,
     cfg: &KadServiceConfig,
 ) -> Result<()> {
-    let now = Instant::now();
-
-    if svc.active_lookup.is_none()
-        && let Some(next) = svc.lookup_queue.pop_front()
-    {
-        svc.active_lookup = Some(next);
-    }
-
-    let Some(mut task) = svc.active_lookup.take() else {
-        return Ok(());
-    };
-
-    // Seed known set from routing table (closest peers).
-    if task.known.is_empty() {
-        let peers = closest_peers_by_distance(svc, task.target, 64, 2, 0);
-        for p in peers {
-            task.known.entry(KadId(p.client_id)).or_insert(p);
-        }
-    }
-
-    let alpha = task.alpha_override.unwrap_or(cfg.alpha.max(1));
-    let mut sent = 0usize;
-    let mut dests = Vec::new();
-    let candidates = closest_peers_by_distance(svc, task.target, 64, 2, 0);
-    for p in candidates {
-        if sent >= alpha {
-            break;
-        }
-        let dest = p.udp_dest_b64();
-        if task.queried.contains(&dest) || task.inflight.contains(&dest) {
-            continue;
-        }
-        let requested_contacts = cfg.req_contacts.clamp(1, 31);
-        if send_kad2_req(svc, sock, crypto, cfg, requested_contacts, task.target, &p)
-            .await
-            .is_ok()
-        {
-            task.queried.insert(dest.clone());
-            task.inflight.insert(dest.clone());
-            task.known.entry(KadId(p.client_id)).or_insert(p);
-            dests.push(crate::i2p::b64::short(&dest).to_string());
-            sent += 1;
-        }
-    }
-
-    if sent > 0 {
-        task.iteration += 1;
-        let (closest, set_size) = lookup_closest(&task);
-        match task.kind {
-            LookupKind::Debug => {
-                tracing::info!(
-                    event = "lookup_debug_step",
-                    target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
-                    iter = task.iteration,
-                    set_size,
-                    closest = %closest,
-                    inflight = task.inflight.len(),
-                    "debug lookup step"
-                );
-            }
-            LookupKind::Refresh { bucket } => {
-                tracing::debug!(
-                    target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
-                    bucket,
-                    iter = task.iteration,
-                    set_size,
-                    closest = %closest,
-                    inflight = task.inflight.len(),
-                    "refresh lookup step"
-                );
-            }
-        }
-    }
-
-    // Decide if lookup should finish.
-    let stalled =
-        now.saturating_duration_since(task.last_progress).as_secs() > cfg.req_timeout_secs;
-    let elapsed_secs = now.saturating_duration_since(task.started_at).as_secs();
-    let done = task.iteration >= 8 || (sent == 0 && task.inflight.is_empty()) || stalled;
-    if done {
-        match task.kind {
-            LookupKind::Debug => {
-                tracing::info!(
-                    event = "lookup_debug_finished",
-                    target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
-                    iter = task.iteration,
-                    new_nodes = task.new_nodes,
-                    stalled,
-                    elapsed_secs,
-                    "debug lookup finished"
-                );
-            }
-            LookupKind::Refresh { bucket } => {
-                if stalled {
-                    tracing::debug!(
-                        target = %crate::logging::redact_hex(&task.target.to_hex_lower()),
-                        bucket,
-                        iter = task.iteration,
-                        new_nodes = task.new_nodes,
-                        elapsed_secs,
-                        "refresh lookup stalled"
-                    );
-                }
-            }
-        }
-    } else {
-        svc.active_lookup = Some(task);
-    }
-
-    Ok(())
-}
-
-fn lookup_closest(task: &LookupTask) -> (String, usize) {
-    let mut best: Option<[u8; 16]> = None;
-    for id in task.known.keys() {
-        let dist = xor_distance(task.target, *id);
-        if best.is_none() || dist < best.unwrap() {
-            best = Some(dist);
-        }
-    }
-    let closest = best.map(hex_distance).unwrap_or_else(|| "none".to_string());
-    (closest, task.known.len())
-}
-
-fn hex_distance(dist: [u8; 16]) -> String {
-    let mut s = String::with_capacity(32);
-    for b in dist {
-        use std::fmt::Write as _;
-        let _ = write!(&mut s, "{:02x}", b);
-    }
-    s
-}
-
-fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
-    let mut out = [0u8; 16];
-    for (i, v) in out.iter_mut().enumerate() {
-        *v = a.0[i] ^ b.0[i];
-    }
-    out
+    lookup::tick_lookups_impl(svc, sock, crypto, cfg).await
 }
 
 fn handle_lookup_response(
@@ -2426,117 +1935,11 @@ fn handle_lookup_response(
     contacts: &[KadId],
     inserted: u64,
 ) {
-    let Some(task) = svc.active_lookup.as_mut() else {
-        return;
-    };
-    if task.target != target {
-        return;
-    }
-    task.inflight.remove(from_dest);
-    if inserted > 0 {
-        task.new_nodes = task.new_nodes.saturating_add(inserted);
-        task.last_progress = now;
-    }
-    for id in contacts {
-        if !task.known.contains_key(id)
-            && let Some(st) = svc.routing.get_by_id(*id)
-        {
-            task.known.insert(*id, st.node.clone());
-        }
-    }
-}
-
-fn random_id_in_bucket(my_id: KadId, bucket: usize) -> KadId {
-    let mut dist = [0u8; 16];
-    let mut rand = [0u8; 16];
-    let _ = getrandom::getrandom(&mut rand);
-
-    for bit in 0..128 {
-        let byte = bit / 8;
-        let bit_in_byte = 7 - (bit % 8);
-        let mask = 1u8 << bit_in_byte;
-        let set = if bit == bucket {
-            true
-        } else if bit > bucket {
-            (rand[byte] & mask) != 0
-        } else {
-            false
-        };
-        if set {
-            dist[byte] |= mask;
-        }
-    }
-
-    let mut out = [0u8; 16];
-    for i in 0..16 {
-        out[i] = my_id.0[i] ^ dist[i];
-    }
-    KadId(out)
+    lookup::handle_lookup_response_impl(svc, now, target, from_dest, contacts, inserted);
 }
 
 fn enforce_keyword_store_limits(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
-    let max_keywords = cfg.store_keyword_max_keywords;
-    let max_total = cfg.store_keyword_max_total_hits;
-
-    if max_keywords == 0 || max_total == 0 {
-        // Treat any 0 as "disable store".
-        if !svc.keyword_store_by_keyword.is_empty() {
-            svc.stats_window.evicted_store_keyword_keywords +=
-                svc.keyword_store_by_keyword.len() as u64;
-            svc.stats_window.evicted_store_keyword_hits += svc.keyword_store_total as u64;
-        }
-        svc.keyword_store_by_keyword.clear();
-        svc.keyword_store_total = 0;
-        return;
-    }
-
-    // If we exceed max keywords, evict oldest keyword buckets by "last seen" of any entry.
-    if svc.keyword_store_by_keyword.len() > max_keywords {
-        let mut v = svc
-            .keyword_store_by_keyword
-            .iter()
-            .map(|(k, m)| {
-                let last = m.values().map(|st| st.last_seen).max().unwrap_or(now);
-                (*k, last)
-            })
-            .collect::<Vec<_>>();
-        v.sort_by_key(|(_, t)| *t);
-
-        for (k, _) in v {
-            if svc.keyword_store_by_keyword.len() <= max_keywords {
-                break;
-            }
-            if let Some(m) = svc.keyword_store_by_keyword.remove(&k) {
-                svc.keyword_store_total = svc.keyword_store_total.saturating_sub(m.len());
-                svc.stats_window.evicted_store_keyword_keywords += 1;
-                svc.stats_window.evicted_store_keyword_hits += m.len() as u64;
-            }
-        }
-    }
-
-    // If we exceed max total hits, evict oldest keyword buckets until under cap.
-    if svc.keyword_store_total > max_total {
-        let mut v = svc
-            .keyword_store_by_keyword
-            .iter()
-            .map(|(k, m)| {
-                let last = m.values().map(|st| st.last_seen).max().unwrap_or(now);
-                (*k, last)
-            })
-            .collect::<Vec<_>>();
-        v.sort_by_key(|(_, t)| *t);
-
-        for (k, _) in v {
-            if svc.keyword_store_total <= max_total {
-                break;
-            }
-            if let Some(m) = svc.keyword_store_by_keyword.remove(&k) {
-                svc.keyword_store_total = svc.keyword_store_total.saturating_sub(m.len());
-                svc.stats_window.evicted_store_keyword_keywords += 1;
-                svc.stats_window.evicted_store_keyword_hits += m.len() as u64;
-            }
-        }
-    }
+    keyword::enforce_keyword_store_limits_impl(svc, cfg, now);
 }
 
 fn build_status(svc: &mut KadService, started: Instant) -> KadServiceStatus {
