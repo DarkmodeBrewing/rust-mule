@@ -9,13 +9,6 @@ pub enum ConfigError {
     SerializeToml(toml::ser::Error),
     WriteTemp(std::io::Error),
     Rename(std::io::Error),
-    InvalidApiHost {
-        host: String,
-        source: std::net::AddrParseError,
-    },
-    NonLoopbackApiHost {
-        host: String,
-    },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -24,12 +17,6 @@ impl std::fmt::Display for ConfigError {
             Self::SerializeToml(_) => write!(f, "failed to serialize config to TOML"),
             Self::WriteTemp(_) => write!(f, "failed writing temporary config file"),
             Self::Rename(_) => write!(f, "failed replacing config file"),
-            Self::InvalidApiHost { host, .. } => write!(f, "Invalid api.host '{}'", host),
-            Self::NonLoopbackApiHost { host } => write!(
-                f,
-                "Invalid api.host '{}': only loopback hosts are allowed (localhost/127.0.0.1/::1)",
-                host
-            ),
         }
     }
 }
@@ -40,8 +27,6 @@ impl std::error::Error for ConfigError {
             Self::SerializeToml(source) => Some(source),
             Self::WriteTemp(source) => Some(source),
             Self::Rename(source) => Some(source),
-            Self::InvalidApiHost { source, .. } => Some(source),
-            Self::NonLoopbackApiHost { .. } => None,
         }
     }
 }
@@ -91,9 +76,6 @@ fn default_log_file_level() -> String {
 }
 fn default_auto_open_ui() -> bool {
     true
-}
-fn default_api_host() -> String {
-    "127.0.0.1".to_string()
 }
 fn default_api_port() -> u16 {
     17835
@@ -381,8 +363,6 @@ pub struct GeneralConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ApiConfig {
-    /// Bind IP address (default: 127.0.0.1).
-    pub host: String,
     /// Bind TCP port.
     pub port: u16,
     /// Enables `/api/v1/debug/*` endpoints.
@@ -509,7 +489,6 @@ impl Default for GeneralConfig {
 impl Default for ApiConfig {
     fn default() -> Self {
         Self {
-            host: default_api_host(),
             port: default_api_port(),
             enable_debug_endpoints: default_api_enable_debug_endpoints(),
             auth_mode: default_api_auth_mode(),
@@ -522,26 +501,6 @@ impl Default for ApiConfig {
                 default_api_rate_limit_token_rotate_max_per_window(),
         }
     }
-}
-
-pub fn parse_api_bind_host(host: &str) -> Result<std::net::IpAddr> {
-    let host = host.trim();
-    let ip = if host.eq_ignore_ascii_case("localhost") {
-        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST)
-    } else {
-        host.parse::<std::net::IpAddr>()
-            .map_err(|source| ConfigError::InvalidApiHost {
-                host: host.to_string(),
-                source,
-            })?
-    };
-
-    if !ip.is_loopback() {
-        return Err(ConfigError::NonLoopbackApiHost {
-            host: host.to_string(),
-        });
-    }
-    Ok(ip)
 }
 
 pub fn init_tracing(config: &Config) {

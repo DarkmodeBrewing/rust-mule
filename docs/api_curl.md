@@ -78,7 +78,7 @@ curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/settings" | jq .
 
 ```bash
 curl -sS -X PATCH "${AUTH[@]}" "${JSON[@]}" \
-  -d '{"general":{"log_level":"info","log_to_file":true,"log_file_level":"debug","auto_open_ui":true},"sam":{"host":"127.0.0.1","port":7656,"session_name":"rust-mule"},"api":{"host":"127.0.0.1","port":17835}}' \
+  -d '{"general":{"log_level":"info","log_to_file":true,"log_file_level":"debug","auto_open_ui":true},"sam":{"host":"127.0.0.1","port":7656,"session_name":"rust-mule"},"api":{"port":17835}}' \
   "$BASE_URL/api/v1/settings" | jq .
 ```
 

@@ -40,7 +40,6 @@ enum ConfigValidationError {
         source: std::net::AddrParseError,
     },
     InvalidControlTimeout(u64),
-    InvalidApiHost(rust_mule::config::ConfigError),
     InvalidApiPort(u16),
 }
 
@@ -55,7 +54,6 @@ impl std::fmt::Display for ConfigValidationError {
                 write!(f, "Invalid sam.forward_host '{}'", host)
             }
             Self::InvalidControlTimeout(v) => write!(f, "Invalid sam.control_timeout_secs '{}'", v),
-            Self::InvalidApiHost(source) => write!(f, "{source}"),
             Self::InvalidApiPort(port) => write!(f, "Invalid api.port '{}'", port),
         }
     }
@@ -66,7 +64,6 @@ impl std::error::Error for ConfigValidationError {
         match self {
             Self::InvalidSamHost { source, .. } => Some(source),
             Self::InvalidForwardHost { source, .. } => Some(source),
-            Self::InvalidApiHost(source) => Some(source),
             Self::InvalidSamPort(_)
             | Self::InvalidSamUdpPort(_)
             | Self::InvalidSessionName(_)
@@ -136,8 +133,6 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> Result<(), ConfigValidationE
         ));
     }
 
-    rust_mule::config::parse_api_bind_host(&cfg.api.host)
-        .map_err(ConfigValidationError::InvalidApiHost)?;
     if !(1..=65535).contains(&cfg.api.port) {
         return Err(ConfigValidationError::InvalidApiPort(cfg.api.port));
     }

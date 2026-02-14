@@ -4,7 +4,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     api::ApiState,
-    config::{ApiAuthMode, Config, parse_api_bind_host},
+    config::{ApiAuthMode, Config},
 };
 
 #[derive(Debug, Clone, Serialize)]
@@ -24,7 +24,6 @@ pub(crate) struct SettingsSam {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct SettingsApi {
-    pub(crate) host: String,
     pub(crate) port: u16,
     pub(crate) enable_debug_endpoints: bool,
     pub(crate) auth_mode: ApiAuthMode,
@@ -73,8 +72,6 @@ pub(crate) struct SettingsPatchSam {
 #[derive(Debug, Deserialize)]
 pub(crate) struct SettingsPatchApi {
     #[serde(default)]
-    pub(crate) host: Option<String>,
-    #[serde(default)]
     pub(crate) port: Option<u16>,
     #[serde(default)]
     pub(crate) enable_debug_endpoints: Option<bool>,
@@ -117,7 +114,6 @@ impl SettingsPayload {
                 session_name: cfg.sam.session_name.clone(),
             },
             api: SettingsApi {
-                host: cfg.api.host.clone(),
                 port: cfg.api.port,
                 enable_debug_endpoints: cfg.api.enable_debug_endpoints,
                 auth_mode: cfg.api.auth_mode,
@@ -147,7 +143,6 @@ pub(crate) fn validate_settings(cfg: &Config) -> Result<(), StatusCode> {
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    parse_api_bind_host(&cfg.api.host).map_err(|_| StatusCode::BAD_REQUEST)?;
     if !(1..=65535).contains(&cfg.api.port) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -193,9 +188,6 @@ pub(crate) fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest
     }
 
     if let Some(api) = patch.api {
-        if let Some(host) = api.host {
-            cfg.api.host = host.trim().to_string();
-        }
         if let Some(port) = api.port {
             cfg.api.port = port;
         }

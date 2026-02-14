@@ -9,7 +9,7 @@ use std::{
 use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::{
-    config::{ApiAuthMode, ApiConfig, Config, parse_api_bind_host},
+    config::{ApiAuthMode, ApiConfig, Config},
     kad::service::{KadServiceCommand, KadServiceStatus},
 };
 
@@ -30,7 +30,6 @@ pub type ApiResult<T> = std::result::Result<T, ApiError>;
 
 #[derive(Debug)]
 pub enum ApiError {
-    Config(crate::config::ConfigError),
     Bind(std::io::Error),
     Serve(std::io::Error),
 }
@@ -38,7 +37,6 @@ pub enum ApiError {
 impl std::fmt::Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Config(source) => write!(f, "{source}"),
             Self::Bind(source) => write!(f, "failed to bind API listener: {source}"),
             Self::Serve(source) => write!(f, "API server failed: {source}"),
         }
@@ -48,7 +46,6 @@ impl std::fmt::Display for ApiError {
 impl std::error::Error for ApiError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Config(source) => Some(source),
             Self::Bind(source) => Some(source),
             Self::Serve(source) => Some(source),
         }
@@ -95,8 +92,10 @@ pub fn new_channels() -> (
 }
 
 pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
-    let bind_ip = parse_api_bind_host(&cfg.host).map_err(ApiError::Config)?;
-    let addr = SocketAddr::new(bind_ip, cfg.port);
+    let addr = SocketAddr::new(
+        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+        cfg.port,
+    );
 
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new(deps.token)),

@@ -34,7 +34,6 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 
 `config.toml`:
 
-- `[api].host` (default `127.0.0.1`)
 - `[api].port` (default `17835`)
 - `[api].enable_debug_endpoints` (default `true`)
 - `[api].auth_mode` (default `local_ui`)
@@ -43,7 +42,6 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 - `[api].rate_limit_auth_bootstrap_max_per_window` (default `30`)
 - `[api].rate_limit_session_max_per_window` (default `30`)
 - `[api].rate_limit_token_rotate_max_per_window` (default `10`)
-- `api.host` is validated as loopback-only (`localhost`, `127.0.0.1`, `::1`).
 
 ### Auth / Token
 

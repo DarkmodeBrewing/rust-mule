@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Removed `api.host` configurability and simplified API binding on `main`:
+  - `ApiConfig` no longer contains `host`; API config now binds by port only.
+  - API server bind address is fixed to loopback (`127.0.0.1`) in `src/api/mod.rs`.
+  - Removed loopback-host parsing/validation path for API host:
+    - removed `parse_api_bind_host(...)`
+    - removed related `ConfigError` and `ConfigValidationError` branches.
+  - Settings API no longer exposes/accepts `settings.api.host`.
+  - Updated config/docs surface (`config.toml`, `README.md`, `docs/architecture.md`, `docs/api_curl.md`).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 70 tests).
+- Decisions: Keep API bind policy explicit and non-configurable while local-only operation is the product mode; expose only `api.port` to users.
+- Next steps: Optional follow-up is to document future remote/headless exposure as a separate deployment mode instead of host binding config.
+- Change log: API host setting has been removed from config/state/settings surfaces.
+
 - Status: Performed config-surface naming and documentation pass on `main`:
   - Renamed API rate-limit config key for clarity:
     - `rate_limit_dev_auth_max_per_window` -> `rate_limit_auth_bootstrap_max_per_window`.

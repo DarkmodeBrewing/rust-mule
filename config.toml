@@ -56,8 +56,6 @@ auto_open_ui = true
 [api]
 # Local HTTP API control plane (REST + SSE), always enabled.
 # By default we bind to 127.0.0.1 and require a bearer token stored in `data/api.token`.
-# API bind host (loopback-only).
-host = "127.0.0.1"
 # API bind port.
 port = 17835
 # Enable operational/debug endpoints under /api/v1/debug/*.

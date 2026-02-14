@@ -1,6 +1,6 @@
 use super::{ApiState, auth, cors, handlers, router, ui};
 use crate::{
-    config::{ApiAuthMode, Config, parse_api_bind_host},
+    config::{ApiAuthMode, Config},
     kad::{
         KadId,
         service::{
@@ -171,15 +171,6 @@ fn detects_loopback_addresses() {
     assert!(auth::is_loopback_addr(&v4));
     assert!(auth::is_loopback_addr(&v6));
     assert!(!auth::is_loopback_addr(&other));
-}
-
-#[test]
-fn parse_api_bind_host_accepts_only_loopback() {
-    assert!(parse_api_bind_host("localhost").is_ok());
-    assert!(parse_api_bind_host("127.0.0.1").is_ok());
-    assert!(parse_api_bind_host("::1").is_ok());
-    assert!(parse_api_bind_host("0.0.0.0").is_err());
-    assert!(parse_api_bind_host("10.0.0.1").is_err());
 }
 
 #[test]
@@ -473,7 +464,6 @@ async fn settings_patch_updates_and_persists_config() {
                 session_name: Some("test-session".to_string()),
             }),
             api: Some(handlers::SettingsPatchApi {
-                host: None,
                 port: Some(17836),
                 enable_debug_endpoints: Some(false),
                 auth_mode: Some(ApiAuthMode::HeadlessRemote),
@@ -533,14 +523,13 @@ async fn settings_patch_rejects_invalid_values() {
 
     let (tx, _rx) = mpsc::channel(1);
     let state = test_state(tx);
-    let resp_non_loopback_api_host = handlers::settings_patch(
+    let resp_invalid_api_port = handlers::settings_patch(
         State(state),
         Json(handlers::SettingsPatchRequest {
             general: None,
             sam: None,
             api: Some(handlers::SettingsPatchApi {
-                host: Some("0.0.0.0".to_string()),
-                port: None,
+                port: Some(0),
                 enable_debug_endpoints: None,
                 auth_mode: None,
                 rate_limit_enabled: None,
@@ -553,7 +542,7 @@ async fn settings_patch_rejects_invalid_values() {
     )
     .await;
     assert!(matches!(
-        resp_non_loopback_api_host,
+        resp_invalid_api_port,
         Err(StatusCode::BAD_REQUEST)
     ));
 
@@ -565,7 +554,6 @@ async fn settings_patch_rejects_invalid_values() {
             general: None,
             sam: None,
             api: Some(handlers::SettingsPatchApi {
-                host: None,
                 port: None,
                 enable_debug_endpoints: None,
                 auth_mode: None,
