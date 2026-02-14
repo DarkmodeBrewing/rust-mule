@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Extracted KAD inbound opcode handling into dedicated module on `main` (no behavior change):
+  - Added `src/kad/service/inbound.rs`:
+    - moved full `handle_inbound(...)` implementation and opcode dispatch logic (`HELLO`, `BOOTSTRAP`, `REQ/RES`, `SEARCH`, `PUBLISH`, `PING/PONG`, etc.).
+  - Updated `src/kad/service.rs`:
+    - now delegates inbound handling through a thin wrapper to `inbound::handle_inbound_impl(...)`.
+    - registered new `mod inbound;`.
+  - Net effect:
+    - `src/kad/service.rs` reduced again to ~2335 LOC (from ~3519 after prior pass, ~4979 originally).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests).
+- Decisions:
+  - Keep inbound extraction as structure-only (no opcode behavior changes) to preserve protocol compatibility during refactor.
+  - Continue minimizing `service.rs` responsibility by domain slicing (`types`, `routing_view`, `keyword`, `lookup`, `inbound`, `tests`).
+- Next steps:
+  - Optional final cleanup pass: extract source-probe/status helper cluster from `service.rs` into `source_probe.rs` / `status.rs` for smaller core orchestration.
+- Change log: Inbound packet handling now lives in `src/kad/service/inbound.rs`; `service.rs` is now primarily orchestration plus shared helpers.
+
 - Status: Continued KAD service modularization with lookup + keyword logic extraction on `main` (no behavior change):
   - Added `src/kad/service/lookup.rs` and moved lookup/refresh scheduler logic there:
     - lookup queue seeding/progression (`tick_lookups`)
