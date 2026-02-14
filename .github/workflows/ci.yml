@@ -34,4 +34,4 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
       - name: Line coverage gate
-        run: cargo llvm-cov --workspace --all-features --fail-under-lines 35
+        run: cargo llvm-cov --workspace --all-features --fail-under-lines 40

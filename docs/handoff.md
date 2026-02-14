@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Tightened initial line-coverage gate on `main`:
+  - Increased minimum line coverage threshold from `35` to `40` in:
+    - `.github/workflows/ci.yml` (`cargo llvm-cov --fail-under-lines 40`)
+    - `scripts/test/coverage.sh` (`MIN_LINES_COVERAGE` default now `40`)
+  - Attempted local baseline collection, but this sandbox cannot install `llvm-tools-preview` via `rustup`, so local `cargo llvm-cov` measurement could not be completed here.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests).
+- Decisions:
+  - Raise threshold incrementally to reduce CI disruption risk while still strengthening the gate.
+  - Keep threshold configurable via `MIN_LINES_COVERAGE` for local overrides.
+- Next steps:
+  - Confirm coverage % from CI run in a normal runner environment and ratchet gate to `45` if headroom is comfortable.
+- Change log: Coverage quality gate is now stricter (`40` lines minimum) across CI and local helper script.
+
 - Status: Implemented API loopback dual-stack hardening + coverage gate scaffolding + startup/auth/session smoke test on `main`:
   - API listener startup now attempts both loopback families and serves on every successful bind:
     - `::1:<port>`
