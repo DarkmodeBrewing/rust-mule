@@ -8,6 +8,36 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Implemented download subsystem phase 0 scaffold on `feature/download-strategy-imule`:
+  - Added new module tree:
+    - `src/download/mod.rs`
+    - `src/download/types.rs`
+    - `src/download/errors.rs`
+    - `src/download/service.rs`
+  - Added typed download errors:
+    - `DownloadError`
+    - `DownloadStoreError`
+  - Added actor-style service shell:
+    - `DownloadServiceConfig::from_data_dir(...)`
+    - `start_service(...)` returning handle/status/join task
+    - command loop with `Ping` and `Shutdown`
+    - startup ensures `data/download/` and `data/incoming/` exist.
+  - Integrated into app bootstrap:
+    - `src/lib.rs` exports `download` module.
+    - `src/app.rs` starts download service at runtime and adds `AppError::Download`.
+  - Added tests:
+    - `start_service_creates_download_and_incoming_dirs`
+    - `service_ping_and_shutdown_flow`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 72 tests).
+- Decisions:
+  - Keep phase 0 strictly minimal: directory/bootstrap + command actor + typed errors, no transfer logic yet.
+  - Keep service always-on at startup to prepare API integration in next phase.
+- Next steps:
+  - Phase 1: implement `.part`/`.part.met` persistence primitives and startup recovery scanning.
+  - Add first download queue state model (`queued/running/paused/completed/error`) and service commands around it.
+  - Add persistence-focused tests with corrupted/backup metadata cases.
+- Change log: Download subsystem now exists as a first-class module with runtime wiring and passing tests.
+
 - Status: Added iMule-derived download subsystem strategy on `feature/download-strategy-imule`:
   - New document: `docs/DOWNLOAD_DESIGN.md`
     - deep-dive findings from iMule source for download flow and persistence:

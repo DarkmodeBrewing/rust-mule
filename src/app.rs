@@ -25,6 +25,7 @@ pub enum AppError {
     B64(crate::i2p::b64::B64Error),
     Token(crate::api::token::TokenError),
     Api(crate::api::ApiError),
+    Download(crate::download::DownloadError),
     Nodes(crate::nodes::imule::ImuleNodesError),
     Bootstrap(crate::kad::bootstrap::BootstrapError),
     KadService(crate::kad::service::KadServiceError),
@@ -48,6 +49,7 @@ impl std::fmt::Display for AppError {
             Self::B64(source) => write!(f, "{source}"),
             Self::Token(source) => write!(f, "{source}"),
             Self::Api(source) => write!(f, "{source}"),
+            Self::Download(source) => write!(f, "{source}"),
             Self::Nodes(source) => write!(f, "{source}"),
             Self::Bootstrap(source) => write!(f, "{source}"),
             Self::KadService(source) => write!(f, "{source}"),
@@ -73,6 +75,7 @@ impl std::error::Error for AppError {
             Self::B64(source) => Some(source),
             Self::Token(source) => Some(source),
             Self::Api(source) => Some(source),
+            Self::Download(source) => Some(source),
             Self::Nodes(source) => Some(source),
             Self::Bootstrap(source) => Some(source),
             Self::KadService(source) => Some(source),
@@ -128,6 +131,11 @@ impl From<crate::api::token::TokenError> for AppError {
 impl From<crate::api::ApiError> for AppError {
     fn from(value: crate::api::ApiError) -> Self {
         Self::Api(value)
+    }
+}
+impl From<crate::download::DownloadError> for AppError {
+    fn from(value: crate::download::DownloadError) -> Self {
+        Self::Download(value)
     }
 }
 impl From<crate::nodes::imule::ImuleNodesError> for AppError {
@@ -283,6 +291,13 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         create_kad_socket(&config, &mut sam, &kad_session_id, &keys).await?;
 
     let data_dir = Path::new(&config.general.data_dir);
+
+    // Download subsystem (phase 0): create runtime directories and run a lightweight
+    // command-loop actor that we can extend with queue/transfer logic.
+    let download_cfg = crate::download::DownloadServiceConfig::from_data_dir(data_dir);
+    let (download_handle, _download_status_rx, _download_task) =
+        crate::download::start_service(download_cfg).await?;
+    let _download_handle = download_handle;
 
     // Command channel used by the (future) GUI/API to instruct the Kad service (search/publish/etc).
     let (kad_cmd_tx, kad_cmd_rx) = mpsc::channel(128);
