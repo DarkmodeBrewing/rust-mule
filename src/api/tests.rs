@@ -1,5 +1,5 @@
 
-use super::*;
+    use super::{ApiState, auth, cors, handlers, router, ui};
 use crate::{
     config::{Config, parse_api_bind_host},
     kad::{
@@ -10,10 +10,10 @@ use crate::{
         },
     },
 };
-use axum::{
-    Json, Router,
-    body::{Body, to_bytes},
-    extract::{Query, State},
+    use axum::{
+        Json, Router,
+        body::{Body, to_bytes},
+        extract::{Query, State},
     http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
     middleware,
 };
@@ -42,10 +42,10 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
     }
 }
 
-fn test_app(state: ApiState) -> Router<()> {
-    build_app(state.clone())
-        .layer(middleware::from_fn(cors_mw))
-        .layer(middleware::from_fn_with_state(state, auth_mw))
+    fn test_app(state: ApiState) -> Router<()> {
+        router::build_app(state.clone())
+            .layer(middleware::from_fn(cors::cors_mw))
+            .layer(middleware::from_fn_with_state(state, auth::auth_mw))
 }
 
 fn sample_status() -> KadServiceStatus {
@@ -145,9 +145,9 @@ fn detects_loopback_addresses() {
     let v6 = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), 1234);
     let other = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1)), 1234);
 
-    assert!(is_loopback_addr(&v4));
-    assert!(is_loopback_addr(&v6));
-    assert!(!is_loopback_addr(&other));
+        assert!(auth::is_loopback_addr(&v4));
+        assert!(auth::is_loopback_addr(&v6));
+        assert!(!auth::is_loopback_addr(&other));
 }
 
 #[test]
@@ -161,18 +161,18 @@ fn parse_api_bind_host_accepts_only_loopback() {
 
 #[test]
 fn api_bearer_exempt_paths_include_only_health_and_dev_auth() {
-    assert!(is_api_bearer_exempt_path("/api/v1/health"));
-    assert!(is_api_bearer_exempt_path("/api/v1/dev/auth"));
-    assert!(!is_api_bearer_exempt_path("/api/v1/status"));
-    assert!(!is_api_bearer_exempt_path("/api/v1/session"));
-    assert!(!is_api_bearer_exempt_path("/api/v1/token/rotate"));
+        assert!(auth::is_api_bearer_exempt_path("/api/v1/health"));
+        assert!(auth::is_api_bearer_exempt_path("/api/v1/dev/auth"));
+        assert!(!auth::is_api_bearer_exempt_path("/api/v1/status"));
+        assert!(!auth::is_api_bearer_exempt_path("/api/v1/session"));
+        assert!(!auth::is_api_bearer_exempt_path("/api/v1/token/rotate"));
 }
 
 #[test]
 fn frontend_exempt_paths_include_only_auth_page() {
-    assert!(is_frontend_exempt_path("/auth"));
-    assert!(!is_frontend_exempt_path("/"));
-    assert!(!is_frontend_exempt_path("/ui"));
+        assert!(auth::is_frontend_exempt_path("/auth"));
+        assert!(!auth::is_frontend_exempt_path("/"));
+        assert!(!auth::is_frontend_exempt_path("/ui"));
 }
 
 #[test]
@@ -182,15 +182,15 @@ fn parses_session_cookie() {
         header::COOKIE,
         HeaderValue::from_static("a=1; rm_session=session123; x=y"),
     );
-    assert_eq!(session_cookie(&headers).as_deref(), Some("session123"));
+        assert_eq!(auth::session_cookie(&headers).as_deref(), Some("session123"));
 }
 
 #[test]
 fn session_cookie_ttl_and_clear_cookie_headers_are_well_formed() {
-    let cookie = build_session_cookie("abc", Duration::from_secs(60));
+        let cookie = auth::build_session_cookie("abc", Duration::from_secs(60));
     assert!(cookie.contains("rm_session=abc"));
     assert!(cookie.contains("Max-Age=60"));
-    assert!(clear_session_cookie().contains("Max-Age=0"));
+        assert!(auth::clear_session_cookie().contains("Max-Age=0"));
 }
 
 #[test]
@@ -199,63 +199,63 @@ fn cleanup_expired_sessions_removes_expired_entries() {
     let mut sessions = HashMap::new();
     sessions.insert("alive".to_string(), now + Duration::from_secs(10));
     sessions.insert("dead".to_string(), now - Duration::from_secs(10));
-    cleanup_expired_sessions(&mut sessions, now);
+        auth::cleanup_expired_sessions(&mut sessions, now);
     assert!(sessions.contains_key("alive"));
     assert!(!sessions.contains_key("dead"));
 }
 
 #[test]
 fn validates_ui_paths() {
-    assert!(is_safe_ui_path("css/base.css"));
-    assert!(!is_safe_ui_path("../etc/passwd"));
-    assert!(!is_safe_ui_path("css\\base.css"));
-    assert!(is_safe_ui_segment("index.html"));
-    assert!(!is_safe_ui_segment("../index.html"));
+        assert!(ui::is_safe_ui_path("css/base.css"));
+        assert!(!ui::is_safe_ui_path("../etc/passwd"));
+        assert!(!ui::is_safe_ui_path("css\\base.css"));
+        assert!(ui::is_safe_ui_segment("index.html"));
+        assert!(!ui::is_safe_ui_segment("../index.html"));
 }
 
 #[test]
 fn spa_fallback_redirects_unknown_non_api_paths_to_root() {
     let uri: axum::http::Uri = "/nonexisting.php?queryParams=whatever".parse().unwrap();
-    assert_eq!(spa_fallback_location(&uri), Some("/index.html"));
+        assert_eq!(ui::spa_fallback_location(&uri), Some("/index.html"));
 }
 
 #[test]
 fn spa_fallback_does_not_capture_api_or_asset_paths() {
     let api_uri: axum::http::Uri = "/api/v1/does-not-exist".parse().unwrap();
     let asset_uri: axum::http::Uri = "/ui/assets/js/missing.js".parse().unwrap();
-    assert_eq!(spa_fallback_location(&api_uri), None);
-    assert_eq!(spa_fallback_location(&asset_uri), None);
+        assert_eq!(ui::spa_fallback_location(&api_uri), None);
+        assert_eq!(ui::spa_fallback_location(&asset_uri), None);
 }
 
 #[test]
 fn allows_loopback_origins_for_cors() {
-    assert!(is_allowed_origin(&HeaderValue::from_static(
-        "http://localhost:3000"
-    )));
-    assert!(is_allowed_origin(&HeaderValue::from_static(
-        "http://127.0.0.1:17835"
-    )));
-    assert!(is_allowed_origin(&HeaderValue::from_static(
-        "http://[::1]:5173"
-    )));
+        assert!(cors::is_allowed_origin(&HeaderValue::from_static(
+            "http://localhost:3000"
+        )));
+        assert!(cors::is_allowed_origin(&HeaderValue::from_static(
+            "http://127.0.0.1:17835"
+        )));
+        assert!(cors::is_allowed_origin(&HeaderValue::from_static(
+            "http://[::1]:5173"
+        )));
 }
 
 #[test]
 fn rejects_non_loopback_origins_for_cors() {
-    assert!(!is_allowed_origin(&HeaderValue::from_static(
-        "http://192.168.1.10:3000"
-    )));
-    assert!(!is_allowed_origin(&HeaderValue::from_static(
-        "https://example.com"
-    )));
-    assert!(!is_allowed_origin(&HeaderValue::from_static("null")));
+        assert!(!cors::is_allowed_origin(&HeaderValue::from_static(
+            "http://192.168.1.10:3000"
+        )));
+        assert!(!cors::is_allowed_origin(&HeaderValue::from_static(
+            "https://example.com"
+        )));
+        assert!(!cors::is_allowed_origin(&HeaderValue::from_static("null")));
 }
 
 #[test]
 fn cors_allow_methods_includes_put_and_patch() {
     let mut headers = HeaderMap::new();
     let origin = HeaderValue::from_static("http://localhost:3000");
-    apply_cors_headers(&mut headers, &origin);
+        cors::apply_cors_headers(&mut headers, &origin);
 
     let methods = headers
         .get(axum::http::header::ACCESS_CONTROL_ALLOW_METHODS)
@@ -290,7 +290,7 @@ fn embeds_required_ui_files() {
 
     for path in required {
         assert!(
-            UI_DIR.get_file(path).is_some(),
+                ui::UI_DIR.get_file(path).is_some(),
             "missing embedded ui file: {path}",
         );
     }
@@ -318,7 +318,7 @@ async fn search_stop_dispatches_service_command() {
         }
     });
 
-    let resp = search_stop(State(state), axum::extract::Path(search_id))
+        let resp = handlers::search_stop(State(state), axum::extract::Path(search_id))
         .await
         .expect("search_stop should succeed");
     assert!(resp.0.stopped);
@@ -348,13 +348,13 @@ async fn search_delete_dispatches_with_default_purge_true() {
         }
     });
 
-    let resp = search_delete(
-        State(state),
-        axum::extract::Path(search_id),
-        Query(SearchDeleteQuery {
-            purge_results: true,
-        }),
-    )
+        let resp = handlers::search_delete(
+            State(state),
+            axum::extract::Path(search_id),
+            Query(handlers::SearchDeleteQuery {
+                purge_results: true,
+            }),
+        )
     .await
     .expect("search_delete should succeed");
     assert!(resp.0.deleted);
@@ -375,7 +375,9 @@ async fn settings_get_returns_config_snapshot() {
         cfg.general.auto_open_ui = false;
     }
 
-    let resp = settings_get(State(state)).await.expect("settings_get ok");
+        let resp = handlers::settings_get(State(state))
+            .await
+            .expect("settings_get ok");
     assert_eq!(resp.0.settings.sam.session_name, "session-a");
     assert_eq!(resp.0.settings.api.port, 18080);
     assert!(!resp.0.settings.general.auto_open_ui);
@@ -391,24 +393,24 @@ async fn settings_patch_updates_and_persists_config() {
         .await
         .expect("read config.toml");
 
-    let result = settings_patch(
-        State(state.clone()),
-        Json(SettingsPatchRequest {
-            general: Some(SettingsPatchGeneral {
-                log_level: Some("info".to_string()),
-                log_to_file: Some(false),
-                log_file_level: None,
-                auto_open_ui: Some(false),
-            }),
-            sam: Some(SettingsPatchSam {
-                host: None,
-                port: None,
-                session_name: Some("test-session".to_string()),
-            }),
-            api: Some(SettingsPatchApi {
-                host: None,
-                port: Some(17836),
-            }),
+        let result = handlers::settings_patch(
+            State(state.clone()),
+            Json(handlers::SettingsPatchRequest {
+                general: Some(handlers::SettingsPatchGeneral {
+                    log_level: Some("info".to_string()),
+                    log_to_file: Some(false),
+                    log_file_level: None,
+                    auto_open_ui: Some(false),
+                }),
+                sam: Some(handlers::SettingsPatchSam {
+                    host: None,
+                    port: None,
+                    session_name: Some("test-session".to_string()),
+                }),
+                api: Some(handlers::SettingsPatchApi {
+                    host: None,
+                    port: Some(17836),
+                }),
         }),
     )
     .await;
@@ -429,13 +431,13 @@ async fn settings_patch_updates_and_persists_config() {
 async fn settings_patch_rejects_invalid_values() {
     let (tx, _rx) = mpsc::channel(1);
     let state = test_state(tx);
-    let resp = settings_patch(
-        State(state),
-        Json(SettingsPatchRequest {
-            general: Some(SettingsPatchGeneral {
-                log_level: Some("not-a-filter=[".to_string()),
-                log_to_file: None,
-                log_file_level: None,
+        let resp = handlers::settings_patch(
+            State(state),
+            Json(handlers::SettingsPatchRequest {
+                general: Some(handlers::SettingsPatchGeneral {
+                    log_level: Some("not-a-filter=[".to_string()),
+                    log_to_file: None,
+                    log_file_level: None,
                 auto_open_ui: None,
             }),
             sam: None,
@@ -447,15 +449,15 @@ async fn settings_patch_rejects_invalid_values() {
 
     let (tx, _rx) = mpsc::channel(1);
     let state = test_state(tx);
-    let resp_non_loopback_api_host = settings_patch(
-        State(state),
-        Json(SettingsPatchRequest {
-            general: None,
-            sam: None,
-            api: Some(SettingsPatchApi {
-                host: Some("0.0.0.0".to_string()),
-                port: None,
-            }),
+        let resp_non_loopback_api_host = handlers::settings_patch(
+            State(state),
+            Json(handlers::SettingsPatchRequest {
+                general: None,
+                sam: None,
+                api: Some(handlers::SettingsPatchApi {
+                    host: Some("0.0.0.0".to_string()),
+                    port: None,
+                }),
         }),
     )
     .await;
@@ -567,7 +569,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         )]))),
     };
 
-    let resp = token_rotate(State(state.clone()))
+        let resp = handlers::token_rotate(State(state.clone()))
         .await
         .expect("rotate should succeed");
     assert!(resp.0.sessions_cleared);

@@ -8,6 +8,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Removed lingering test-build unused-import warning in `src/api/mod.rs` after API split:
+  - Dropped test-only re-export block from `src/api/mod.rs`.
+  - Updated `src/api/tests.rs` to import directly from split modules:
+    - `auth`, `cors`, `ui`, `handlers`, `router`.
+  - This prevents warning-prone indirection and keeps compile ownership explicit.
+  - Ran `cargo clippy --all-targets --all-features` and `cargo test` (all passing; 68 tests).
+- Decisions: Keep API tests referencing module paths directly instead of relying on `mod.rs` re-exports to avoid future dead-import warnings during refactors.
+- Next steps: None required for this warning; refactor cleanup is complete.
+- Change log: API test imports now directly track split module boundaries.
+
 - Status: Refactored API god-file (`src/api/mod.rs`) into focused modules on `main` (no behavior change):
   - New modules:
     - `src/api/router.rs` (router wiring)

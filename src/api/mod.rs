@@ -122,21 +122,4 @@ pub async fn serve(
 }
 
 #[cfg(test)]
-pub(crate) use auth::{
-    auth_mw, build_session_cookie, cleanup_expired_sessions, clear_session_cookie,
-    is_api_bearer_exempt_path, is_frontend_exempt_path, is_loopback_addr, session_cookie,
-};
-#[cfg(test)]
-pub(crate) use cors::{apply_cors_headers, cors_mw, is_allowed_origin};
-#[cfg(test)]
-pub(crate) use handlers::{
-    SearchDeleteQuery, SettingsPatchApi, SettingsPatchGeneral, SettingsPatchRequest,
-    SettingsPatchSam, search_delete, search_stop, settings_get, settings_patch, token_rotate,
-};
-#[cfg(test)]
-pub(crate) use router::build_app;
-#[cfg(test)]
-pub(crate) use ui::{UI_DIR, is_safe_ui_path, is_safe_ui_segment, spa_fallback_location};
-
-#[cfg(test)]
 mod tests;
