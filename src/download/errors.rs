@@ -4,6 +4,35 @@ pub enum DownloadStoreError {
         path: std::path::PathBuf,
         source: std::io::Error,
     },
+    ReadDir {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+    ReadFile {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+    WriteFile {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+    Rename {
+        from: std::path::PathBuf,
+        to: std::path::PathBuf,
+        source: std::io::Error,
+    },
+    Copy {
+        from: std::path::PathBuf,
+        to: std::path::PathBuf,
+        source: std::io::Error,
+    },
+    Serialize {
+        source: serde_json::Error,
+    },
+    ParseMet {
+        path: std::path::PathBuf,
+        source: serde_json::Error,
+    },
 }
 
 impl std::fmt::Display for DownloadStoreError {
@@ -16,6 +45,33 @@ impl std::fmt::Display for DownloadStoreError {
                     path.display()
                 )
             }
+            Self::ReadDir { path, source } => {
+                write!(f, "failed to read directory '{}': {source}", path.display())
+            }
+            Self::ReadFile { path, source } => {
+                write!(f, "failed to read file '{}': {source}", path.display())
+            }
+            Self::WriteFile { path, source } => {
+                write!(f, "failed to write file '{}': {source}", path.display())
+            }
+            Self::Rename { from, to, source } => write!(
+                f,
+                "failed to rename '{}' -> '{}': {source}",
+                from.display(),
+                to.display()
+            ),
+            Self::Copy { from, to, source } => write!(
+                f,
+                "failed to copy '{}' -> '{}': {source}",
+                from.display(),
+                to.display()
+            ),
+            Self::Serialize { source } => write!(f, "failed to serialize part metadata: {source}"),
+            Self::ParseMet { path, source } => write!(
+                f,
+                "failed to parse part metadata '{}': {source}",
+                path.display()
+            ),
         }
     }
 }
@@ -24,6 +80,13 @@ impl std::error::Error for DownloadStoreError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::EnsureDir { source, .. } => Some(source),
+            Self::ReadDir { source, .. } => Some(source),
+            Self::ReadFile { source, .. } => Some(source),
+            Self::WriteFile { source, .. } => Some(source),
+            Self::Rename { source, .. } => Some(source),
+            Self::Copy { source, .. } => Some(source),
+            Self::Serialize { source } => Some(source),
+            Self::ParseMet { source, .. } => Some(source),
         }
     }
 }

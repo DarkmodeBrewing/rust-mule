@@ -8,6 +8,35 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Implemented download subsystem phase 1 persistence/recovery primitives on `feature/download-strategy-imule`:
+  - Added `src/download/store.rs`:
+    - `PartMet` model and `PartState` enum
+    - `save_part_met(...)` with `.part.met.bak` rollover and atomic tmp->rename write
+    - `load_part_met_with_fallback(...)` (primary then backup)
+    - `scan_recoverable_downloads(...)` startup recovery scan over `data/download/*.part.met`
+    - iMule-compatible version marker default (`PART_MET_VERSION = 0xE0`) for metadata model.
+  - Extended `src/download/errors.rs` with typed store/persistence error variants:
+    - read/write/rename/copy/parse/serialize directory and file failures.
+  - Updated `src/download/service.rs`:
+    - startup now recovers existing part metadata and sets `queue_len`
+    - status now includes `recovered_on_start`
+    - added `RecoveredCount` command and handle method.
+  - Updated `src/download/mod.rs` exports for store model/types.
+  - Added tests:
+    - store roundtrip save/load
+    - backup fallback when primary met is corrupt
+    - recovery scan over multiple `.part.met` entries
+    - service startup recovery count from existing metadata.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 76 tests).
+- Decisions:
+  - Keep phase 1 metadata persistence Rust-native (JSON payload) while preserving iMule file naming and lifecycle semantics (`.part.met`, `.bak`, startup recovery).
+  - Defer wire-level transfer and full binary part.met compatibility to later phases after queue/state model is stable.
+- Next steps:
+  - Add first queue state model in service (`queued/running/paused/completed/error`) backed by persisted `PartMet`.
+  - Add commands to create/pause/resume/cancel downloads and persist state transitions.
+  - Introduce initial API endpoints for listing recovered/active download entries.
+- Change log: Download subsystem now has backup-safe part metadata persistence and startup recovery integrated into runtime.
+
 - Status: Implemented download subsystem phase 0 scaffold on `feature/download-strategy-imule`:
   - Added new module tree:
     - `src/download/mod.rs`
