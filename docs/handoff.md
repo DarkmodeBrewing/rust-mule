@@ -8,6 +8,32 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Completed final service split pass for source-probe/status helpers on `main` (no behavior change):
+  - Added `src/kad/service/source_probe.rs`:
+    - source probe tracking and counters:
+      - `mark_source_publish_sent`
+      - `mark_source_search_sent`
+      - `on_source_publish_response`
+      - `on_source_search_response`
+      - `source_store_totals`
+  - Added `src/kad/service/status.rs`:
+    - status snapshot/publish logic:
+      - `build_status`
+      - `publish_status`
+  - Updated `src/kad/service.rs`:
+    - delegates source-probe and status helpers to dedicated modules.
+  - Updated `src/kad/service/tests.rs`:
+    - tests now call `status::build_status_impl(...)`.
+  - Net effect:
+    - `src/kad/service.rs` reduced to ~2009 LOC (from ~2335 previous step, ~4979 originally).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests).
+- Decisions:
+  - Keep wrapper/delegation pattern to preserve call sites and minimize risk.
+  - Maintain all behavioral logic unchanged while shrinking `service.rs` responsibility.
+- Next steps:
+  - Optional: split remaining send/job orchestration helpers (`send_*`, `progress_keyword_job*`) if we want sub-2k LOC in `service.rs`.
+- Change log: Source-probe and status helper clusters now live in dedicated modules; core service file is primarily orchestration/glue.
+
 - Status: Extracted KAD inbound opcode handling into dedicated module on `main` (no behavior change):
   - Added `src/kad/service/inbound.rs`:
     - moved full `handle_inbound(...)` implementation and opcode dispatch logic (`HELLO`, `BOOTSTRAP`, `REQ/RES`, `SEARCH`, `PUBLISH`, `PING/PONG`, etc.).

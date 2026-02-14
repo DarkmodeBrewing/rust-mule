@@ -248,7 +248,7 @@ fn build_status_reports_source_store_totals() {
         .or_default()
         .insert(source_c, [13u8; I2P_DEST_LEN]);
 
-    let st = build_status(&mut svc, started);
+    let st = status::build_status_impl(&mut svc, started);
     assert_eq!(st.source_store_files, 2);
     assert_eq!(st.source_store_entries_total, 3);
 }
@@ -280,7 +280,7 @@ fn source_probe_tracks_first_send_response_latency_and_results() {
     assert!(st.first_publish_res_at.is_some());
     assert!(st.first_search_res_at.is_some());
 
-    let status = build_status(&mut svc, t0);
+    let status = status::build_status_impl(&mut svc, t0);
     assert_eq!(status.source_probe_first_publish_responses, 1);
     assert_eq!(status.source_probe_first_search_responses, 1);
     assert_eq!(status.source_probe_search_results_total, 3);
