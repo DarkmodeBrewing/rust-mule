@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Added checked-in soak runner script on `main`:
+  - New script: `docs/scripts/rust_mule_soak.sh`
+  - Mirrors the long-run harness previously staged in `/tmp/rust_mule_soak.sh`.
+  - Commands:
+    - `start` (clone `../../mule-a` + `../../mule-b`, patch B ports/session, launch both)
+    - `wait_ready` (poll `/api/v1/status` until both return 200)
+    - `soak [rounds]` (publish/search loops; writes `logs/rounds.tsv` + `logs/status.ndjson`)
+    - `stop` and `collect` (creates `/tmp/rust-mule-soak-*.tar.gz`)
+  - Script is executable and validated for shell syntax and usage output.
+- Decisions: Keep the soak run harness and soak triage tool (`docs/scripts/soak_triage.sh`) together under `docs/scripts` for reproducible operator workflow.
+- Next steps: Optional: wire both scripts into a single wrapper (`run + triage`) for one-command baseline comparisons.
+- Change log: Added `docs/scripts/rust_mule_soak.sh` to the repository.
+
 - Status: Added soak triage helper script on `main`:
   - New script: `docs/scripts/soak_triage.sh`
   - Input: soak tarball (`/tmp/rust-mule-soak-*.tar.gz`)
