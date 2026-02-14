@@ -8,6 +8,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added tag-driven GitHub release workflow on `main`:
+  - New workflow: `.github/workflows/release.yml`
+  - Trigger: `push` tags matching `v*`
+  - Build matrix:
+    - `ubuntu-latest` -> `scripts/build/build_linux_release.sh`
+    - `macos-latest` -> `scripts/build/build_macos_release.sh`
+    - `windows-latest` -> `scripts/build/build_windows_release.ps1`
+  - Uploads packaged artifacts from `dist/` per platform.
+  - Publish job downloads artifacts and creates a GitHub Release with:
+    - auto-generated release notes
+    - attached `.tar.gz` (Linux/macOS) and `.zip` (Windows) bundles.
+  - Updated `README.md` with tag-driven release usage (`git tag ... && git push origin ...`).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests).
+- Decisions:
+  - Reuse existing repo build scripts for consistency between local and CI release packaging.
+  - Use tag naming convention `v*` for release automation.
+- Next steps:
+  - Optional: add a manual `workflow_dispatch` release path for re-running failed tag releases without retagging.
+  - Optional: add checksum/signature generation in release workflow.
+- Change log: CI now includes a tag-driven CD pipeline that produces and publishes cross-platform release bundles.
+
 - Status: Tightened initial line-coverage gate on `main`:
   - Increased minimum line coverage threshold from `35` to `40` in:
     - `.github/workflows/ci.yml` (`cargo llvm-cov --fail-under-lines 40`)

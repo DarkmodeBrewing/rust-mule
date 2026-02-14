@@ -71,6 +71,11 @@ Packaging helper:
 scripts/build/build_linux_release.sh
 ```
 
+Tag-driven release builds are automated in GitHub Actions:
+- Push a version tag (example: `git tag v0.1.0 && git push origin v0.1.0`)
+- Workflow `.github/workflows/release.yml` builds Linux/macOS/Windows bundles
+- Artifacts are attached to the GitHub Release for that tag
+
 ## Quality Gates
 
 ```bash
