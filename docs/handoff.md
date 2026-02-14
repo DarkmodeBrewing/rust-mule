@@ -8,6 +8,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added iMule-derived download subsystem strategy on `feature/download-strategy-imule`:
+  - New document: `docs/DOWNLOAD_DESIGN.md`
+    - deep-dive findings from iMule source for download flow and persistence:
+      - chunk/block transfer behavior (`OP_REQUESTPARTS`/`OP_SENDINGPART`/compressed parts)
+      - `.part` + `.part.met` lifecycle and gap tracking
+      - `known.met` and `known2_64.met` responsibilities
+    - proposed Rust-native module boundaries under `src/download/*`
+    - phased implementation plan (scaffold -> persistence -> transfer -> finalize -> API/UI)
+    - test plan and compatibility rules.
+  - Updated docs index and planning files:
+    - `docs/README.md` includes `DOWNLOAD_DESIGN.md`
+    - `docs/TODO.md` now has a `Downloads` backlog section
+    - `docs/TASKS.md` reprioritized with download phase 0/1 first
+    - `README.md` documentation map includes `docs/DOWNLOAD_DESIGN.md`
+- Decisions:
+  - Implement downloads Rust-native as an actor-style subsystem, preserving iMule wire/on-disk semantics where needed for compatibility.
+  - Use `data/download/` for active `.part` state and `data/incoming/` for finalized files.
+  - Deliver MD4-first baseline before enabling full AICH (`known2_64.met`) integration.
+- Next steps:
+  - Implement phase 0 scaffolding (`src/download/*`, typed errors, command/event loop shell).
+  - Implement phase 1 `.part`/`.part.met` persistence and startup recovery tests.
+  - Add minimal API surface to create/list/pause/resume/cancel downloads once phase 1 lands.
+- Change log: Download strategy is now documented and promoted to top project priority in planning docs.
+
 - Status: Added UI smoke testing to CI on `main` push/PR via Playwright + mocked backend:
   - Updated `.github/workflows/ci.yml`:
     - new `ui-smoke` job on `ubuntu-latest` with Node 20

@@ -116,6 +116,7 @@ Runtime state lives under `data/` (gitignored):
 - `docs/dev.md`: developer setup notes
 - `docs/architecture.md`: backend/API/UI architecture and auth model
 - `docs/API_DESIGN.md`: API design (implemented + future direction)
+- `docs/DOWNLOAD_DESIGN.md`: iMule-compatible download subsystem strategy and phased plan
 - `docs/UI_DESIGN.md`: UI design and page model
 - `docs/ui_api_contract_map.md`: UI page -> endpoint/field contract map
 - `docs/api_curl.md`: curl examples for API testing

@@ -8,6 +8,14 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [ ] Continue iMule wire/parity verification for discovery, routing, and source lifecycle edge cases.
 - [ ] Add clearer timeout/retry outcome buckets for request -> response conversion diagnostics.
 
+## Downloads
+
+- [ ] Implement download subsystem scaffold (`src/download/*`) with typed errors and actor-style command loop.
+- [ ] Implement `.part` / `.part.met` persistence and startup recovery from `data/download/`.
+- [ ] Implement block scheduler and transfer pipeline (`OP_REQUESTPARTS`, `OP_SENDINGPART`, compressed blocks).
+- [ ] Implement completion flow into `data/incoming/` with known file persistence (`known.met`).
+- [ ] Phase in AICH hashset support (`known2_64.met`) after MD4-first baseline is stable.
+
 ## API
 
 - [ ] Consider tiered API command timeouts (shared baseline exists; tune by endpoint class if needed).
