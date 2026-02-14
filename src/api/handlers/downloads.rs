@@ -1,7 +1,8 @@
 use axum::{Json, extract::State, http::StatusCode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::api::ApiState;
+use crate::download::{CreateDownloadRequest, DownloadError};
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct DownloadEntry {
@@ -17,6 +18,23 @@ pub(crate) struct DownloadListResponse {
     pub(crate) queue_len: usize,
     pub(crate) recovered_on_start: usize,
     pub(crate) downloads: Vec<DownloadEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct CreateDownloadRequestBody {
+    pub(crate) file_name: String,
+    pub(crate) file_size: u64,
+    pub(crate) file_hash_md4_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct DownloadActionResponse {
+    pub(crate) download: DownloadEntry,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct DownloadDeleteResponse {
+    pub(crate) deleted: bool,
 }
 
 pub(crate) async fn downloads(
@@ -48,4 +66,116 @@ pub(crate) async fn downloads(
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
         downloads,
     }))
+}
+
+pub(crate) async fn downloads_create(
+    State(state): State<ApiState>,
+    Json(req): Json<CreateDownloadRequestBody>,
+) -> Result<(StatusCode, Json<DownloadActionResponse>), StatusCode> {
+    let summary = state
+        .download_handle
+        .create_download(CreateDownloadRequest {
+            file_name: req.file_name,
+            file_size: req.file_size,
+            file_hash_md4_hex: req.file_hash_md4_hex,
+        })
+        .await
+        .map_err(map_download_error)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(DownloadActionResponse {
+            download: DownloadEntry {
+                part_number: summary.part_number,
+                file_name: summary.file_name,
+                file_size: summary.file_size,
+                state: format!("{:?}", summary.state).to_lowercase(),
+                downloaded_bytes: summary.downloaded_bytes,
+            },
+        }),
+    ))
+}
+
+pub(crate) async fn downloads_pause(
+    State(state): State<ApiState>,
+    axum::extract::Path(part_number): axum::extract::Path<u16>,
+) -> Result<Json<DownloadActionResponse>, StatusCode> {
+    let summary = state
+        .download_handle
+        .pause(part_number)
+        .await
+        .map_err(map_download_error)?;
+    Ok(Json(DownloadActionResponse {
+        download: DownloadEntry {
+            part_number: summary.part_number,
+            file_name: summary.file_name,
+            file_size: summary.file_size,
+            state: format!("{:?}", summary.state).to_lowercase(),
+            downloaded_bytes: summary.downloaded_bytes,
+        },
+    }))
+}
+
+pub(crate) async fn downloads_resume(
+    State(state): State<ApiState>,
+    axum::extract::Path(part_number): axum::extract::Path<u16>,
+) -> Result<Json<DownloadActionResponse>, StatusCode> {
+    let summary = state
+        .download_handle
+        .resume(part_number)
+        .await
+        .map_err(map_download_error)?;
+    Ok(Json(DownloadActionResponse {
+        download: DownloadEntry {
+            part_number: summary.part_number,
+            file_name: summary.file_name,
+            file_size: summary.file_size,
+            state: format!("{:?}", summary.state).to_lowercase(),
+            downloaded_bytes: summary.downloaded_bytes,
+        },
+    }))
+}
+
+pub(crate) async fn downloads_cancel(
+    State(state): State<ApiState>,
+    axum::extract::Path(part_number): axum::extract::Path<u16>,
+) -> Result<Json<DownloadActionResponse>, StatusCode> {
+    let summary = state
+        .download_handle
+        .cancel(part_number)
+        .await
+        .map_err(map_download_error)?;
+    Ok(Json(DownloadActionResponse {
+        download: DownloadEntry {
+            part_number: summary.part_number,
+            file_name: summary.file_name,
+            file_size: summary.file_size,
+            state: format!("{:?}", summary.state).to_lowercase(),
+            downloaded_bytes: summary.downloaded_bytes,
+        },
+    }))
+}
+
+pub(crate) async fn downloads_delete(
+    State(state): State<ApiState>,
+    axum::extract::Path(part_number): axum::extract::Path<u16>,
+) -> Result<Json<DownloadDeleteResponse>, StatusCode> {
+    state
+        .download_handle
+        .delete(part_number)
+        .await
+        .map_err(map_download_error)?;
+    Ok(Json(DownloadDeleteResponse { deleted: true }))
+}
+
+fn map_download_error(err: DownloadError) -> StatusCode {
+    match err {
+        DownloadError::InvalidInput(_) => StatusCode::BAD_REQUEST,
+        DownloadError::NotFound(_) => StatusCode::NOT_FOUND,
+        DownloadError::InvalidTransition { .. } => StatusCode::CONFLICT,
+        DownloadError::ChannelClosed => StatusCode::SERVICE_UNAVAILABLE,
+        DownloadError::Store(_) | DownloadError::ServiceJoin(_) => {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    }
 }

@@ -177,16 +177,23 @@ If search details could get large, split results into separate endpoints:
 
 ---
 
-### Downloads (Future)
+### Downloads (Implemented - Queue/Lifecycle)
 
-If/when rust-mule manages downloads:
+Implemented endpoints:
 
 - `GET /api/v1/downloads`
-- `POST /api/v1/downloads` (start download from search result)
-- `GET /api/v1/downloads/{id}`
-- `POST /api/v1/downloads/{id}/pause`
-- `POST /api/v1/downloads/{id}/resume`
-- `POST /api/v1/downloads/{id}/cancel`
+  - list queue entries with current state and recovery counters
+- `POST /api/v1/downloads`
+  - create a new queued download entry (`.part` + `.part.met`)
+- `POST /api/v1/downloads/{part_number}/pause`
+- `POST /api/v1/downloads/{part_number}/resume`
+- `POST /api/v1/downloads/{part_number}/cancel`
+- `DELETE /api/v1/downloads/{part_number}`
+
+Current phase scope:
+
+- queue lifecycle + persistence/recovery are implemented
+- transfer wire path (block request/receive pipeline) is pending
 
 ---
 

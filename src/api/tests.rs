@@ -17,7 +17,7 @@ use axum::{
     http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
     middleware,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
@@ -154,6 +154,25 @@ fn authorized_api_get(path: &str) -> Request<Body> {
     Request::builder()
         .uri(path)
         .method(Method::GET)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .body(Body::empty())
+        .unwrap()
+}
+
+fn authorized_api_post(path: &str, payload: Value) -> Request<Body> {
+    Request::builder()
+        .uri(path)
+        .method(Method::POST)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap()
+}
+
+fn authorized_api_delete(path: &str) -> Request<Body> {
+    Request::builder()
+        .uri(path)
+        .method(Method::DELETE)
         .header(header::AUTHORIZATION, "Bearer test-token")
         .body(Body::empty())
         .unwrap()
@@ -990,4 +1009,119 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
 
     drop(app);
     responder.abort();
+}
+
+#[tokio::test]
+async fn download_mutation_endpoints_update_service_state() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "rust_mule_api_download_test_{}_{}",
+        std::process::id(),
+        stamp
+    ));
+    tokio::fs::create_dir_all(&root).await.expect("mkdir");
+    let (download_handle, _download_status_rx, download_join) = crate::download::start_service(
+        crate::download::DownloadServiceConfig::from_data_dir(&root),
+    )
+    .await
+    .expect("start download service");
+
+    let (kad_tx, _kad_rx) = mpsc::channel(1);
+    let mut state = test_state(kad_tx);
+    state.download_handle = download_handle.clone();
+    let app = test_app(state);
+
+    let create_resp = app
+        .clone()
+        .oneshot(authorized_api_post(
+            "/api/v1/downloads",
+            json!({
+                "file_name":"movie.iso",
+                "file_size": 1234,
+                "file_hash_md4_hex": "0123456789abcdef0123456789abcdef"
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(create_resp.status(), StatusCode::CREATED);
+    let create_json = response_json(create_resp).await;
+    assert_eq!(create_json["download"]["part_number"].as_u64(), Some(1));
+    assert_eq!(create_json["download"]["state"].as_str(), Some("queued"));
+
+    let pause_resp = app
+        .clone()
+        .oneshot(authorized_api_post("/api/v1/downloads/1/pause", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(pause_resp.status(), StatusCode::OK);
+    let pause_json = response_json(pause_resp).await;
+    assert_eq!(pause_json["download"]["state"].as_str(), Some("paused"));
+
+    let resume_resp = app
+        .clone()
+        .oneshot(authorized_api_post("/api/v1/downloads/1/resume", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(resume_resp.status(), StatusCode::OK);
+    let resume_json = response_json(resume_resp).await;
+    assert_eq!(resume_json["download"]["state"].as_str(), Some("queued"));
+
+    let cancel_resp = app
+        .clone()
+        .oneshot(authorized_api_post("/api/v1/downloads/1/cancel", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(cancel_resp.status(), StatusCode::OK);
+    let cancel_json = response_json(cancel_resp).await;
+    assert_eq!(cancel_json["download"]["state"].as_str(), Some("cancelled"));
+
+    let pause_after_cancel = app
+        .clone()
+        .oneshot(authorized_api_post("/api/v1/downloads/1/pause", json!({})))
+        .await
+        .unwrap();
+    assert_eq!(pause_after_cancel.status(), StatusCode::CONFLICT);
+
+    let list_resp = app
+        .clone()
+        .oneshot(authorized_api_get("/api/v1/downloads"))
+        .await
+        .unwrap();
+    assert_eq!(list_resp.status(), StatusCode::OK);
+    let list_json = response_json(list_resp).await;
+    assert_eq!(
+        list_json
+            .get("downloads")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(
+        list_json["downloads"][0]["state"].as_str(),
+        Some("cancelled")
+    );
+
+    let delete_resp = app
+        .clone()
+        .oneshot(authorized_api_delete("/api/v1/downloads/1"))
+        .await
+        .unwrap();
+    assert_eq!(delete_resp.status(), StatusCode::OK);
+    let delete_json = response_json(delete_resp).await;
+    assert_eq!(delete_json["deleted"].as_bool(), Some(true));
+
+    let delete_missing = app
+        .clone()
+        .oneshot(authorized_api_delete("/api/v1/downloads/999"))
+        .await
+        .unwrap();
+    assert_eq!(delete_missing.status(), StatusCode::NOT_FOUND);
+
+    drop(app);
+    download_handle.shutdown().await.expect("download shutdown");
+    download_join.await.expect("join").expect("service");
+    let _ = tokio::fs::remove_dir_all(&root).await;
 }

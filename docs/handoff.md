@@ -8,6 +8,44 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Implemented mutating download API endpoints on `feature/download-strategy-imule`:
+  - Added new endpoints under `/api/v1`:
+    - `POST /downloads`
+    - `POST /downloads/:part_number/pause`
+    - `POST /downloads/:part_number/resume`
+    - `POST /downloads/:part_number/cancel`
+    - `DELETE /downloads/:part_number`
+  - Existing `GET /downloads` remains as queue/status snapshot endpoint.
+  - New handler module: `src/api/handlers/downloads.rs`:
+    - request/response DTOs for create/action/delete/list
+    - typed download error -> HTTP mapping:
+      - invalid input -> `400`
+      - not found -> `404`
+      - invalid transition -> `409`
+      - channel closed -> `503`
+      - storage/join failures -> `500`.
+  - Router and handler exports updated:
+    - `src/api/router.rs`
+    - `src/api/handlers/mod.rs`
+  - API state wiring unchanged in behavior but now fully exercises download mutating commands.
+  - Added endpoint tests:
+    - `api::tests::download_mutation_endpoints_update_service_state`
+      - create -> pause -> resume -> cancel -> delete
+      - conflict and not-found status checks
+      - list consistency checks.
+  - Updated API docs:
+    - `docs/API_DESIGN.md` (downloads now marked implemented for lifecycle queue management)
+    - `docs/api_curl.md` (added curl examples for list/create/pause/resume/cancel/delete).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 80 tests).
+- Decisions:
+  - Keep download API mutators command-driven via the actor to preserve explicit state transitions and typed error semantics.
+  - Keep transfer wire pipeline out of this slice; API currently manages queue lifecycle only.
+- Next steps:
+  - Add first transfer-facing commands/structures (pending block requests, timeout bookkeeping).
+  - Persist and expose gap/range progress in `PartMet` to support restart-safe block transfer.
+  - Add UI controls for create/pause/resume/cancel/delete wired to the new endpoints.
+- Change log: Download queue can now be fully controlled through API endpoints, with tests and docs updated.
+
 - Status: Implemented download phase 1.5/2 groundwork on `feature/download-strategy-imule`:
   - Expanded download actor/service (`src/download/service.rs`):
     - state/lifecycle commands:

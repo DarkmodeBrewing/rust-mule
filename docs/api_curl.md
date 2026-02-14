@@ -88,6 +88,36 @@ curl -sS -X PATCH "${AUTH[@]}" "${JSON[@]}" \
 curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/searches" | jq .
 ```
 
+## Downloads: List Queue
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/downloads" | jq .
+```
+
+## Downloads: Create Queue Entry
+
+```bash
+curl -sS -X POST "${AUTH[@]}" "${JSON[@]}" \
+  -d '{"file_name":"movie.iso","file_size":1234,"file_hash_md4_hex":"0123456789abcdef0123456789abcdef"}' \
+  "$BASE_URL/api/v1/downloads" | jq .
+```
+
+## Downloads: Pause/Resume/Cancel
+
+```bash
+PART=1
+curl -sS -X POST "${AUTH[@]}" "${JSON[@]}" -d '{}' "$BASE_URL/api/v1/downloads/$PART/pause" | jq .
+curl -sS -X POST "${AUTH[@]}" "${JSON[@]}" -d '{}' "$BASE_URL/api/v1/downloads/$PART/resume" | jq .
+curl -sS -X POST "${AUTH[@]}" "${JSON[@]}" -d '{}' "$BASE_URL/api/v1/downloads/$PART/cancel" | jq .
+```
+
+## Downloads: Delete
+
+```bash
+PART=1
+curl -sS -X DELETE "${AUTH[@]}" "$BASE_URL/api/v1/downloads/$PART" | jq .
+```
+
 ## Active Keyword Search Details
 
 `search_id` is currently the keyword ID hex (16 bytes / 32 hex chars).
