@@ -46,3 +46,7 @@ auto_open_ui = true
 # By default we bind to 127.0.0.1 and require a bearer token stored in `data/api.token`.
 host = "127.0.0.1"
 port = 17835
+# Enable operational/debug endpoints under /api/v1/debug/*.
+enable_debug_endpoints = true
+# Enable loopback-only dev token bootstrap endpoint (/api/v1/dev/auth).
+enable_dev_auth_endpoint = true

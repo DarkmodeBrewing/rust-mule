@@ -42,6 +42,9 @@ rust-mule UI available at: http://localhost:<port>
   - `POST /api/v1/session` (sets `rm_session` cookie)
 - REST API calls use bearer auth (`Authorization: Bearer <token>`).
 - SSE (`GET /api/v1/events`) uses session-cookie auth.
+- Optional endpoint toggles:
+  - `[api].enable_debug_endpoints = true|false` for `/api/v1/debug/*`
+  - `[api].enable_dev_auth_endpoint = true|false` for `/api/v1/dev/auth`
 
 Quick API check:
 

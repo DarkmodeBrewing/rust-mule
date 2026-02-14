@@ -40,6 +40,8 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         kad_cmd_tx,
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        enable_debug_endpoints: true,
+        enable_dev_auth_endpoint: true,
     }
 }
 
@@ -172,11 +174,15 @@ fn parse_api_bind_host_accepts_only_loopback() {
 
 #[test]
 fn api_bearer_exempt_paths_include_only_health_and_dev_auth() {
-    assert!(auth::is_api_bearer_exempt_path("/api/v1/health"));
-    assert!(auth::is_api_bearer_exempt_path("/api/v1/dev/auth"));
-    assert!(!auth::is_api_bearer_exempt_path("/api/v1/status"));
-    assert!(!auth::is_api_bearer_exempt_path("/api/v1/session"));
-    assert!(!auth::is_api_bearer_exempt_path("/api/v1/token/rotate"));
+    assert!(auth::is_api_bearer_exempt_path("/api/v1/health", true));
+    assert!(auth::is_api_bearer_exempt_path("/api/v1/dev/auth", true));
+    assert!(!auth::is_api_bearer_exempt_path("/api/v1/status", true));
+    assert!(!auth::is_api_bearer_exempt_path("/api/v1/session", true));
+    assert!(!auth::is_api_bearer_exempt_path(
+        "/api/v1/token/rotate",
+        true
+    ));
+    assert!(!auth::is_api_bearer_exempt_path("/api/v1/dev/auth", false));
 }
 
 #[test]
@@ -386,6 +392,8 @@ async fn settings_get_returns_config_snapshot() {
         let mut cfg = state.config.lock().await;
         cfg.sam.session_name = "session-a".to_string();
         cfg.api.port = 18080;
+        cfg.api.enable_debug_endpoints = false;
+        cfg.api.enable_dev_auth_endpoint = false;
         cfg.general.log_level = "info,rust_mule=debug".to_string();
         cfg.general.auto_open_ui = false;
     }
@@ -395,6 +403,8 @@ async fn settings_get_returns_config_snapshot() {
         .expect("settings_get ok");
     assert_eq!(resp.0.settings.sam.session_name, "session-a");
     assert_eq!(resp.0.settings.api.port, 18080);
+    assert!(!resp.0.settings.api.enable_debug_endpoints);
+    assert!(!resp.0.settings.api.enable_dev_auth_endpoint);
     assert!(!resp.0.settings.general.auto_open_ui);
     assert!(resp.0.restart_required);
 }
@@ -421,6 +431,8 @@ async fn settings_patch_updates_and_persists_config() {
             api: Some(handlers::SettingsPatchApi {
                 host: None,
                 port: Some(17836),
+                enable_debug_endpoints: Some(false),
+                enable_dev_auth_endpoint: Some(false),
             }),
         }),
     )
@@ -429,6 +441,8 @@ async fn settings_patch_updates_and_persists_config() {
     let resp = result.expect("settings_patch should succeed");
     assert_eq!(resp.0.settings.sam.session_name, "test-session");
     assert_eq!(resp.0.settings.api.port, 17836);
+    assert!(!resp.0.settings.api.enable_debug_endpoints);
+    assert!(!resp.0.settings.api.enable_dev_auth_endpoint);
     assert!(!resp.0.settings.general.log_to_file);
     assert!(!resp.0.settings.general.auto_open_ui);
     assert!(resp.0.restart_required);
@@ -464,6 +478,8 @@ async fn settings_patch_rejects_invalid_values() {
             api: Some(handlers::SettingsPatchApi {
                 host: Some("0.0.0.0".to_string()),
                 port: None,
+                enable_debug_endpoints: None,
+                enable_dev_auth_endpoint: None,
             }),
         }),
     )
@@ -549,6 +565,38 @@ async fn events_rejects_bearer_only_but_accepts_session_cookie() {
 }
 
 #[tokio::test]
+async fn debug_routes_are_404_when_debug_endpoints_disabled() {
+    let (tx, _rx) = mpsc::channel(1);
+    let mut state = test_state(tx);
+    state.enable_debug_endpoints = false;
+    let app = test_app(state);
+    let req = Request::builder()
+        .uri("/api/v1/debug/routing/summary")
+        .method(Method::GET)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn dev_auth_route_is_404_when_disabled() {
+    let (tx, _rx) = mpsc::channel(1);
+    let mut state = test_state(tx);
+    state.enable_dev_auth_endpoint = false;
+    let app = test_app(state);
+    let req = Request::builder()
+        .uri("/api/v1/dev/auth")
+        .method(Method::GET)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn token_rotate_updates_state_file_and_clears_sessions() {
     let (tx, _rx) = mpsc::channel(1);
     let test_dir = std::env::temp_dir().join(format!(
@@ -575,6 +623,8 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
             "s1".to_string(),
             Instant::now() + Duration::from_secs(30),
         )]))),
+        enable_debug_endpoints: true,
+        enable_dev_auth_endpoint: true,
     };
 
     let resp = handlers::token_rotate(State(state.clone()))
@@ -609,6 +659,8 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         kad_cmd_tx: kad_tx,
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        enable_debug_endpoints: true,
+        enable_dev_auth_endpoint: true,
     };
     // Keep sender alive.
     let _status_tx_guard = status_tx;

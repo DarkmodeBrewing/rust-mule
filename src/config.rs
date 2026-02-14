@@ -98,6 +98,12 @@ fn default_api_host() -> String {
 fn default_api_port() -> u16 {
     17835
 }
+fn default_api_enable_debug_endpoints() -> bool {
+    true
+}
+fn default_api_enable_dev_auth_endpoint() -> bool {
+    true
+}
 fn default_preferences_kad_path() -> String {
     // Keep aMule/iMule naming for backwards compatibility.
     "preferencesKad.dat".to_string()
@@ -359,6 +365,10 @@ pub struct ApiConfig {
     pub host: String,
     /// Bind TCP port.
     pub port: u16,
+    /// Enables `/api/v1/debug/*` endpoints.
+    pub enable_debug_endpoints: bool,
+    /// Enables `/api/v1/dev/auth` (loopback-only token bootstrap helper).
+    pub enable_dev_auth_endpoint: bool,
 }
 
 impl Default for SamConfig {
@@ -455,6 +465,8 @@ impl Default for ApiConfig {
         Self {
             host: default_api_host(),
             port: default_api_port(),
+            enable_debug_endpoints: default_api_enable_debug_endpoints(),
+            enable_dev_auth_endpoint: default_api_enable_dev_auth_endpoint(),
         }
     }
 }

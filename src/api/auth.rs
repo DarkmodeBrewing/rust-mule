@@ -41,7 +41,7 @@ pub(crate) async fn auth_mw(
     }
 
     if path.starts_with("/api/") {
-        if is_api_bearer_exempt_path(path) {
+        if is_api_bearer_exempt_path(path, state.enable_dev_auth_endpoint) {
             return Ok(next.run(req).await);
         }
         let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
@@ -72,8 +72,8 @@ pub(crate) fn is_loopback_addr(addr: &SocketAddr) -> bool {
     addr.ip().is_loopback()
 }
 
-pub(crate) fn is_api_bearer_exempt_path(path: &str) -> bool {
-    matches!(path, "/api/v1/health" | "/api/v1/dev/auth")
+pub(crate) fn is_api_bearer_exempt_path(path: &str, enable_dev_auth_endpoint: bool) -> bool {
+    path == "/api/v1/health" || (enable_dev_auth_endpoint && path == "/api/v1/dev/auth")
 }
 
 pub(crate) fn is_frontend_exempt_path(path: &str) -> bool {

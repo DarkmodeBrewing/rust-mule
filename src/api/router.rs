@@ -16,9 +16,8 @@ use crate::api::{
 };
 
 pub(crate) fn build_app(state: ApiState) -> Router<()> {
-    let v1 = Router::new()
+    let mut v1 = Router::new()
         .route("/health", get(health))
-        .route("/dev/auth", get(dev_auth))
         .route("/token/rotate", post(token_rotate))
         .route("/session", post(create_session))
         .route("/session/check", get(session_check))
@@ -33,20 +32,6 @@ pub(crate) fn build_app(state: ApiState) -> Router<()> {
         )
         .route("/searches/:search_id/stop", post(search_stop))
         .route("/kad/peers", get(kad_peers))
-        .route(
-            "/debug/routing/summary",
-            get(crate::api::handlers::debug_routing_summary),
-        )
-        .route(
-            "/debug/routing/buckets",
-            get(crate::api::handlers::debug_routing_buckets),
-        )
-        .route(
-            "/debug/routing/nodes",
-            get(crate::api::handlers::debug_routing_nodes),
-        )
-        .route("/debug/lookup_once", post(debug_lookup_once))
-        .route("/debug/probe_peer", post(debug_probe_peer))
         .route("/kad/sources/:file_id_hex", get(kad_sources))
         .route(
             "/kad/keyword_results/:keyword_id_hex",
@@ -56,6 +41,26 @@ pub(crate) fn build_app(state: ApiState) -> Router<()> {
         .route("/kad/search_keyword", post(kad_search_keyword))
         .route("/kad/publish_source", post(kad_publish_source))
         .route("/kad/publish_keyword", post(kad_publish_keyword));
+    if state.enable_dev_auth_endpoint {
+        v1 = v1.route("/dev/auth", get(dev_auth));
+    }
+    if state.enable_debug_endpoints {
+        v1 = v1
+            .route(
+                "/debug/routing/summary",
+                get(crate::api::handlers::debug_routing_summary),
+            )
+            .route(
+                "/debug/routing/buckets",
+                get(crate::api::handlers::debug_routing_buckets),
+            )
+            .route(
+                "/debug/routing/nodes",
+                get(crate::api::handlers::debug_routing_nodes),
+            )
+            .route("/debug/lookup_once", post(debug_lookup_once))
+            .route("/debug/probe_peer", post(debug_probe_peer));
+    }
 
     Router::new()
         .route("/", get(root_index_redirect))

@@ -64,6 +64,8 @@ pub struct ApiState {
     pub(crate) kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
     pub(crate) config: Arc<tokio::sync::Mutex<Config>>,
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
+    pub(crate) enable_debug_endpoints: bool,
+    pub(crate) enable_dev_auth_endpoint: bool,
 }
 
 pub struct ApiServeDeps {
@@ -98,6 +100,8 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         kad_cmd_tx: deps.kad_cmd_tx,
         config: Arc::new(tokio::sync::Mutex::new(deps.app_config)),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        enable_debug_endpoints: cfg.enable_debug_endpoints,
+        enable_dev_auth_endpoint: cfg.enable_dev_auth_endpoint,
     };
 
     let sessions_for_sweeper = state.sessions.clone();

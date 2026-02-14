@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added API endpoint toggles for debug and dev-auth bootstrap on `main`:
+  - New `[api]` config flags in `config.toml`/`ApiConfig`:
+    - `enable_debug_endpoints` (controls `/api/v1/debug/*`)
+    - `enable_dev_auth_endpoint` (controls `/api/v1/dev/auth`)
+  - Router now conditionally registers debug routes and dev-auth route based on these flags.
+  - Auth exemption for `/api/v1/dev/auth` is now conditional on `enable_dev_auth_endpoint`.
+  - Settings API now exposes and accepts these flags under `settings.api`.
+  - Added/updated tests:
+    - bearer exemption logic with dev-auth enabled/disabled
+    - debug routes return `404` when disabled
+    - dev-auth route returns `404` (with bearer) when disabled
+  - Updated docs: `README.md`, `docs/architecture.md`, `docs/api_curl.md`, and `config.toml` comments.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 70 tests).
+- Decisions: Keep both new flags defaulted to `true` for backwards-compatible behavior; operators can disable either endpoint group explicitly.
+- Next steps: Optional follow-up is lightweight rate limiting for high-value endpoints (`/api/v1/dev/auth`, `/api/v1/token/rotate`, `/api/v1/session`) to reduce brute-force/noise risks.
+- Change log: API surface can now be reduced at runtime via config without code changes.
+
 - Status: Moved operational scripts out of `docs/scripts` into top-level `scripts/` with explicit split:
   - API/documentation helpers moved to `scripts/docs/`:
     - `health/status/events`, KAD endpoint helpers, debug endpoint helpers, dev auth helper.

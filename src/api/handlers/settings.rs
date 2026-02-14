@@ -26,6 +26,8 @@ pub(crate) struct SettingsSam {
 pub(crate) struct SettingsApi {
     pub(crate) host: String,
     pub(crate) port: u16,
+    pub(crate) enable_debug_endpoints: bool,
+    pub(crate) enable_dev_auth_endpoint: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,6 +71,10 @@ pub(crate) struct SettingsPatchApi {
     pub(crate) host: Option<String>,
     #[serde(default)]
     pub(crate) port: Option<u16>,
+    #[serde(default)]
+    pub(crate) enable_debug_endpoints: Option<bool>,
+    #[serde(default)]
+    pub(crate) enable_dev_auth_endpoint: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,6 +104,8 @@ impl SettingsPayload {
             api: SettingsApi {
                 host: cfg.api.host.clone(),
                 port: cfg.api.port,
+                enable_debug_endpoints: cfg.api.enable_debug_endpoints,
+                enable_dev_auth_endpoint: cfg.api.enable_dev_auth_endpoint,
             },
         }
     }
@@ -159,6 +167,12 @@ pub(crate) fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest
         }
         if let Some(port) = api.port {
             cfg.api.port = port;
+        }
+        if let Some(enable_debug_endpoints) = api.enable_debug_endpoints {
+            cfg.api.enable_debug_endpoints = enable_debug_endpoints;
+        }
+        if let Some(enable_dev_auth_endpoint) = api.enable_dev_auth_endpoint {
+            cfg.api.enable_dev_auth_endpoint = enable_dev_auth_endpoint;
         }
     }
 }

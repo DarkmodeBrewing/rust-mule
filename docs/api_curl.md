@@ -20,6 +20,8 @@ JSON=(-H "Content-Type: application/json")
 
 ## Dev Auth Token (Loopback Only)
 
+Requires `[api].enable_dev_auth_endpoint = true`.
+
 ```bash
 curl -sS "$BASE_URL/api/v1/dev/auth" | jq .
 ```
