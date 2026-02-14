@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Corrected misleading overview KPI labels in UI on `main`:
+  - Updated `ui/index.html` labels to match actual status field semantics:
+    - `routing`: `Peers Contacted` -> `Routing Nodes`
+    - `live`: `Responses` -> `Live Nodes`
+    - `live_10m`: `Hits Found (10m)` -> `Live Nodes (10m)`
+  - Updated progress badges for clarity:
+    - `requests` -> `requests sent`
+    - `responses` -> `responses received`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep KPI naming tied to raw API counter meaning, not inferred behavior, to avoid future ambiguity in diagnostics.
+- Next steps: Optional follow-up can add compact tooltip/help text for each KPI defining its backing status field.
+- Change log: Overview metric labels now accurately describe `routing`, `live`, and `live_10m`.
+
 - Status: Fixed high-impact UI/API status-field mismatch on `main`:
   - UI expected `recv_req` and `recv_res` in status payloads (REST + SSE), while API exposed `sent_reqs` and `recv_ress`.
   - Added compatibility aliases directly in `KadServiceStatus`:

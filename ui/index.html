@@ -174,15 +174,15 @@
         <div class="grid grid-3" x-show="status">
           <div class="card">
             <div class="kpi" x-text="status?.routing ?? 0"></div>
-            <span class="label">Peers Contacted</span>
+            <span class="label">Routing Nodes</span>
           </div>
           <div class="card">
             <div class="kpi" x-text="status?.live ?? 0"></div>
-            <span class="label">Responses</span>
+            <span class="label">Live Nodes</span>
           </div>
           <div class="card">
             <div class="kpi" x-text="status?.live_10m ?? 0"></div>
-            <span class="label">Hits Found (10m)</span>
+            <span class="label">Live Nodes (10m)</span>
           </div>
         </div>
 
@@ -190,10 +190,10 @@
           <h2>Progress</h2>
           <p>Minimal v1 progress view (counters + timeline hooks).</p>
           <div class="badge mt-3">
-            requests: <span x-text="status?.recv_req ?? 0"></span>
+            requests sent: <span x-text="status?.recv_req ?? 0"></span>
           </div>
           <div class="badge mt-3">
-            responses: <span x-text="status?.recv_res ?? 0"></span>
+            responses received: <span x-text="status?.recv_res ?? 0"></span>
           </div>
         </div>
 
