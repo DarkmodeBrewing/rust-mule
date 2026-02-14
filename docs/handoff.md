@@ -15,6 +15,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - verifies spawned node PIDs are running from expected per-run directories
     - aborts readiness early on repeated `403` responses (token mismatch/wrong process)
     - separates detached stdout/stderr into `logs/runner.out` to avoid duplicate `runner.log` lines.
+    - uses stricter multi-probe port detection (`ss` + `lsof` + TCP connect probes) before launch to catch occupied API ports reliably.
   - `scripts/test/README.md` updated with the new safety behavior.
 - Decisions:
   - Prefer explicit preflight failure over implicit retries when ports are occupied.

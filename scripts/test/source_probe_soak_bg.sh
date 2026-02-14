@@ -79,12 +79,27 @@ configure_a_instance() {
 port_is_busy() {
   local port="$1"
   if command -v ss >/dev/null 2>&1; then
-    ss -ltnH "sport = :$port" | grep -q .
-    return
+    if ss -ltnH | awk '{print $4}' | grep -Eq "(^|:|\\])$port$"; then
+      return 0
+    fi
   fi
-  if command -v netstat >/dev/null 2>&1; then
-    netstat -lnt 2>/dev/null | awk '{print $4}' | grep -E "(^|:)$port$" -q
-    return
+  if command -v lsof >/dev/null 2>&1; then
+    if lsof -nP -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  if command -v nc >/dev/null 2>&1; then
+    if nc -z -w1 127.0.0.1 "$port" >/dev/null 2>&1; then
+      return 0
+    fi
+    if nc -z -w1 ::1 "$port" >/dev/null 2>&1; then
+      return 0
+    fi
+  fi
+  if command -v timeout >/dev/null 2>&1; then
+    if timeout 1 bash -lc ":</dev/tcp/127.0.0.1/$port" >/dev/null 2>&1; then
+      return 0
+    fi
   fi
   return 1
 }
