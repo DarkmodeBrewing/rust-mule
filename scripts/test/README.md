@@ -20,10 +20,16 @@ Use `source_probe_soak_bg.sh` when you want the soak to keep running after termi
 4. Collect logs into a tarball:
    - `bash scripts/test/source_probe_soak_bg.sh collect`
 
+Safety behavior:
+- Fails fast if `A_URL` or `B_URL` ports are already occupied.
+- Fails fast on repeated readiness `403` responses (likely token mismatch against an old process).
+- Verifies spawned node PIDs are running from the expected per-run directories.
+
 Defaults:
 - binaries: `../../mule-a/rust-mule` and `../../mule-b/rust-mule`
 - run root: `/tmp/rust-mule-soak-bg`
 - API URLs: `127.0.0.1:17835` and `127.0.0.1:17836`
+- detached runner stdout/stderr: `/tmp/rust-mule-soak-bg/logs/runner.out`
 
 Override via env vars, for example:
 - `A_SRC=/dist/mule-a B_SRC=/dist/mule-b RUN_ROOT=/tmp/my-soak bash scripts/test/source_probe_soak_bg.sh start 7200`

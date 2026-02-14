@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened timed background soak harness failure handling on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh` now:
+    - fails fast if `A_URL`/`B_URL` ports are already in use (prevents attaching to foreign processes)
+    - synchronizes API port config from `A_URL` and `B_URL`
+    - verifies spawned node PIDs are running from expected per-run directories
+    - aborts readiness early on repeated `403` responses (token mismatch/wrong process)
+    - separates detached stdout/stderr into `logs/runner.out` to avoid duplicate `runner.log` lines.
+  - `scripts/test/README.md` updated with the new safety behavior.
+- Decisions:
+  - Prefer explicit preflight failure over implicit retries when ports are occupied.
+  - Treat repeated readiness `403` as a hard test-environment mismatch signal.
+- Next steps:
+  - Re-run soak with the hardened script; verify `rounds.tsv` and `status.ndjson` are populated before long-run analysis.
+  - If needed, add optional auto-port allocation mode in a later slice.
+- Change log: Soak runner now guards against port collisions and false-readiness loops, and logs are no longer duplicated.
+
 - Status: Implemented source-probe telemetry hardening + request correlation IDs in KAD service and added timed background soak scaffold on `feature/download-strategy-imule`:
   - `src/kad/service.rs`:
     - outbound tracked requests now carry `request_id` and optional `trace_tag`

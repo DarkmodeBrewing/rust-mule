@@ -40,12 +40,21 @@ READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-1200}"
 
 RUNNER_PID_FILE="$RUN_ROOT/runner.pid"
 RUNNER_LOG_FILE="$LOG_DIR/runner.log"
+RUNNER_STDOUT_FILE="$LOG_DIR/runner.out"
 RUNNER_STATE_FILE="$RUN_ROOT/runner.state"
 STOP_FILE="$RUN_ROOT/stop.requested"
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 rand_hex16() { hexdump -n 16 -e '16/1 "%02x"' /dev/urandom; }
+log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
+
+url_port() {
+  local url="$1"
+  local hostport
+  hostport="$(echo "$url" | sed -E 's#^[a-zA-Z]+://([^/]+)/?.*$#\1#')"
+  echo "$hostport" | awk -F: '{print $NF}'
+}
 
 ensure_dirs() {
   mkdir -p "$RUN_ROOT" "$LOG_DIR"
@@ -60,14 +69,61 @@ configure_b_instance() {
   sed -i 's/session_name = "rust-mule-b"/session_name = "rust-mule-b-soak"/' "$B_DIR/config.toml" || true
   sed -i 's/forward_port = 40000/forward_port = 40001/' "$B_DIR/config.toml" || true
   sed -i 's/udp_port = 4665/udp_port = 4666/' "$B_DIR/config.toml" || true
-  sed -i 's/port = 17835/port = 17836/' "$B_DIR/config.toml" || true
+  sed -i "s/port = 17835/port = $(url_port "$B_URL")/" "$B_DIR/config.toml" || true
+}
+
+configure_a_instance() {
+  sed -i "s/port = 17835/port = $(url_port "$A_URL")/" "$A_DIR/config.toml" || true
+}
+
+port_is_busy() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnH "sport = :$port" | grep -q .
+    return
+  fi
+  if command -v netstat >/dev/null 2>&1; then
+    netstat -lnt 2>/dev/null | awk '{print $4}' | grep -E "(^|:)$port$" -q
+    return
+  fi
+  return 1
+}
+
+ensure_ports_available() {
+  local a_port b_port
+  a_port="$(url_port "$A_URL")"
+  b_port="$(url_port "$B_URL")"
+
+  if port_is_busy "$a_port"; then
+    log "ERROR: A_URL port $a_port is already in use. Stop existing process or pick another A_URL."
+    return 1
+  fi
+  if port_is_busy "$b_port"; then
+    log "ERROR: B_URL port $b_port is already in use. Stop existing process or pick another B_URL."
+    return 1
+  fi
+}
+
+verify_node_pid_context() {
+  local pid="$1"
+  local expected_dir="$2"
+  local cwd
+
+  if [[ ! -d "/proc/$pid" ]]; then
+    return 1
+  fi
+  cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
+  [[ "$cwd" == "$(readlink -f "$expected_dir")" ]]
 }
 
 start_nodes() {
+  ensure_ports_available
+
   rm -rf "$A_DIR" "$B_DIR"
   cp -a "$A_SRC" "$A_DIR"
   cp -a "$B_SRC" "$B_DIR"
 
+  configure_a_instance
   configure_b_instance
 
   rm -f "$A_DIR/data/rust-mule.lock" "$B_DIR/data/rust-mule.lock"
@@ -76,23 +132,33 @@ start_nodes() {
   (cd "$A_DIR" && nohup ./rust-mule >"$LOG_DIR/a.out" 2>&1 & echo $! >"$LOG_DIR/a.pid")
   (cd "$B_DIR" && nohup ./rust-mule >"$LOG_DIR/b.out" 2>&1 & echo $! >"$LOG_DIR/b.pid")
 
-  echo "$(ts) started A pid=$(cat "$LOG_DIR/a.pid") B pid=$(cat "$LOG_DIR/b.pid")" | tee -a "$RUNNER_LOG_FILE"
+  if ! verify_node_pid_context "$(cat "$LOG_DIR/a.pid")" "$A_DIR"; then
+    log "ERROR: A pid is not running from expected directory $A_DIR"
+    return 1
+  fi
+  if ! verify_node_pid_context "$(cat "$LOG_DIR/b.pid")" "$B_DIR"; then
+    log "ERROR: B pid is not running from expected directory $B_DIR"
+    return 1
+  fi
+
+  log "started A pid=$(cat "$LOG_DIR/a.pid") B pid=$(cat "$LOG_DIR/b.pid")"
 }
 
 stop_nodes() {
   [[ -f "$LOG_DIR/a.pid" ]] && kill "$(cat "$LOG_DIR/a.pid")" 2>/dev/null || true
   [[ -f "$LOG_DIR/b.pid" ]] && kill "$(cat "$LOG_DIR/b.pid")" 2>/dev/null || true
-  echo "$(ts) node stop requested" | tee -a "$RUNNER_LOG_FILE"
+  log "node stop requested"
 }
 
 wait_ready() {
-  local start now elapsed ta tb a_code b_code
+  local start now elapsed ta tb a_code b_code consecutive_forbidden
   start="$(ts_epoch)"
+  consecutive_forbidden=0
   while true; do
     now="$(ts_epoch)"
     elapsed="$(( now - start ))"
     if (( elapsed > READY_TIMEOUT_SECS )); then
-      echo "$(ts) ERROR: readiness timeout after ${READY_TIMEOUT_SECS}s" | tee -a "$RUNNER_LOG_FILE"
+      log "ERROR: readiness timeout after ${READY_TIMEOUT_SECS}s"
       return 1
     fi
 
@@ -100,10 +166,20 @@ wait_ready() {
     tb="$(cat "$B_DIR/data/api.token" 2>/dev/null || true)"
     a_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ta" "$A_URL/api/v1/status" || true)"
     b_code="$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tb" "$B_URL/api/v1/status" || true)"
-    echo "$(ts) ready-check elapsed=${elapsed}s A=$a_code B=$b_code" | tee -a "$RUNNER_LOG_FILE"
+    log "ready-check elapsed=${elapsed}s A=$a_code B=$b_code"
 
     if [[ "$a_code" == "200" && "$b_code" == "200" ]]; then
       return 0
+    fi
+
+    if [[ "$a_code" == "403" && "$b_code" == "403" ]]; then
+      consecutive_forbidden="$((consecutive_forbidden + 1))"
+      if (( consecutive_forbidden >= 6 )); then
+        log "ERROR: readiness got repeated 403s; likely wrong process on ports or token mismatch"
+        return 1
+      fi
+    else
+      consecutive_forbidden=0
     fi
     sleep 5
   done
@@ -118,7 +194,7 @@ run_round() {
   file_id="$(rand_hex16)"
   size="$(( (RANDOM % 5000000) + 1024 ))"
 
-  echo "$(ts) round=$round file=$file_id size=$size" | tee -a "$RUNNER_LOG_FILE"
+  log "round=$round file=$file_id size=$size"
 
   a_pub="$(curl -sS -H "Authorization: Bearer $ta" -H 'content-type: application/json' \
     -d "{\"file_id_hex\":\"$file_id\",\"file_size\":$size}" \
@@ -158,16 +234,16 @@ run_foreground() {
   : >"$LOG_DIR/status.ndjson"
   rm -f "$STOP_FILE"
 
-  trap 'echo "$(ts) runner interrupted" | tee -a "$RUNNER_LOG_FILE"; echo "stopped" > "$RUNNER_STATE_FILE"; cleanup_runner; exit 0' INT TERM
+  trap 'log "runner interrupted"; echo "stopped" > "$RUNNER_STATE_FILE"; cleanup_runner; exit 0' INT TERM
 
   if [[ ! -x "$A_SRC/rust-mule" || ! -x "$B_SRC/rust-mule" ]]; then
-    echo "$(ts) ERROR: expected binaries at $A_SRC/rust-mule and $B_SRC/rust-mule" | tee -a "$RUNNER_LOG_FILE"
+    log "ERROR: expected binaries at $A_SRC/rust-mule and $B_SRC/rust-mule"
     echo "failed" >"$RUNNER_STATE_FILE"
     exit 1
   fi
 
   deadline="$(( $(ts_epoch) + duration_secs ))"
-  echo "$(ts) soak-start duration_secs=$duration_secs deadline_epoch=$deadline" | tee -a "$RUNNER_LOG_FILE"
+  log "soak-start duration_secs=$duration_secs deadline_epoch=$deadline"
 
   start_nodes
   wait_ready
@@ -175,24 +251,24 @@ run_foreground() {
   round=0
   while true; do
     if [[ -f "$STOP_FILE" ]]; then
-      echo "$(ts) stop marker detected" | tee -a "$RUNNER_LOG_FILE"
+      log "stop marker detected"
       break
     fi
 
     now="$(ts_epoch)"
     if (( now >= deadline )); then
-      echo "$(ts) deadline reached" | tee -a "$RUNNER_LOG_FILE"
+      log "deadline reached"
       break
     fi
 
     remaining="$(( deadline - now ))"
     round="$(( round + 1 ))"
-    echo "$(ts) timer remaining_secs=$remaining round=$round" | tee -a "$RUNNER_LOG_FILE"
+    log "timer remaining_secs=$remaining round=$round"
     run_round "$round"
     sleep "$WAIT_BETWEEN"
   done
 
-  echo "$(ts) soak-finished rounds=$round" | tee -a "$RUNNER_LOG_FILE"
+  log "soak-finished rounds=$round"
   echo "completed" >"$RUNNER_STATE_FILE"
   cleanup_runner
 }
@@ -211,9 +287,9 @@ start_background() {
     rm -f "$RUNNER_PID_FILE"
   fi
 
-  nohup bash -lc "cd '$ROOT' && '$0' run '$duration_secs'" >>"$RUNNER_LOG_FILE" 2>&1 &
+  nohup bash -lc "cd '$ROOT' && '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
   echo $! >"$RUNNER_PID_FILE"
-  echo "$(ts) runner started pid=$(cat "$RUNNER_PID_FILE") duration_secs=$duration_secs" | tee -a "$RUNNER_LOG_FILE"
+  log "runner started pid=$(cat "$RUNNER_PID_FILE") duration_secs=$duration_secs"
 }
 
 status_runner() {
@@ -260,7 +336,7 @@ stop_runner() {
 
   stop_nodes
   echo "stopped" >"$RUNNER_STATE_FILE"
-  echo "$(ts) runner stop requested" | tee -a "$RUNNER_LOG_FILE"
+  log "runner stop requested"
 }
 
 collect_bundle() {
