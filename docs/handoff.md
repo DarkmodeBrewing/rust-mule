@@ -8,6 +8,37 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Split `src/kad/service.rs` into logical submodules on `main` (no behavior change):
+  - Added `src/kad/service/types.rs`:
+    - moved service-facing data/config/status/command types and related defaults:
+      - `KadServiceCrypto`
+      - `KadServiceConfig` (+ `Default`)
+      - `KadServiceStatus`
+      - `KadServiceCommand`
+      - DTOs (`KadSourceEntry`, `KadKeywordHit`, `KadKeywordSearchInfo`, `KadPeerInfo`)
+      - routing view DTOs (`RoutingSummary`, `RoutingBucketSummary`, `RoutingNodeSummary`)
+      - internal stats struct (`KadServiceStats`)
+  - Added `src/kad/service/routing_view.rs`:
+    - moved routing summary/bucket/node projection builders out of core service loop file.
+  - Added `src/kad/service/tests.rs`:
+    - moved embedded unit tests out of `service.rs` into a dedicated test module file.
+  - Updated `src/kad/service.rs`:
+    - now re-exports public service types from `types.rs`
+    - delegates routing view builders to `routing_view` module
+    - keeps core service runtime/inbound/outbound behavior unchanged.
+  - Net effect:
+    - `src/kad/service.rs` reduced from ~4979 LOC to ~4116 LOC.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests).
+- Decisions:
+  - Keep this pass structural-only (file/module boundaries) to avoid behavior risk.
+  - Prefer progressive extraction from `service.rs` with compile/test safety after each chunk.
+- Next steps:
+  - Continue splitting heavy behavior clusters from `service.rs`:
+    - inbound packet handling
+    - keyword job progression/cache maintenance
+    - lookup/crawl scheduler logic
+- Change log: KAD service module now has dedicated `types`, `routing_view`, and `tests` files with unchanged runtime behavior.
+
 - Status: Hardened coverage CI job to avoid opaque failures on `main`:
   - Updated `.github/workflows/ci.yml` coverage job:
     - installs Rust `llvm-tools-preview` component explicitly
