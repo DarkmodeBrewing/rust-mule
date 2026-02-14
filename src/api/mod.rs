@@ -57,11 +57,22 @@ impl std::error::Error for ApiError {
 pub struct ApiState {
     pub(crate) token: Arc<tokio::sync::RwLock<String>>,
     pub(crate) token_path: Arc<PathBuf>,
+    pub(crate) config_path: Arc<PathBuf>,
     pub(crate) status_rx: watch::Receiver<Option<KadServiceStatus>>,
     pub(crate) status_events_tx: broadcast::Sender<KadServiceStatus>,
     pub(crate) kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
     pub(crate) config: Arc<tokio::sync::Mutex<Config>>,
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
+}
+
+pub struct ApiServeDeps {
+    pub app_config: Config,
+    pub config_path: PathBuf,
+    pub token_path: PathBuf,
+    pub token: String,
+    pub status_rx: watch::Receiver<Option<KadServiceStatus>>,
+    pub status_events_tx: broadcast::Sender<KadServiceStatus>,
+    pub kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
 }
 
 pub fn new_channels() -> (
@@ -73,25 +84,18 @@ pub fn new_channels() -> (
     (status_tx, status_events_tx)
 }
 
-pub async fn serve(
-    cfg: &ApiConfig,
-    app_config: Config,
-    token_path: PathBuf,
-    token: String,
-    status_rx: watch::Receiver<Option<KadServiceStatus>>,
-    status_events_tx: broadcast::Sender<KadServiceStatus>,
-    kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
-) -> ApiResult<()> {
+pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
     let bind_ip = parse_api_bind_host(&cfg.host).map_err(ApiError::Config)?;
     let addr = SocketAddr::new(bind_ip, cfg.port);
 
     let state = ApiState {
-        token: Arc::new(tokio::sync::RwLock::new(token)),
-        token_path: Arc::new(token_path),
-        status_rx,
-        status_events_tx,
-        kad_cmd_tx,
-        config: Arc::new(tokio::sync::Mutex::new(app_config)),
+        token: Arc::new(tokio::sync::RwLock::new(deps.token)),
+        token_path: Arc::new(deps.token_path),
+        config_path: Arc::new(deps.config_path),
+        status_rx: deps.status_rx,
+        status_events_tx: deps.status_events_tx,
+        kad_cmd_tx: deps.kad_cmd_tx,
+        config: Arc::new(tokio::sync::Mutex::new(deps.app_config)),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
 

@@ -166,7 +166,7 @@ impl From<std::num::ParseIntError> for AppError {
     }
 }
 
-pub async fn run(config: Config) -> AppResult<()> {
+pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     tracing::info!(
         event = "app_start",
         log = %config.general.log_level,
@@ -306,19 +306,19 @@ pub async fn run(config: Config) -> AppResult<()> {
     let etx_for_server = etx.clone();
     let cmd_tx_for_server = kad_cmd_tx.clone();
     let api_runtime_config = config.clone();
+    let config_path_for_server = config_path.clone();
     let token_path_for_server = token_path.clone();
     tokio::spawn(async move {
-        if let Err(err) = crate::api::serve(
-            &api_cfg,
-            api_runtime_config,
-            token_path_for_server,
+        let deps = crate::api::ApiServeDeps {
+            app_config: api_runtime_config,
+            config_path: config_path_for_server,
+            token_path: token_path_for_server,
             token,
-            srx,
-            etx_for_server,
-            cmd_tx_for_server,
-        )
-        .await
-        {
+            status_rx: srx,
+            status_events_tx: etx_for_server,
+            kad_cmd_tx: cmd_tx_for_server,
+        };
+        if let Err(err) = crate::api::serve(&api_cfg, deps).await {
             tracing::error!(error = %err, "api server stopped");
         }
     });

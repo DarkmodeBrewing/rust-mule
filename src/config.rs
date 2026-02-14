@@ -231,9 +231,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub async fn persist(&self) -> Result<()> {
-        let path = "config.toml";
-        let tmp_path = format!("{}.tmp", path);
+    pub async fn persist_to(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        let tmp_path = path.with_extension("tmp");
         let toml = toml::to_string_pretty(self).map_err(ConfigError::SerializeToml)?;
 
         tokio::fs::write(&tmp_path, toml)
@@ -244,6 +244,10 @@ impl Config {
             .map_err(ConfigError::Rename)?;
 
         Ok(())
+    }
+
+    pub async fn persist(&self) -> Result<()> {
+        self.persist_to("config.toml").await
     }
 }
 

@@ -78,7 +78,8 @@ impl std::error::Error for ConfigValidationError {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<MainError>> {
-    let cfg: rust_mule::config::Config = rust_mule::config_io::load_or_create_config("config.toml")
+    let config_path = std::path::PathBuf::from("config.toml");
+    let cfg: rust_mule::config::Config = rust_mule::config_io::load_or_create_config(&config_path)
         .await
         .map_err(|e| Box::new(MainError::LoadConfig(e)))?;
 
@@ -87,7 +88,7 @@ async fn main() -> Result<(), Box<MainError>> {
     rust_mule::config::init_tracing(&cfg);
     tracing::info!("rust-mule booting");
 
-    rust_mule::app::run(cfg)
+    rust_mule::app::run(cfg, config_path)
         .await
         .map_err(|e| Box::new(MainError::App(e)))?;
     Ok(())

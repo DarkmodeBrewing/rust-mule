@@ -181,7 +181,7 @@ pub(crate) async fn settings_patch(
     let mut next = cfg.clone();
     apply_settings_patch(&mut next, patch);
     validate_settings(&next)?;
-    next.persist()
+    next.persist_to(state.config_path.as_path())
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     *cfg = next.clone();

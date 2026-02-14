@@ -8,6 +8,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Fixed implicit config persistence path and fragile API settings tests on `main`:
+  - Added explicit config persistence API:
+    - `Config::persist_to(path)` in `src/config.rs`
+    - existing `Config::persist()` now delegates to `persist_to("config.toml")` for compatibility.
+  - Added explicit config path to API runtime state:
+    - `ApiState.config_path`
+    - new `ApiServeDeps` includes `config_path` and other serve dependencies.
+  - `settings_patch` now persists via:
+    - `next.persist_to(state.config_path.as_path())`
+    - no implicit `./config.toml` write in API path.
+  - Threaded config path from entrypoint to app/api:
+    - `main` now tracks `config_path` and calls `app::run(cfg, config_path)`
+    - `app::run` passes `config_path` into API serve deps.
+  - Hardened tests:
+    - API tests now use unique temp config paths in `ApiState` and no longer mutate/restore repo `config.toml`.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep backward-compatible `Config::persist()` for non-API call sites, but route all runtime persistence that depends on startup config location through explicit `persist_to(path)`.
+- Next steps: Optional cleanup can remove `Config::persist()` after all call sites are migrated to `persist_to(path)`.
+- Change log: Config persistence path is now explicit in API runtime flow and test persistence is isolated from repository config.
+
 - Status: Removed lingering test-build unused-import warning in `src/api/mod.rs` after API split:
   - Dropped test-only re-export block from `src/api/mod.rs`.
   - Updated `src/api/tests.rs` to import directly from split modules:
