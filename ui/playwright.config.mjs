@@ -17,4 +17,12 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
+  webServer: process.env.UI_BASE_URL
+    ? undefined
+    : {
+        command: 'node tests/e2e/mock-server.mjs',
+        port: Number(process.env.UI_MOCK_PORT || 17835),
+        timeout: 60_000,
+        reuseExistingServer: !process.env.CI,
+      },
 });

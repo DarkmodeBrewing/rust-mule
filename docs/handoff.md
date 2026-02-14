@@ -8,6 +8,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added UI smoke testing to CI on `main` push/PR via Playwright + mocked backend:
+  - Updated `.github/workflows/ci.yml`:
+    - new `ui-smoke` job on `ubuntu-latest` with Node 20
+    - installs UI deps (`npm ci`)
+    - installs Playwright Chromium (`npx playwright install --with-deps chromium`)
+    - runs `npm run test:ui:smoke`
+  - Updated `ui/playwright.config.mjs`:
+    - added `webServer` to auto-start local mock server when `UI_BASE_URL` is not provided.
+  - Added `ui/tests/e2e/mock-server.mjs`:
+    - serves UI pages/assets for Playwright
+    - mocks required API endpoints + SSE (`/api/v1/events`) for deterministic UI smoke tests in CI.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests).
+- Decisions:
+  - Keep UI smoke test backend mocked in CI to avoid SAM/I2P runtime dependencies.
+  - Make mock server opt-out via `UI_BASE_URL` so tests can still target a real running backend when needed.
+- Next steps:
+  - Optionally archive Playwright HTML/report artifacts in CI for easier failure triage.
+  - Optionally add one route-guard assertion per page for authenticated/unauthenticated flow edges.
+- Change log: CI now runs UI smoke tests automatically on pushes to `main` and PRs.
+
 - Status: Completed final service split pass for source-probe/status helpers on `main` (no behavior change):
   - Added `src/kad/service/source_probe.rs`:
     - source probe tracking and counters:
