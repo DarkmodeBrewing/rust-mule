@@ -84,12 +84,30 @@ pub(super) async fn handle_inbound_impl(
         return Ok(());
     }
     if !consume_tracked_out_request(svc, &from_dest_b64, pkt.opcode, pkt.payload.len(), now) {
+        let (expected_request_opcodes, peer_tracked_requests, total_tracked_requests) = svc
+            .last_unmatched_response
+            .as_ref()
+            .filter(|d| d.from_dest_b64 == from_dest_b64 && d.response_opcode == pkt.opcode)
+            .map(|d| {
+                (
+                    d.expected_request_opcodes
+                        .iter()
+                        .map(|op| kad_opcode_name(*op))
+                        .collect::<Vec<_>>(),
+                    d.peer_tracked_requests,
+                    d.total_tracked_requests,
+                )
+            })
+            .unwrap_or_else(|| (Vec::new(), 0, 0));
         tracing::debug!(
             event = "kad_inbound_drop",
             from = %crate::i2p::b64::short(&from_dest_b64),
             opcode = format_args!("0x{:02x}", pkt.opcode),
             opcode_name = kad_opcode_name(pkt.opcode),
             reason = "unrequested_response",
+            expected_request_opcodes = ?expected_request_opcodes,
+            peer_tracked_requests,
+            total_tracked_requests,
             "dropped inbound KAD packet"
         );
         return Ok(());
@@ -283,7 +301,7 @@ pub(super) async fn handle_inbound_impl(
             };
 
             if sock.send_to(&from_dest_b64, &out).await.is_ok() {
-                track_outgoing_request(svc, &from_dest_b64, KADEMLIA2_HELLO_RES, now);
+                track_outgoing_request(svc, &from_dest_b64, KADEMLIA2_HELLO_RES, now, None);
             }
         }
 
@@ -984,8 +1002,10 @@ pub(super) async fn handle_inbound_impl(
                 Ok(r) => r,
                 Err(err) => {
                     tracing::debug!(
+                        event = "source_probe_search_res_decode_failed",
                         error = %err,
-                        from = %from_dest_b64,
+                        from = %crate::i2p::b64::short(&from_dest_b64),
+                        payload_len = pkt.payload.len(),
                         "failed to decode KAD2 SEARCH_RES payload"
                     );
                     return Ok(());
@@ -1117,9 +1137,10 @@ pub(super) async fn handle_inbound_impl(
                     let res: Kad2PublishResKey = match decode_kad2_publish_res_key(&pkt.payload) {
                         Ok(r) => r,
                         Err(err) => {
-                            tracing::trace!(
+                            tracing::debug!(
+                                event = "source_probe_publish_res_key_decode_failed",
                                 error = %err,
-                                from = %from_dest_b64,
+                                from = %crate::i2p::b64::short(&from_dest_b64),
                                 len = pkt.payload.len(),
                                 "unparsed KAD2 PUBLISH_RES (key)"
                             );
@@ -1150,12 +1171,13 @@ pub(super) async fn handle_inbound_impl(
                     let res: Kad2PublishRes = match decode_kad2_publish_res(&pkt.payload) {
                         Ok(r) => r,
                         Err(err) => {
-                            tracing::trace!(
-                                    error = %err,
-                                    from = %from_dest_b64,
-                                    len = pkt.payload.len(),
-                            "unparsed KAD2 PUBLISH_RES (source)"
-                                );
+                            tracing::debug!(
+                                event = "source_probe_publish_res_source_decode_failed",
+                                error = %err,
+                                from = %crate::i2p::b64::short(&from_dest_b64),
+                                len = pkt.payload.len(),
+                                "unparsed KAD2 PUBLISH_RES (source)"
+                            );
                             return Ok(());
                         }
                     };

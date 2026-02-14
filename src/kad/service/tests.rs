@@ -168,7 +168,7 @@ fn tracked_out_request_requires_matching_response() {
     let now = Instant::now();
     let dest = "peer-a".to_string();
 
-    track_outgoing_request(&mut svc, &dest, KADEMLIA2_SEARCH_KEY_REQ, now);
+    track_outgoing_request(&mut svc, &dest, KADEMLIA2_SEARCH_KEY_REQ, now, None);
     assert!(consume_tracked_out_request(
         &mut svc,
         &dest,
@@ -184,7 +184,7 @@ fn tracked_out_request_requires_matching_response() {
         now
     ));
 
-    track_outgoing_request(&mut svc, &dest, KADEMLIA2_PUBLISH_SOURCE_REQ, now);
+    track_outgoing_request(&mut svc, &dest, KADEMLIA2_PUBLISH_SOURCE_REQ, now, None);
     assert!(!consume_tracked_out_request(
         &mut svc,
         &dest,

@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Implemented source-probe telemetry hardening + request correlation IDs in KAD service and added timed background soak scaffold on `feature/download-strategy-imule`:
+  - `src/kad/service.rs`:
+    - outbound tracked requests now carry `request_id` and optional `trace_tag`
+    - added response->expected-opcode mapping for strict response/request matching
+    - added unmatched-response diagnostics (`last_unmatched_response`) with expected opcodes and tracked counts
+    - source search/publish sends now emit `source_probe_request_sent` with request correlation ID
+    - source search/publish response matching now emits `source_probe_response_matched` / `source_probe_response_unmatched` with request correlation diagnostics.
+  - `src/kad/service/inbound.rs`:
+    - unrequested response drops now log expected opcode families and tracked request counts
+    - explicit decode-failure events for source probe response parsing failures.
+  - `scripts/test/source_probe_soak_bg.sh`:
+    - new detached soak runner with timer (`start <duration_secs>`, `status`, `stop`, `collect`)
+    - PID/state files and log outputs under `/tmp/rust-mule-soak-bg` (override via `RUN_ROOT`).
+  - `scripts/test/README.md`:
+    - usage examples for timed background soak runs and environment overrides.
+- Decisions:
+  - Keep correlation ID scope focused on KAD source probe request/response lifecycle (no API schema change in this slice).
+  - Keep soak harness shell-native with `nohup` + PID file controls for long-running sessions.
+- Next steps:
+  - Run the new timed soak harness against freshly built `../../mule-a` / `../../mule-b` and analyze `rounds.tsv` + `status.ndjson`.
+  - If needed, expose recent source-probe correlation counters in `/api/v1/status` for easier dashboarding.
+- Change log: Added source-probe request/response correlation logging and introduced a timer-based background soak runner script.
+
 - Status: Completed transfer execution groundwork (peer-owned inflight + packet ingest + timeout retry) on `feature/download-strategy-imule`:
   - Added `src/download/protocol.rs`:
     - ED2K transfer opcode constants (`OP_REQUESTPARTS`, `OP_SENDINGPART`, `OP_COMPRESSEDPART`)
