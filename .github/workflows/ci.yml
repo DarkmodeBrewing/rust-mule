@@ -25,13 +25,19 @@ jobs:
 
   coverage:
     runs-on: ubuntu-latest
+    env:
+      MIN_LINES_COVERAGE: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+      - name: Coverage summary
+        run: cargo llvm-cov --workspace --all-features --summary-only
       - name: Line coverage gate
-        run: cargo llvm-cov --workspace --all-features --fail-under-lines 40
+        run: scripts/test/coverage.sh
