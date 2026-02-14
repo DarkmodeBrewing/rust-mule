@@ -10,7 +10,6 @@ control_timeout_secs = 120
 
 [kad]
 bootstrap_nodes_path = "nodes.dat"
-udp_port = 4665
 preferences_kad_path = "preferencesKad.dat"
 # Advanced KAD configs, use with caution
 # service_alpha = 8

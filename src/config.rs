@@ -303,7 +303,12 @@ pub enum SamDatagramTransport {
 #[serde(default)]
 pub struct KadConfig {
     pub bootstrap_nodes_path: String,
-    pub udp_port: u16,
+    /// Deprecated: `kad.udp_port` used to be configurable.
+    ///
+    /// KAD UDP port is protocol metadata and is not exposed as a user-facing runtime option.
+    /// Existing configs with this key are accepted but ignored.
+    #[serde(default, rename = "udp_port", skip_serializing)]
+    pub deprecated_udp_port: Option<u16>,
     pub preferences_kad_path: String,
     /// Deprecated: `kad.udp_key_secret` used to be configurable.
     ///
@@ -430,7 +435,7 @@ impl Default for KadConfig {
     fn default() -> Self {
         Self {
             bootstrap_nodes_path: "nodes.dat".to_string(),
-            udp_port: 4665,
+            deprecated_udp_port: None,
             preferences_kad_path: default_preferences_kad_path(),
             deprecated_udp_key_secret: None,
 

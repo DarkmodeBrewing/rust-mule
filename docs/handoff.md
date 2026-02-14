@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Removed user-facing `kad.udp_port` configurability while preserving config-file compatibility on `main`:
+  - Removed `udp_port` from `KadConfig` public settings.
+  - Added deprecated compatibility field in `KadConfig`:
+    - `deprecated_udp_port` with `#[serde(rename = "udp_port", skip_serializing)]`
+    - old config files containing `kad.udp_port` still parse, but value is ignored and no longer persisted.
+  - Removed `kad.udp_port` line from `config.toml`.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 71 tests).
+- Decisions: Keep KAD UDP port as protocol/internal metadata, but not as a user-tunable config knob.
+- Next steps: Optional follow-up is to document this deprecation explicitly in `docs/architecture.md` if we want a visible migration note for operators carrying old configs.
+- Change log: `kad.udp_port` is no longer a configurable setting in active config surfaces.
+
 - Status: Replaced `/api/v1/dev/auth` with core bootstrap endpoint and auth-mode gating on `main` (no backward compatibility route):
   - Added `api.auth_mode` enum config (`local_ui` | `headless_remote`) in `src/config.rs` and `config.toml`.
   - Removed `enable_dev_auth_endpoint` from runtime config/state/settings API.
