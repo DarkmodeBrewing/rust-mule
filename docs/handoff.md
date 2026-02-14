@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added minimal API rate-limiting middleware on `main`:
+  - New `[api]` config keys:
+    - `rate_limit_enabled`
+    - `rate_limit_window_secs`
+    - `rate_limit_dev_auth_max_per_window`
+    - `rate_limit_session_max_per_window`
+    - `rate_limit_token_rotate_max_per_window`
+  - Added `src/api/rate_limit.rs` fixed-window middleware keyed by `(client_ip, method, path)`.
+  - Rate limiting is applied to:
+    - `GET /api/v1/dev/auth`
+    - `POST /api/v1/session`
+    - `POST /api/v1/token/rotate`
+  - Added rate-limit fields to settings API payload/patch and validation.
+  - Added test coverage:
+    - session endpoint returns `429` after threshold exceeded
+    - settings snapshot/patch includes new rate-limit fields
+    - settings rejects invalid zero rate-limit values
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 71 tests).
+- Decisions: Keep limiter intentionally narrow (only high-value endpoints) and disabled by config toggle when needed; avoid limiting SSE/status paths for now.
+- Next steps: Optional: emit structured logs on `429` events and add per-endpoint counters for abuse/noise visibility.
+- Change log: API now has configurable built-in endpoint rate limiting.
+
 - Status: Added API endpoint toggles for debug and dev-auth bootstrap on `main`:
   - New `[api]` config flags in `config.toml`/`ApiConfig`:
     - `enable_debug_endpoints` (controls `/api/v1/debug/*`)

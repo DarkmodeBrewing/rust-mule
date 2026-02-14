@@ -50,3 +50,9 @@ port = 17835
 enable_debug_endpoints = true
 # Enable loopback-only dev token bootstrap endpoint (/api/v1/dev/auth).
 enable_dev_auth_endpoint = true
+# Basic fixed-window rate limiting for high-value endpoints.
+rate_limit_enabled = true
+rate_limit_window_secs = 60
+rate_limit_dev_auth_max_per_window = 30
+rate_limit_session_max_per_window = 30
+rate_limit_token_rotate_max_per_window = 10

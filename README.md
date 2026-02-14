@@ -45,6 +45,12 @@ rust-mule UI available at: http://localhost:<port>
 - Optional endpoint toggles:
   - `[api].enable_debug_endpoints = true|false` for `/api/v1/debug/*`
   - `[api].enable_dev_auth_endpoint = true|false` for `/api/v1/dev/auth`
+- Optional API rate limiting:
+  - `[api].rate_limit_enabled = true|false`
+  - `[api].rate_limit_window_secs`
+  - `[api].rate_limit_dev_auth_max_per_window`
+  - `[api].rate_limit_session_max_per_window`
+  - `[api].rate_limit_token_rotate_max_per_window`
 
 Quick API check:
 

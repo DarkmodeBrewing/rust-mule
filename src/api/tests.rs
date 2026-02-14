@@ -42,6 +42,12 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
         enable_dev_auth_endpoint: true,
+        rate_limit_enabled: true,
+        rate_limit_window: Duration::from_secs(60),
+        rate_limit_dev_auth_max: 30,
+        rate_limit_session_max: 30,
+        rate_limit_token_rotate_max: 10,
+        rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     }
 }
 
@@ -58,7 +64,11 @@ fn unique_test_config_path() -> PathBuf {
 fn test_app(state: ApiState) -> Router<()> {
     router::build_app(state.clone())
         .layer(middleware::from_fn(cors::cors_mw))
-        .layer(middleware::from_fn_with_state(state, auth::auth_mw))
+        .layer(middleware::from_fn_with_state(state.clone(), auth::auth_mw))
+        .layer(middleware::from_fn_with_state(
+            state,
+            super::rate_limit::rate_limit_mw,
+        ))
 }
 
 fn sample_status() -> KadServiceStatus {
@@ -394,6 +404,11 @@ async fn settings_get_returns_config_snapshot() {
         cfg.api.port = 18080;
         cfg.api.enable_debug_endpoints = false;
         cfg.api.enable_dev_auth_endpoint = false;
+        cfg.api.rate_limit_enabled = true;
+        cfg.api.rate_limit_window_secs = 90;
+        cfg.api.rate_limit_dev_auth_max_per_window = 12;
+        cfg.api.rate_limit_session_max_per_window = 13;
+        cfg.api.rate_limit_token_rotate_max_per_window = 7;
         cfg.general.log_level = "info,rust_mule=debug".to_string();
         cfg.general.auto_open_ui = false;
     }
@@ -405,6 +420,14 @@ async fn settings_get_returns_config_snapshot() {
     assert_eq!(resp.0.settings.api.port, 18080);
     assert!(!resp.0.settings.api.enable_debug_endpoints);
     assert!(!resp.0.settings.api.enable_dev_auth_endpoint);
+    assert!(resp.0.settings.api.rate_limit_enabled);
+    assert_eq!(resp.0.settings.api.rate_limit_window_secs, 90);
+    assert_eq!(resp.0.settings.api.rate_limit_dev_auth_max_per_window, 12);
+    assert_eq!(resp.0.settings.api.rate_limit_session_max_per_window, 13);
+    assert_eq!(
+        resp.0.settings.api.rate_limit_token_rotate_max_per_window,
+        7
+    );
     assert!(!resp.0.settings.general.auto_open_ui);
     assert!(resp.0.restart_required);
 }
@@ -433,6 +456,11 @@ async fn settings_patch_updates_and_persists_config() {
                 port: Some(17836),
                 enable_debug_endpoints: Some(false),
                 enable_dev_auth_endpoint: Some(false),
+                rate_limit_enabled: Some(true),
+                rate_limit_window_secs: Some(60),
+                rate_limit_dev_auth_max_per_window: Some(30),
+                rate_limit_session_max_per_window: Some(30),
+                rate_limit_token_rotate_max_per_window: Some(10),
             }),
         }),
     )
@@ -443,6 +471,14 @@ async fn settings_patch_updates_and_persists_config() {
     assert_eq!(resp.0.settings.api.port, 17836);
     assert!(!resp.0.settings.api.enable_debug_endpoints);
     assert!(!resp.0.settings.api.enable_dev_auth_endpoint);
+    assert!(resp.0.settings.api.rate_limit_enabled);
+    assert_eq!(resp.0.settings.api.rate_limit_window_secs, 60);
+    assert_eq!(resp.0.settings.api.rate_limit_dev_auth_max_per_window, 30);
+    assert_eq!(resp.0.settings.api.rate_limit_session_max_per_window, 30);
+    assert_eq!(
+        resp.0.settings.api.rate_limit_token_rotate_max_per_window,
+        10
+    );
     assert!(!resp.0.settings.general.log_to_file);
     assert!(!resp.0.settings.general.auto_open_ui);
     assert!(resp.0.restart_required);
@@ -480,6 +516,11 @@ async fn settings_patch_rejects_invalid_values() {
                 port: None,
                 enable_debug_endpoints: None,
                 enable_dev_auth_endpoint: None,
+                rate_limit_enabled: None,
+                rate_limit_window_secs: None,
+                rate_limit_dev_auth_max_per_window: None,
+                rate_limit_session_max_per_window: None,
+                rate_limit_token_rotate_max_per_window: None,
             }),
         }),
     )
@@ -488,6 +529,29 @@ async fn settings_patch_rejects_invalid_values() {
         resp_non_loopback_api_host,
         Err(StatusCode::BAD_REQUEST)
     ));
+
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let resp_bad_rate_limit = handlers::settings_patch(
+        State(state),
+        Json(handlers::SettingsPatchRequest {
+            general: None,
+            sam: None,
+            api: Some(handlers::SettingsPatchApi {
+                host: None,
+                port: None,
+                enable_debug_endpoints: None,
+                enable_dev_auth_endpoint: None,
+                rate_limit_enabled: Some(true),
+                rate_limit_window_secs: Some(0),
+                rate_limit_dev_auth_max_per_window: Some(0),
+                rate_limit_session_max_per_window: Some(1),
+                rate_limit_token_rotate_max_per_window: Some(1),
+            }),
+        }),
+    )
+    .await;
+    assert!(matches!(resp_bad_rate_limit, Err(StatusCode::BAD_REQUEST)));
 }
 
 #[tokio::test]
@@ -597,6 +661,36 @@ async fn dev_auth_route_is_404_when_disabled() {
 }
 
 #[tokio::test]
+async fn session_route_is_rate_limited_when_threshold_exceeded() {
+    let (tx, _rx) = mpsc::channel(1);
+    let mut state = test_state(tx);
+    state.rate_limit_enabled = true;
+    state.rate_limit_session_max = 2;
+    state.rate_limit_window = Duration::from_secs(60);
+    let app = test_app(state);
+
+    for _ in 0..2 {
+        let req = Request::builder()
+            .uri("/api/v1/session")
+            .method(Method::POST)
+            .header(header::AUTHORIZATION, "Bearer test-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    let req = Request::builder()
+        .uri("/api/v1/session")
+        .method(Method::POST)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+}
+
+#[tokio::test]
 async fn token_rotate_updates_state_file_and_clears_sessions() {
     let (tx, _rx) = mpsc::channel(1);
     let test_dir = std::env::temp_dir().join(format!(
@@ -625,6 +719,12 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         )]))),
         enable_debug_endpoints: true,
         enable_dev_auth_endpoint: true,
+        rate_limit_enabled: true,
+        rate_limit_window: Duration::from_secs(60),
+        rate_limit_dev_auth_max: 30,
+        rate_limit_session_max: 30,
+        rate_limit_token_rotate_max: 10,
+        rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
 
     let resp = handlers::token_rotate(State(state.clone()))
@@ -661,6 +761,12 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
         enable_dev_auth_endpoint: true,
+        rate_limit_enabled: true,
+        rate_limit_window: Duration::from_secs(60),
+        rate_limit_dev_auth_max: 30,
+        rate_limit_session_max: 30,
+        rate_limit_token_rotate_max: 10,
+        rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
     // Keep sender alive.
     let _status_tx_guard = status_tx;

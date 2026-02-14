@@ -104,6 +104,21 @@ fn default_api_enable_debug_endpoints() -> bool {
 fn default_api_enable_dev_auth_endpoint() -> bool {
     true
 }
+fn default_api_rate_limit_enabled() -> bool {
+    true
+}
+fn default_api_rate_limit_window_secs() -> u64 {
+    60
+}
+fn default_api_rate_limit_dev_auth_max_per_window() -> u32 {
+    30
+}
+fn default_api_rate_limit_session_max_per_window() -> u32 {
+    30
+}
+fn default_api_rate_limit_token_rotate_max_per_window() -> u32 {
+    10
+}
 fn default_preferences_kad_path() -> String {
     // Keep aMule/iMule naming for backwards compatibility.
     "preferencesKad.dat".to_string()
@@ -369,6 +384,16 @@ pub struct ApiConfig {
     pub enable_debug_endpoints: bool,
     /// Enables `/api/v1/dev/auth` (loopback-only token bootstrap helper).
     pub enable_dev_auth_endpoint: bool,
+    /// Enables API rate limiting for selected high-value endpoints.
+    pub rate_limit_enabled: bool,
+    /// Shared fixed-window size in seconds.
+    pub rate_limit_window_secs: u64,
+    /// Max requests per window for `GET /api/v1/dev/auth`.
+    pub rate_limit_dev_auth_max_per_window: u32,
+    /// Max requests per window for `POST /api/v1/session`.
+    pub rate_limit_session_max_per_window: u32,
+    /// Max requests per window for `POST /api/v1/token/rotate`.
+    pub rate_limit_token_rotate_max_per_window: u32,
 }
 
 impl Default for SamConfig {
@@ -467,6 +492,12 @@ impl Default for ApiConfig {
             port: default_api_port(),
             enable_debug_endpoints: default_api_enable_debug_endpoints(),
             enable_dev_auth_endpoint: default_api_enable_dev_auth_endpoint(),
+            rate_limit_enabled: default_api_rate_limit_enabled(),
+            rate_limit_window_secs: default_api_rate_limit_window_secs(),
+            rate_limit_dev_auth_max_per_window: default_api_rate_limit_dev_auth_max_per_window(),
+            rate_limit_session_max_per_window: default_api_rate_limit_session_max_per_window(),
+            rate_limit_token_rotate_max_per_window:
+                default_api_rate_limit_token_rotate_max_per_window(),
         }
     }
 }

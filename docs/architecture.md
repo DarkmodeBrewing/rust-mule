@@ -38,6 +38,11 @@ possible to run the backend headless (server/CLI) while still having a rich UI.
 - `[api].port` (default `17835`)
 - `[api].enable_debug_endpoints` (default `true`)
 - `[api].enable_dev_auth_endpoint` (default `true`)
+- `[api].rate_limit_enabled` (default `true`)
+- `[api].rate_limit_window_secs` (default `60`)
+- `[api].rate_limit_dev_auth_max_per_window` (default `30`)
+- `[api].rate_limit_session_max_per_window` (default `30`)
+- `[api].rate_limit_token_rotate_max_per_window` (default `10`)
 - `api.host` is validated as loopback-only (`localhost`, `127.0.0.1`, `::1`).
 
 ### Auth / Token
@@ -73,10 +78,12 @@ Notes:
 - `GET /api/v1/dev/auth`
   - No auth.
   - Loopback-only.
+  - Subject to API rate limiting when enabled.
   - Returns `{ "token": "<bearer token>" }` for local UI bootstrap.
 
 - `POST /api/v1/session`
   - Bearer auth required.
+  - Subject to API rate limiting when enabled.
   - Issues `Set-Cookie: rm_session=...; HttpOnly; SameSite=Strict; Path=/`.
   - Session TTL currently defaults to 8 hours.
   - Expired sessions are cleaned lazily on validation/create and by a periodic background sweep.
@@ -84,6 +91,7 @@ Notes:
 
 - `POST /api/v1/token/rotate`
   - Bearer auth required.
+  - Subject to API rate limiting when enabled.
   - Rotates the bearer token persisted in `data/api.token`.
   - Updates in-memory API auth token and invalidates all active frontend sessions.
   - Returns the new token for immediate client-side session/token refresh.

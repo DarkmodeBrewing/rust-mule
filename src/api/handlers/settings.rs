@@ -28,6 +28,11 @@ pub(crate) struct SettingsApi {
     pub(crate) port: u16,
     pub(crate) enable_debug_endpoints: bool,
     pub(crate) enable_dev_auth_endpoint: bool,
+    pub(crate) rate_limit_enabled: bool,
+    pub(crate) rate_limit_window_secs: u64,
+    pub(crate) rate_limit_dev_auth_max_per_window: u32,
+    pub(crate) rate_limit_session_max_per_window: u32,
+    pub(crate) rate_limit_token_rotate_max_per_window: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,6 +80,16 @@ pub(crate) struct SettingsPatchApi {
     pub(crate) enable_debug_endpoints: Option<bool>,
     #[serde(default)]
     pub(crate) enable_dev_auth_endpoint: Option<bool>,
+    #[serde(default)]
+    pub(crate) rate_limit_enabled: Option<bool>,
+    #[serde(default)]
+    pub(crate) rate_limit_window_secs: Option<u64>,
+    #[serde(default)]
+    pub(crate) rate_limit_dev_auth_max_per_window: Option<u32>,
+    #[serde(default)]
+    pub(crate) rate_limit_session_max_per_window: Option<u32>,
+    #[serde(default)]
+    pub(crate) rate_limit_token_rotate_max_per_window: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -106,6 +121,13 @@ impl SettingsPayload {
                 port: cfg.api.port,
                 enable_debug_endpoints: cfg.api.enable_debug_endpoints,
                 enable_dev_auth_endpoint: cfg.api.enable_dev_auth_endpoint,
+                rate_limit_enabled: cfg.api.rate_limit_enabled,
+                rate_limit_window_secs: cfg.api.rate_limit_window_secs,
+                rate_limit_dev_auth_max_per_window: cfg.api.rate_limit_dev_auth_max_per_window,
+                rate_limit_session_max_per_window: cfg.api.rate_limit_session_max_per_window,
+                rate_limit_token_rotate_max_per_window: cfg
+                    .api
+                    .rate_limit_token_rotate_max_per_window,
             },
         }
     }
@@ -125,6 +147,13 @@ pub(crate) fn validate_settings(cfg: &Config) -> Result<(), StatusCode> {
 
     parse_api_bind_host(&cfg.api.host).map_err(|_| StatusCode::BAD_REQUEST)?;
     if !(1..=65535).contains(&cfg.api.port) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if cfg.api.rate_limit_window_secs == 0
+        || cfg.api.rate_limit_dev_auth_max_per_window == 0
+        || cfg.api.rate_limit_session_max_per_window == 0
+        || cfg.api.rate_limit_token_rotate_max_per_window == 0
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -173,6 +202,23 @@ pub(crate) fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest
         }
         if let Some(enable_dev_auth_endpoint) = api.enable_dev_auth_endpoint {
             cfg.api.enable_dev_auth_endpoint = enable_dev_auth_endpoint;
+        }
+        if let Some(rate_limit_enabled) = api.rate_limit_enabled {
+            cfg.api.rate_limit_enabled = rate_limit_enabled;
+        }
+        if let Some(rate_limit_window_secs) = api.rate_limit_window_secs {
+            cfg.api.rate_limit_window_secs = rate_limit_window_secs;
+        }
+        if let Some(rate_limit_dev_auth_max_per_window) = api.rate_limit_dev_auth_max_per_window {
+            cfg.api.rate_limit_dev_auth_max_per_window = rate_limit_dev_auth_max_per_window;
+        }
+        if let Some(rate_limit_session_max_per_window) = api.rate_limit_session_max_per_window {
+            cfg.api.rate_limit_session_max_per_window = rate_limit_session_max_per_window;
+        }
+        if let Some(rate_limit_token_rotate_max_per_window) =
+            api.rate_limit_token_rotate_max_per_window
+        {
+            cfg.api.rate_limit_token_rotate_max_per_window = rate_limit_token_rotate_max_per_window;
         }
     }
 }

@@ -16,6 +16,7 @@ use crate::{
 mod auth;
 mod cors;
 mod handlers;
+mod rate_limit;
 mod router;
 mod ui;
 
@@ -66,6 +67,12 @@ pub struct ApiState {
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
     pub(crate) enable_debug_endpoints: bool,
     pub(crate) enable_dev_auth_endpoint: bool,
+    pub(crate) rate_limit_enabled: bool,
+    pub(crate) rate_limit_window: Duration,
+    pub(crate) rate_limit_dev_auth_max: u32,
+    pub(crate) rate_limit_session_max: u32,
+    pub(crate) rate_limit_token_rotate_max: u32,
+    pub(crate) rate_limits: Arc<tokio::sync::Mutex<HashMap<String, rate_limit::RateLimitBucket>>>,
 }
 
 pub struct ApiServeDeps {
@@ -102,12 +109,22 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: cfg.enable_debug_endpoints,
         enable_dev_auth_endpoint: cfg.enable_dev_auth_endpoint,
+        rate_limit_enabled: cfg.rate_limit_enabled,
+        rate_limit_window: Duration::from_secs(cfg.rate_limit_window_secs.max(1)),
+        rate_limit_dev_auth_max: cfg.rate_limit_dev_auth_max_per_window.max(1),
+        rate_limit_session_max: cfg.rate_limit_session_max_per_window.max(1),
+        rate_limit_token_rotate_max: cfg.rate_limit_token_rotate_max_per_window.max(1),
+        rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
     };
 
     let sessions_for_sweeper = state.sessions.clone();
     let app = router::build_app(state.clone())
         .layer(middleware::from_fn(cors::cors_mw))
-        .layer(middleware::from_fn_with_state(state.clone(), auth::auth_mw));
+        .layer(middleware::from_fn_with_state(state.clone(), auth::auth_mw))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            rate_limit::rate_limit_mw,
+        ));
 
     tokio::spawn(async move {
         loop {
