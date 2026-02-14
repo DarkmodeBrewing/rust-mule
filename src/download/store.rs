@@ -15,6 +15,9 @@ pub enum PartState {
     Downloading,
     Paused,
     Completing,
+    Completed,
+    Cancelled,
+    Error,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +45,47 @@ pub struct RecoveredDownload {
     pub part_path: PathBuf,
     pub met: PartMet,
     pub source: LoadedMetSource,
+}
+
+pub fn met_path_for_part(download_dir: &Path, part_number: u16) -> PathBuf {
+    download_dir.join(format!("{part_number:03}.part.met"))
+}
+
+pub fn part_path_for_part(download_dir: &Path, part_number: u16) -> PathBuf {
+    download_dir.join(format!("{part_number:03}.part"))
+}
+
+pub async fn allocate_next_part_number(download_dir: &Path) -> Result<u16> {
+    let mut used = std::collections::BTreeSet::<u16>::new();
+    let mut rd =
+        tokio::fs::read_dir(download_dir)
+            .await
+            .map_err(|source| DownloadStoreError::ReadDir {
+                path: download_dir.to_path_buf(),
+                source,
+            })?;
+    while let Some(entry) = rd
+        .next_entry()
+        .await
+        .map_err(|source| DownloadStoreError::ReadDir {
+            path: download_dir.to_path_buf(),
+            source,
+        })?
+    {
+        if let Some(num) = parse_part_number(&entry.path()) {
+            used.insert(num);
+        }
+    }
+
+    for n in 1..=u16::MAX {
+        if !used.contains(&n) {
+            return Ok(n);
+        }
+    }
+    Err(DownloadStoreError::WriteFile {
+        path: download_dir.to_path_buf(),
+        source: std::io::Error::other("no free part number available"),
+    })
 }
 
 pub async fn save_part_met(path: &Path, met: &PartMet) -> Result<()> {
@@ -139,6 +183,17 @@ fn is_primary_part_met_file(path: &Path) -> bool {
         return false;
     };
     name.ends_with(".part.met")
+}
+
+fn parse_part_number(path: &Path) -> Option<u16> {
+    let name = path.file_name()?.to_str()?;
+    let stem = name
+        .strip_suffix(".part.met")
+        .or_else(|| name.strip_suffix(".part"))?;
+    if stem.len() != 3 || !stem.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    stem.parse::<u16>().ok()
 }
 
 fn backup_path(path: &Path) -> PathBuf {
@@ -251,6 +306,22 @@ mod tests {
         assert_eq!(recovered[0].met.part_number, 1);
         assert_eq!(recovered[1].met.part_number, 2);
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn allocate_next_part_number_uses_lowest_free_slot() {
+        let root = temp_dir("alloc");
+        tokio::fs::create_dir_all(&root).await.expect("mkdir");
+        tokio::fs::write(root.join("001.part.met"), b"{}")
+            .await
+            .expect("write 1");
+        tokio::fs::write(root.join("003.part"), b"")
+            .await
+            .expect("write 3");
+
+        let n = allocate_next_part_number(&root).await.expect("alloc");
+        assert_eq!(n, 2);
         let _ = std::fs::remove_dir_all(root);
     }
 }

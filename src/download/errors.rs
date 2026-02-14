@@ -95,6 +95,13 @@ impl std::error::Error for DownloadStoreError {
 pub enum DownloadError {
     Store(DownloadStoreError),
     ChannelClosed,
+    InvalidInput(String),
+    NotFound(u16),
+    InvalidTransition {
+        part_number: u16,
+        from: crate::download::store::PartState,
+        to: crate::download::store::PartState,
+    },
     ServiceJoin(tokio::task::JoinError),
 }
 
@@ -103,6 +110,17 @@ impl std::fmt::Display for DownloadError {
         match self {
             Self::Store(source) => write!(f, "{source}"),
             Self::ChannelClosed => write!(f, "download service channel closed"),
+            Self::InvalidInput(msg) => write!(f, "{msg}"),
+            Self::NotFound(part_number) => write!(f, "download part #{part_number:03} not found"),
+            Self::InvalidTransition {
+                part_number,
+                from,
+                to,
+            } => write!(
+                f,
+                "invalid transition for part #{part_number:03}: {:?} -> {:?}",
+                from, to
+            ),
             Self::ServiceJoin(source) => write!(f, "download service task join error: {source}"),
         }
     }
@@ -113,7 +131,10 @@ impl std::error::Error for DownloadError {
         match self {
             Self::Store(source) => Some(source),
             Self::ServiceJoin(source) => Some(source),
-            Self::ChannelClosed => None,
+            Self::ChannelClosed
+            | Self::InvalidInput(_)
+            | Self::NotFound(_)
+            | Self::InvalidTransition { .. } => None,
         }
     }
 }

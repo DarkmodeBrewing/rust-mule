@@ -1,4 +1,5 @@
 mod core;
+mod downloads;
 mod kad;
 mod settings;
 
@@ -6,6 +7,7 @@ pub(crate) use core::{
     auth_bootstrap, create_session, events, health, session_check, session_logout, status,
     token_rotate,
 };
+pub(crate) use downloads::downloads;
 pub(crate) use kad::{
     debug_lookup_once, debug_probe_peer, debug_routing_buckets, debug_routing_nodes,
     debug_routing_summary, kad_keyword_results, kad_peers, kad_publish_keyword, kad_publish_source,

@@ -297,7 +297,6 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     let download_cfg = crate::download::DownloadServiceConfig::from_data_dir(data_dir);
     let (download_handle, _download_status_rx, _download_task) =
         crate::download::start_service(download_cfg).await?;
-    let _download_handle = download_handle;
 
     // Command channel used by the (future) GUI/API to instruct the Kad service (search/publish/etc).
     let (kad_cmd_tx, kad_cmd_rx) = mpsc::channel(128);
@@ -320,6 +319,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     );
     let etx_for_server = etx.clone();
     let cmd_tx_for_server = kad_cmd_tx.clone();
+    let download_handle_for_server = download_handle.clone();
     let api_runtime_config = config.clone();
     let config_path_for_server = config_path.clone();
     let token_path_for_server = token_path.clone();
@@ -332,6 +332,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             status_rx: srx,
             status_events_tx: etx_for_server,
             kad_cmd_tx: cmd_tx_for_server,
+            download_handle: download_handle_for_server,
         };
         if let Err(err) = crate::api::serve(&api_cfg, deps).await {
             tracing::error!(error = %err, "api server stopped");

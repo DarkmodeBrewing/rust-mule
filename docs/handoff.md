@@ -8,6 +8,46 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Implemented download phase 1.5/2 groundwork on `feature/download-strategy-imule`:
+  - Expanded download actor/service (`src/download/service.rs`):
+    - state/lifecycle commands:
+      - `CreateDownload`
+      - `Pause`
+      - `Resume`
+      - `Cancel`
+      - `Delete`
+      - `List`
+    - deterministic part slot allocation is now used (`%03d.part.met` / `%03d.part`).
+    - persisted state transitions for lifecycle operations.
+    - startup recovery now seeds in-memory queue and state from persisted metadata.
+  - Added/expanded store primitives (`src/download/store.rs`):
+    - helpers for numbered part paths and next free part number allocation.
+    - `PartState` expanded to include `completed/cancelled/error` states.
+  - Expanded typed errors (`src/download/errors.rs`) with:
+    - invalid input, not found, invalid transition variants for command-level failures.
+  - Added read-only API endpoint:
+    - `GET /api/v1/downloads`
+    - wired via new handler `src/api/handlers/downloads.rs` and router update.
+    - response includes `queue_len`, `recovered_on_start`, and current download entries.
+  - API wiring updates:
+    - `ApiState`/`ApiServeDeps` now carry `DownloadServiceHandle`.
+    - app bootstrap passes download handle into API server deps.
+  - Tests added/updated:
+    - download lifecycle flow (create -> pause -> resume -> cancel -> delete -> list)
+    - restart recovery preserves persisted state
+    - allocator picks lowest free slot
+    - API contract test now verifies `/api/v1/downloads`
+    - startup integration test updated for new API deps.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 79 tests).
+- Decisions:
+  - Keep phase 2 focused on control-plane correctness (state machine + persistence + API visibility) before chunk wire-transfer ingestion.
+  - Keep `/api/v1/downloads` read-only for now; mutating endpoints will follow once queue semantics stabilize.
+- Next steps:
+  - Add mutating download API endpoints (create/pause/resume/cancel/delete) bound to current service commands.
+  - Add first transfer-facing abstractions for pending block requests and timeout bookkeeping.
+  - Introduce `.part` gap/range progress tracking in persisted metadata for block-level recovery.
+- Change log: Download service is now a functional persisted queue with lifecycle operations and API observability.
+
 - Status: Implemented download subsystem phase 1 persistence/recovery primitives on `feature/download-strategy-imule`:
   - Added `src/download/store.rs`:
     - `PartMet` model and `PartState` enum

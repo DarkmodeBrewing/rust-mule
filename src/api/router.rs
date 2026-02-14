@@ -7,8 +7,8 @@ use axum::{
 use crate::api::{
     ApiState,
     handlers::{
-        auth_bootstrap, create_session, debug_lookup_once, debug_probe_peer, events, health,
-        kad_keyword_results, kad_peers, kad_publish_keyword, kad_publish_source,
+        auth_bootstrap, create_session, debug_lookup_once, debug_probe_peer, downloads, events,
+        health, kad_keyword_results, kad_peers, kad_publish_keyword, kad_publish_source,
         kad_search_keyword, kad_search_sources, kad_sources, search_delete, search_details,
         search_stop, searches, session_check, session_logout, settings_get, settings_patch, status,
         token_rotate,
@@ -24,6 +24,7 @@ pub(crate) fn build_app(state: ApiState) -> Router<()> {
         .route("/session/check", get(session_check))
         .route("/session/logout", post(session_logout))
         .route("/status", get(status))
+        .route("/downloads", get(downloads))
         .route("/events", get(events))
         .route("/settings", get(settings_get).patch(settings_patch))
         .route("/searches", get(searches))

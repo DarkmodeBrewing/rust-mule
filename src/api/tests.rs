@@ -1,6 +1,7 @@
 use super::{ApiState, auth, cors, handlers, router, ui};
 use crate::{
     config::{ApiAuthMode, Config},
+    download::DownloadServiceHandle,
     kad::{
         KadId,
         service::{
@@ -38,6 +39,7 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         status_rx,
         status_events_tx,
         kad_cmd_tx,
+        download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
@@ -727,6 +729,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         status_rx,
         status_events_tx,
         kad_cmd_tx: tx,
+        download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::from([(
             "s1".to_string(),
@@ -772,6 +775,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         status_rx,
         status_events_tx,
         kad_cmd_tx: kad_tx,
+        download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
@@ -966,6 +970,23 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     let settings_json = response_json(settings_resp).await;
     assert!(settings_json.get("settings").is_some());
     assert!(settings_json.get("restart_required").is_some());
+
+    let downloads_resp = app
+        .clone()
+        .oneshot(authorized_api_get("/api/v1/downloads"))
+        .await
+        .unwrap();
+    assert_eq!(downloads_resp.status(), StatusCode::OK);
+    let downloads_json = response_json(downloads_resp).await;
+    assert!(downloads_json.get("queue_len").is_some());
+    assert!(downloads_json.get("recovered_on_start").is_some());
+    assert_eq!(
+        downloads_json
+            .get("downloads")
+            .and_then(Value::as_array)
+            .map(Vec::len),
+        Some(0)
+    );
 
     drop(app);
     responder.abort();
