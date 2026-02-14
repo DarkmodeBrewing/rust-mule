@@ -8,6 +8,31 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Implemented API loopback dual-stack hardening + coverage gate scaffolding + startup/auth/session smoke test on `main`:
+  - API listener startup now attempts both loopback families and serves on every successful bind:
+    - `::1:<port>`
+    - `127.0.0.1:<port>`
+  - Bind failures on one family are logged as warnings; startup only fails if no loopback listener can be created.
+  - Added first runtime smoke integration test: `tests/api_startup_smoke.rs`
+    - boots `api::serve`
+    - verifies `/api/v1/auth/bootstrap`
+    - creates frontend session (`/api/v1/session`)
+    - verifies session-cookie protected `/api/v1/session/check` and `/index.html`.
+  - Added coverage gating scaffolding:
+    - GitHub Actions workflow: `.github/workflows/ci.yml`
+    - local coverage command: `scripts/test/coverage.sh`
+    - README quality gate section updated with coverage command.
+  - Added `reqwest` as a dev-dependency for integration-level HTTP smoke testing.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 71 tests total including integration smoke).
+- Decisions:
+  - Keep API local-only by binding loopback addresses explicitly instead of widening bind scope.
+  - Treat IPv4/IPv6 support as best-effort on startup: one-family availability is acceptable; total loopback bind failure is fatal.
+  - Start with a conservative line-coverage gate (`--fail-under-lines 35`) and ratchet upward once baseline metrics are collected in CI.
+- Next steps:
+  - Run `scripts/test/coverage.sh` in CI or locally where `cargo-llvm-cov` is installed and record baseline coverage percentage in docs.
+  - Consider raising coverage threshold after one or two PR cycles.
+- Change log: API startup is now resilient to localhost address-family differences, and repo now has integration smoke coverage plus CI coverage gate scaffolding.
+
 - Status: Removed `api.host` configurability and simplified API binding on `main`:
   - `ApiConfig` no longer contains `host`; API config now binds by port only.
   - API server bind address is fixed to loopback (`127.0.0.1`) in `src/api/mod.rs`.

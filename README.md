@@ -71,6 +71,15 @@ Packaging helper:
 scripts/build/build_linux_release.sh
 ```
 
+## Quality Gates
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+scripts/test/coverage.sh
+```
+
 ## Two-Instance Local Test
 
 Use separate `data_dir`, `sam.session_name`, and API ports per instance.

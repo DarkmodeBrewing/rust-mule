@@ -1,7 +1,8 @@
 use axum::middleware;
 use std::{
     collections::HashMap,
-    net::SocketAddr,
+    io,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -91,12 +92,44 @@ pub fn new_channels() -> (
     (status_tx, status_events_tx)
 }
 
-pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
-    let addr = SocketAddr::new(
-        std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-        cfg.port,
-    );
+async fn bind_loopback_listeners(
+    port: u16,
+) -> Result<Vec<(SocketAddr, tokio::net::TcpListener)>, ApiError> {
+    let mut listeners = Vec::new();
+    let mut bind_errors = Vec::new();
+    let candidates = [
+        IpAddr::V6(Ipv6Addr::LOCALHOST),
+        IpAddr::V4(Ipv4Addr::LOCALHOST),
+    ];
 
+    for ip in candidates {
+        let addr = SocketAddr::new(ip, port);
+        match tokio::net::TcpListener::bind(addr).await {
+            Ok(listener) => listeners.push((addr, listener)),
+            Err(err) => bind_errors.push((addr, err)),
+        }
+    }
+
+    if listeners.is_empty() {
+        let details = bind_errors
+            .iter()
+            .map(|(addr, err)| format!("{addr}: {err}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Err(ApiError::Bind(io::Error::new(
+            io::ErrorKind::AddrNotAvailable,
+            format!("failed to bind loopback listeners ({details})"),
+        )));
+    }
+
+    for (addr, err) in bind_errors {
+        tracing::warn!(addr = %addr, error = %err, "api loopback listener unavailable");
+    }
+
+    Ok(listeners)
+}
+
+pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new(deps.token)),
         token_path: Arc::new(deps.token_path),
@@ -133,16 +166,36 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         }
     });
 
-    tracing::info!(addr = %addr, "api server listening");
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .map_err(ApiError::Bind)?;
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .map_err(ApiError::Serve)?;
+    let listeners = bind_loopback_listeners(cfg.port).await?;
+    let mut servers = tokio::task::JoinSet::new();
+    for (addr, listener) in listeners {
+        tracing::info!(addr = %addr, "api server listening");
+        let app = app.clone();
+        servers.spawn(async move {
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .await
+        });
+    }
+
+    while let Some(joined) = servers.join_next().await {
+        match joined {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                servers.abort_all();
+                return Err(ApiError::Serve(err));
+            }
+            Err(err) => {
+                servers.abort_all();
+                return Err(ApiError::Serve(io::Error::other(format!(
+                    "api server task failed: {err}"
+                ))));
+            }
+        }
+    }
+
     Ok(())
 }
 
