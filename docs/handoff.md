@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added optional miss recheck pass in timed background soak harness on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh` now supports:
+    - `MISS_RECHECK_ATTEMPTS` (default `1`)
+    - `MISS_RECHECK_DELAY` seconds (default `20`)
+  - After an initial source miss (`GET /api/v1/kad/sources/:file_id_hex`), the runner performs bounded delayed rechecks before persisting round outcome.
+  - `rounds.tsv` format is unchanged (6 columns), so `scripts/test/soak_triage.sh` compatibility is preserved.
+  - `scripts/test/README.md` updated with new env knobs and behavior description.
+- Decisions:
+  - Keep miss-recheck logic optional and env-controlled to preserve old baseline behavior (`MISS_RECHECK_ATTEMPTS=0` disables rechecks).
+  - Keep `rounds.tsv` schema stable for existing triage tooling.
+- Next steps:
+  - Re-run A/B soak with two profiles:
+    - baseline (`MISS_RECHECK_ATTEMPTS=0`)
+    - tuned (`MISS_RECHECK_ATTEMPTS=1 MISS_RECHECK_DELAY=20`)
+  - Compare hit-rate and hit-gap deltas using unchanged triage scripts.
+- Change log: Soak runner now supports delayed miss recheck to reduce false misses from eventual consistency windows.
+
 - Status: Hardened timed background soak harness failure handling on `feature/download-strategy-imule`:
   - `scripts/test/source_probe_soak_bg.sh` now:
     - fails fast if `A_URL`/`B_URL` ports are already in use (prevents attaching to foreign processes)

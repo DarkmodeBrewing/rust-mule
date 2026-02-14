@@ -30,7 +30,14 @@ Defaults:
 - binaries: `../../mule-a/rust-mule` and `../../mule-b/rust-mule`
 - run root: `/tmp/rust-mule-soak-bg`
 - API URLs: `127.0.0.1:17835` and `127.0.0.1:17836`
+- miss recheck: `MISS_RECHECK_ATTEMPTS=1`, `MISS_RECHECK_DELAY=20`
 - detached runner stdout/stderr: `/tmp/rust-mule-soak-bg/logs/runner.out`
 
 Override via env vars, for example:
 - `A_SRC=/dist/mule-a B_SRC=/dist/mule-b RUN_ROOT=/tmp/my-soak bash scripts/test/source_probe_soak_bg.sh start 7200`
+
+Miss recheck behavior:
+- After each round's first `GET /api/v1/kad/sources/:file_id_hex` miss, the runner can recheck before classifying a miss.
+- Tune with:
+  - `MISS_RECHECK_ATTEMPTS` (how many additional polls to run after first miss)
+  - `MISS_RECHECK_DELAY` (seconds between additional polls)

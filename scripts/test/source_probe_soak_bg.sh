@@ -20,6 +20,8 @@ set -euo pipefail
 #   WAIT_PUBLISH=20
 #   WAIT_SEARCH=20
 #   WAIT_BETWEEN=5
+#   MISS_RECHECK_ATTEMPTS=1
+#   MISS_RECHECK_DELAY=20
 #   READY_TIMEOUT_SECS=1200
 
 ROOT="${ROOT:-$PWD}"
@@ -36,6 +38,8 @@ B_URL="${B_URL:-http://127.0.0.1:17836}"
 WAIT_PUBLISH="${WAIT_PUBLISH:-20}"
 WAIT_SEARCH="${WAIT_SEARCH:-20}"
 WAIT_BETWEEN="${WAIT_BETWEEN:-5}"
+MISS_RECHECK_ATTEMPTS="${MISS_RECHECK_ATTEMPTS:-1}"
+MISS_RECHECK_DELAY="${MISS_RECHECK_DELAY:-20}"
 READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-1200}"
 
 RUNNER_PID_FILE="$RUN_ROOT/runner.pid"
@@ -48,6 +52,11 @@ ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 rand_hex16() { hexdump -n 16 -e '16/1 "%02x"' /dev/urandom; }
 log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
+
+response_has_sources() {
+  local payload="${1:-}"
+  echo "$payload" | grep -Eq '"sources"[[:space:]]*:[[:space:]]*\[[[:space:]]*\{'
+}
 
 url_port() {
   local url="$1"
@@ -244,7 +253,7 @@ wait_ready() {
 
 run_round() {
   local round="$1"
-  local file_id size ta tb a_pub b_srch b_get a_st b_st
+  local file_id size ta tb a_pub b_srch b_get b_get_final a_st b_st recheck_idx
 
   ta="$(cat "$A_DIR/data/api.token")"
   tb="$(cat "$B_DIR/data/api.token")"
@@ -266,11 +275,27 @@ run_round() {
   sleep "$WAIT_SEARCH"
 
   b_get="$(curl -sS -H "Authorization: Bearer $tb" "$B_URL/api/v1/kad/sources/$file_id" || true)"
+  b_get_final="$b_get"
+
+  if ! response_has_sources "$b_get_final"; then
+    recheck_idx=1
+    while (( recheck_idx <= MISS_RECHECK_ATTEMPTS )); do
+      log "round=$round miss_recheck attempt=$recheck_idx delay_secs=$MISS_RECHECK_DELAY file=$file_id"
+      sleep "$MISS_RECHECK_DELAY"
+      b_get_final="$(curl -sS -H "Authorization: Bearer $tb" "$B_URL/api/v1/kad/sources/$file_id" || true)"
+      if response_has_sources "$b_get_final"; then
+        log "round=$round miss_recheck_hit attempt=$recheck_idx file=$file_id"
+        break
+      fi
+      recheck_idx="$(( recheck_idx + 1 ))"
+    done
+  fi
+
   a_st="$(curl -sS -H "Authorization: Bearer $ta" "$A_URL/api/v1/status" || true)"
   b_st="$(curl -sS -H "Authorization: Bearer $tb" "$B_URL/api/v1/status" || true)"
 
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
-    "$(ts)" "$round" "$file_id" "$a_pub" "$b_srch" "$b_get" >> "$LOG_DIR/rounds.tsv"
+    "$(ts)" "$round" "$file_id" "$a_pub" "$b_srch" "$b_get_final" >> "$LOG_DIR/rounds.tsv"
   printf '%s\tA\t%s\n' "$(ts)" "$a_st" >> "$LOG_DIR/status.ndjson"
   printf '%s\tB\t%s\n' "$(ts)" "$b_st" >> "$LOG_DIR/status.ndjson"
 }
