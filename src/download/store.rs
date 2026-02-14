@@ -9,6 +9,12 @@ pub type Result<T> = std::result::Result<T, DownloadStoreError>;
 pub const PART_MET_VERSION: u8 = 0xE0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ByteRange {
+    pub start: u64,
+    pub end: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PartState {
     Queued,
@@ -29,6 +35,14 @@ pub struct PartMet {
     pub file_hash_md4_hex: String,
     pub state: PartState,
     pub downloaded_bytes: u64,
+    #[serde(default)]
+    pub missing_ranges: Vec<ByteRange>,
+    #[serde(default)]
+    pub inflight_ranges: Vec<ByteRange>,
+    #[serde(default)]
+    pub retry_count: u32,
+    #[serde(default)]
+    pub last_error: Option<String>,
     pub created_unix_secs: u64,
     pub updated_unix_secs: u64,
 }
@@ -244,6 +258,13 @@ mod tests {
             file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
             state: PartState::Queued,
             downloaded_bytes: 100,
+            missing_ranges: vec![ByteRange {
+                start: 100,
+                end: 12344,
+            }],
+            inflight_ranges: Vec::new(),
+            retry_count: 0,
+            last_error: None,
             created_unix_secs: 1,
             updated_unix_secs: 2,
         }

@@ -1,6 +1,6 @@
 use crate::download::errors::{DownloadError, DownloadStoreError};
 use crate::download::store::{
-    PartMet, PartState, RecoveredDownload, allocate_next_part_number, met_path_for_part,
+    ByteRange, PartMet, PartState, RecoveredDownload, allocate_next_part_number, met_path_for_part,
     part_path_for_part, save_part_met, scan_recoverable_downloads,
 };
 use std::path::{Path, PathBuf};
@@ -39,6 +39,11 @@ pub struct DownloadSummary {
     pub file_size: u64,
     pub state: PartState,
     pub downloaded_bytes: u64,
+    pub progress_pct: u8,
+    pub missing_ranges: usize,
+    pub inflight_ranges: usize,
+    pub retry_count: u32,
+    pub last_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +51,12 @@ pub struct CreateDownloadRequest {
     pub file_name: String,
     pub file_size: u64,
     pub file_hash_md4_hex: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockRange {
+    pub start: u64,
+    pub end: u64,
 }
 
 #[derive(Debug)]
@@ -78,6 +89,23 @@ pub enum DownloadCommand {
     },
     List {
         reply: oneshot::Sender<Vec<DownloadSummary>>,
+    },
+    ReserveBlocks {
+        part_number: u16,
+        max_blocks: usize,
+        block_size: u64,
+        reply: oneshot::Sender<Result<Vec<BlockRange>>>,
+    },
+    MarkBlockReceived {
+        part_number: u16,
+        block: BlockRange,
+        reply: oneshot::Sender<Result<DownloadSummary>>,
+    },
+    MarkBlockFailed {
+        part_number: u16,
+        block: BlockRange,
+        reason: String,
+        reply: oneshot::Sender<Result<DownloadSummary>>,
     },
     Shutdown {
         reply: oneshot::Sender<()>,
@@ -185,6 +213,61 @@ impl DownloadServiceHandle {
         rx.await.map_err(|_| DownloadError::ChannelClosed)
     }
 
+    pub async fn reserve_blocks(
+        &self,
+        part_number: u16,
+        max_blocks: usize,
+        block_size: u64,
+    ) -> Result<Vec<BlockRange>> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::ReserveBlocks {
+                part_number,
+                max_blocks,
+                block_size,
+                reply: tx,
+            })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)?
+    }
+
+    pub async fn mark_block_received(
+        &self,
+        part_number: u16,
+        block: BlockRange,
+    ) -> Result<DownloadSummary> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::MarkBlockReceived {
+                part_number,
+                block,
+                reply: tx,
+            })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)?
+    }
+
+    pub async fn mark_block_failed(
+        &self,
+        part_number: u16,
+        block: BlockRange,
+        reason: String,
+    ) -> Result<DownloadSummary> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::MarkBlockFailed {
+                part_number,
+                block,
+                reason,
+                reply: tx,
+            })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)?
+    }
+
     #[cfg(test)]
     pub fn test_handle() -> Self {
         let (tx, mut rx) = mpsc::channel::<DownloadCommand>(64);
@@ -214,6 +297,15 @@ impl DownloadServiceHandle {
                     }
                     DownloadCommand::List { reply } => {
                         let _ = reply.send(Vec::new());
+                    }
+                    DownloadCommand::ReserveBlocks { reply, .. } => {
+                        let _ = reply.send(Err(DownloadError::ChannelClosed));
+                    }
+                    DownloadCommand::MarkBlockReceived { reply, .. } => {
+                        let _ = reply.send(Err(DownloadError::ChannelClosed));
+                    }
+                    DownloadCommand::MarkBlockFailed { reply, .. } => {
+                        let _ = reply.send(Err(DownloadError::ChannelClosed));
                     }
                     DownloadCommand::Shutdown { reply } => {
                         let _ = reply.send(());
@@ -279,12 +371,24 @@ async fn run_service(
 ) -> Result<()> {
     let mut downloads = std::collections::BTreeMap::<u16, ManagedDownload>::new();
     for r in recovered {
+        let mut met = r.met;
+        // In-flight ranges are not safe to resume blindly after restart. Put them
+        // back into missing ranges and clear in-flight state.
+        if !met.inflight_ranges.is_empty() {
+            met.missing_ranges
+                .extend(met.inflight_ranges.iter().copied());
+            merge_ranges(&mut met.missing_ranges);
+            met.inflight_ranges.clear();
+            if met.state == PartState::Downloading {
+                met.state = PartState::Queued;
+            }
+        }
         downloads.insert(
-            r.met.part_number,
+            met.part_number,
             ManagedDownload {
                 met_path: r.met_path,
                 part_path: r.part_path,
-                met: r.met,
+                met,
             },
         );
     }
@@ -344,6 +448,36 @@ async fn run_service(
             DownloadCommand::List { reply } => {
                 let _ = reply.send(list_summaries(&downloads));
             }
+            DownloadCommand::ReserveBlocks {
+                part_number,
+                max_blocks,
+                block_size,
+                reply,
+            } => {
+                let result =
+                    reserve_blocks(&mut downloads, part_number, max_blocks, block_size).await;
+                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                let _ = reply.send(result);
+            }
+            DownloadCommand::MarkBlockReceived {
+                part_number,
+                block,
+                reply,
+            } => {
+                let result = mark_block_received(&mut downloads, part_number, block).await;
+                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                let _ = reply.send(result);
+            }
+            DownloadCommand::MarkBlockFailed {
+                part_number,
+                block,
+                reason,
+                reply,
+            } => {
+                let result = mark_block_failed(&mut downloads, part_number, block, reason).await;
+                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                let _ = reply.send(result);
+            }
             DownloadCommand::Shutdown { reply } => {
                 let _ = reply.send(());
                 let _ = status_tx.send(DownloadServiceStatus {
@@ -376,16 +510,27 @@ struct ManagedDownload {
 fn list_summaries(
     downloads: &std::collections::BTreeMap<u16, ManagedDownload>,
 ) -> Vec<DownloadSummary> {
-    downloads
-        .values()
-        .map(|d| DownloadSummary {
-            part_number: d.met.part_number,
-            file_name: d.met.file_name.clone(),
-            file_size: d.met.file_size,
-            state: d.met.state,
-            downloaded_bytes: d.met.downloaded_bytes,
-        })
-        .collect()
+    downloads.values().map(summary_from_download).collect()
+}
+
+fn summary_from_download(d: &ManagedDownload) -> DownloadSummary {
+    let progress = if d.met.file_size == 0 {
+        0
+    } else {
+        ((d.met.downloaded_bytes.saturating_mul(100) / d.met.file_size).min(100)) as u8
+    };
+    DownloadSummary {
+        part_number: d.met.part_number,
+        file_name: d.met.file_name.clone(),
+        file_size: d.met.file_size,
+        state: d.met.state,
+        downloaded_bytes: d.met.downloaded_bytes,
+        progress_pct: progress,
+        missing_ranges: d.met.missing_ranges.len(),
+        inflight_ranges: d.met.inflight_ranges.len(),
+        retry_count: d.met.retry_count,
+        last_error: d.met.last_error.clone(),
+    }
 }
 
 fn now_secs() -> u64 {
@@ -445,6 +590,13 @@ async fn create_download(
         file_hash_md4_hex: req.file_hash_md4_hex,
         state: PartState::Queued,
         downloaded_bytes: 0,
+        missing_ranges: vec![ByteRange {
+            start: 0,
+            end: req.file_size - 1,
+        }],
+        inflight_ranges: Vec::new(),
+        retry_count: 0,
+        last_error: None,
         created_unix_secs: ts,
         updated_unix_secs: ts,
     };
@@ -457,13 +609,9 @@ async fn create_download(
             met: met.clone(),
         },
     );
-    Ok(DownloadSummary {
-        part_number,
-        file_name: met.file_name,
-        file_size: met.file_size,
-        state: met.state,
-        downloaded_bytes: met.downloaded_bytes,
-    })
+    Ok(summary_from_download(
+        downloads.get(&part_number).expect("inserted"),
+    ))
 }
 
 async fn set_state(
@@ -486,13 +634,120 @@ async fn set_state(
     d.met.state = next;
     d.met.updated_unix_secs = now_secs();
     save_part_met(&d.met_path, &d.met).await?;
-    Ok(DownloadSummary {
-        part_number,
-        file_name: d.met.file_name.clone(),
-        file_size: d.met.file_size,
-        state: d.met.state,
-        downloaded_bytes: d.met.downloaded_bytes,
-    })
+    Ok(summary_from_download(d))
+}
+
+async fn reserve_blocks(
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
+    part_number: u16,
+    max_blocks: usize,
+    block_size: u64,
+) -> Result<Vec<BlockRange>> {
+    if max_blocks == 0 {
+        return Ok(Vec::new());
+    }
+    if block_size == 0 {
+        return Err(DownloadError::InvalidInput(
+            "block_size must be > 0".to_string(),
+        ));
+    }
+
+    let d = downloads
+        .get_mut(&part_number)
+        .ok_or(DownloadError::NotFound(part_number))?;
+    match d.met.state {
+        PartState::Queued | PartState::Downloading => {}
+        other => {
+            return Err(DownloadError::InvalidTransition {
+                part_number,
+                from: other,
+                to: PartState::Downloading,
+            });
+        }
+    }
+
+    let mut out = Vec::new();
+    for _ in 0..max_blocks {
+        let Some(first) = d.met.missing_ranges.first().copied() else {
+            break;
+        };
+        let len = first.end.saturating_sub(first.start) + 1;
+        let take = len.min(block_size);
+        let block = BlockRange {
+            start: first.start,
+            end: first.start + take - 1,
+        };
+        d.met.missing_ranges = subtract_range(&d.met.missing_ranges, block.start, block.end);
+        d.met.inflight_ranges.push(ByteRange {
+            start: block.start,
+            end: block.end,
+        });
+        out.push(block);
+    }
+
+    if !out.is_empty() {
+        d.met.state = PartState::Downloading;
+        d.met.updated_unix_secs = now_secs();
+        d.met.last_error = None;
+        save_part_met(&d.met_path, &d.met).await?;
+    }
+    Ok(out)
+}
+
+async fn mark_block_received(
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
+    part_number: u16,
+    block: BlockRange,
+) -> Result<DownloadSummary> {
+    let d = downloads
+        .get_mut(&part_number)
+        .ok_or(DownloadError::NotFound(part_number))?;
+    remove_inflight(&mut d.met.inflight_ranges, block.start, block.end);
+
+    d.met.downloaded_bytes = d
+        .met
+        .file_size
+        .saturating_sub(total_missing(&d.met.missing_ranges));
+    if d.met.missing_ranges.is_empty() && d.met.inflight_ranges.is_empty() {
+        d.met.state = PartState::Completing;
+    } else if d.met.state == PartState::Queued {
+        d.met.state = PartState::Downloading;
+    }
+    d.met.updated_unix_secs = now_secs();
+    d.met.last_error = None;
+    save_part_met(&d.met_path, &d.met).await?;
+    Ok(summary_from_download(d))
+}
+
+async fn mark_block_failed(
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
+    part_number: u16,
+    block: BlockRange,
+    reason: String,
+) -> Result<DownloadSummary> {
+    let d = downloads
+        .get_mut(&part_number)
+        .ok_or(DownloadError::NotFound(part_number))?;
+    remove_inflight(&mut d.met.inflight_ranges, block.start, block.end);
+    d.met.missing_ranges.push(ByteRange {
+        start: block.start,
+        end: block.end,
+    });
+    merge_ranges(&mut d.met.missing_ranges);
+    d.met.retry_count = d.met.retry_count.saturating_add(1);
+    d.met.last_error = Some(reason);
+    d.met.state = if d.met.state == PartState::Paused {
+        PartState::Paused
+    } else {
+        PartState::Queued
+    };
+    d.met.downloaded_bytes = d
+        .met
+        .file_size
+        .saturating_sub(total_missing(&d.met.missing_ranges));
+    d.met.updated_unix_secs = now_secs();
+    save_part_met(&d.met_path, &d.met).await?;
+    Ok(summary_from_download(d))
 }
 
 async fn delete_download(
@@ -543,6 +798,64 @@ fn publish_status(
         recovered_on_start,
         started_at,
     });
+}
+
+fn total_missing(ranges: &[ByteRange]) -> u64 {
+    ranges
+        .iter()
+        .map(|r| r.end.saturating_sub(r.start) + 1)
+        .sum()
+}
+
+fn merge_ranges(ranges: &mut Vec<ByteRange>) {
+    if ranges.is_empty() {
+        return;
+    }
+    ranges.sort_by_key(|r| (r.start, r.end));
+    let mut merged = Vec::with_capacity(ranges.len());
+    let mut cur = ranges[0];
+    for r in ranges.iter().copied().skip(1) {
+        if r.start <= cur.end.saturating_add(1) {
+            cur.end = cur.end.max(r.end);
+        } else {
+            merged.push(cur);
+            cur = r;
+        }
+    }
+    merged.push(cur);
+    *ranges = merged;
+}
+
+fn subtract_range(ranges: &[ByteRange], start: u64, end: u64) -> Vec<ByteRange> {
+    let mut out = Vec::new();
+    for r in ranges.iter().copied() {
+        if end < r.start || start > r.end {
+            out.push(r);
+            continue;
+        }
+        if start > r.start {
+            out.push(ByteRange {
+                start: r.start,
+                end: start - 1,
+            });
+        }
+        if end < r.end {
+            out.push(ByteRange {
+                start: end + 1,
+                end: r.end,
+            });
+        }
+    }
+    out
+}
+
+fn remove_inflight(inflight: &mut Vec<ByteRange>, start: u64, end: u64) {
+    if let Some(idx) = inflight
+        .iter()
+        .position(|r| r.start == start && r.end == end)
+    {
+        inflight.remove(idx);
+    }
 }
 
 #[cfg(test)]
@@ -607,6 +920,10 @@ mod tests {
             file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
             state: crate::download::store::PartState::Queued,
             downloaded_bytes: 0,
+            missing_ranges: vec![ByteRange { start: 0, end: 9 }],
+            inflight_ranges: Vec::new(),
+            retry_count: 0,
+            last_error: None,
             created_unix_secs: 1,
             updated_unix_secs: 1,
         };
@@ -618,6 +935,10 @@ mod tests {
             file_hash_md4_hex: "fedcba9876543210fedcba9876543210".to_string(),
             state: crate::download::store::PartState::Paused,
             downloaded_bytes: 5,
+            missing_ranges: vec![ByteRange { start: 5, end: 19 }],
+            inflight_ranges: Vec::new(),
+            retry_count: 0,
+            last_error: None,
             created_unix_secs: 1,
             updated_unix_secs: 2,
         };
@@ -656,6 +977,7 @@ mod tests {
             .expect("create");
         assert_eq!(created.part_number, 1);
         assert_eq!(created.state, PartState::Queued);
+        assert_eq!(created.progress_pct, 0);
         assert_eq!(status_rx.borrow().queue_len, 1);
 
         let paused = handle.pause(1).await.expect("pause");
@@ -703,6 +1025,84 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].part_number, d.part_number);
         assert_eq!(list[0].state, PartState::Paused);
+        handle2.shutdown().await.expect("shutdown2");
+        join2.await.expect("join2").expect("svc2");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn transfer_reserve_fail_retry_and_receive_updates_progress() {
+        let root = temp_dir("transfer");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "sample.bin".to_string(),
+                file_size: 1000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        let blocks = handle
+            .reserve_blocks(d.part_number, 2, 200)
+            .await
+            .expect("reserve");
+        assert_eq!(blocks.len(), 2);
+
+        let failed = handle
+            .mark_block_failed(d.part_number, blocks[0], "timeout".to_string())
+            .await
+            .expect("failed");
+        assert_eq!(failed.retry_count, 1);
+        assert_eq!(failed.state, PartState::Queued);
+        assert_eq!(failed.last_error.as_deref(), Some("timeout"));
+
+        let again = handle
+            .reserve_blocks(d.part_number, 1, 200)
+            .await
+            .expect("reserve again");
+        assert_eq!(again.len(), 1);
+
+        let got = handle
+            .mark_block_received(d.part_number, again[0])
+            .await
+            .expect("received");
+        assert!(got.progress_pct > 0);
+        assert_eq!(got.inflight_ranges, 1);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn restart_reclaims_inflight_back_into_missing() {
+        let root = temp_dir("reclaim");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+
+        let (handle1, _status1, join1) = start_service(cfg.clone()).await.expect("start1");
+        let d = handle1
+            .create_download(CreateDownloadRequest {
+                file_name: "reclaim.bin".to_string(),
+                file_size: 500,
+                file_hash_md4_hex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+            })
+            .await
+            .expect("create");
+        let _ = handle1
+            .reserve_blocks(d.part_number, 1, 100)
+            .await
+            .expect("reserve");
+        handle1.shutdown().await.expect("shutdown1");
+        join1.await.expect("join1").expect("svc1");
+
+        let (handle2, _status2, join2) = start_service(cfg).await.expect("start2");
+        let list = handle2.list().await.expect("list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].inflight_ranges, 0);
+        assert_eq!(list[0].state, PartState::Queued);
+
         handle2.shutdown().await.expect("shutdown2");
         join2.await.expect("join2").expect("svc2");
         let _ = std::fs::remove_dir_all(&root);

@@ -8,6 +8,45 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added download transfer-state skeleton (phase 2 groundwork) on `feature/download-strategy-imule`:
+  - Extended persisted metadata (`src/download/store.rs`):
+    - new `ByteRange` model
+    - `PartMet` now persists:
+      - `missing_ranges`
+      - `inflight_ranges`
+      - `retry_count`
+      - `last_error`
+    - backward-compatible serde defaults retained.
+  - Extended download actor (`src/download/service.rs`):
+    - new transfer-facing commands:
+      - `ReserveBlocks`
+      - `MarkBlockReceived`
+      - `MarkBlockFailed`
+    - block reservation now moves ranges from `missing` -> `inflight`
+    - failed blocks are re-queued into `missing` with retry/error tracking
+    - received blocks clear inflight and update progress/completion state
+    - restart safety: inflight ranges are reclaimed into missing on startup recovery.
+  - Extended `DownloadSummary` and API-visible fields:
+    - `progress_pct`
+    - `missing_ranges`
+    - `inflight_ranges`
+    - `retry_count`
+    - `last_error`
+  - Updated download list/action responses (`src/api/handlers/downloads.rs`) to expose these fields.
+  - Added tests:
+    - reserve/fail/retry/receive state progression
+    - restart inflight reclamation into missing
+    - existing API mutation/list tests continue passing with expanded schema.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 82 tests).
+- Decisions:
+  - Keep range semantics inclusive (`start..=end`) in persisted metadata.
+  - Treat in-flight reservations as non-authoritative across restart: reclaim to missing for correctness.
+- Next steps:
+  - Integrate wire-level TCP block flow into these commands (`OP_REQUESTPARTS` / `OP_SENDINGPART` path).
+  - Add per-peer in-flight ownership and timeout scheduler for autonomous retry.
+  - Persist part-hash verification state and transition `completing -> completed`.
+- Change log: Download subsystem now tracks block-level missing/inflight/retry state with restart-safe recovery.
+
 - Status: Implemented mutating download API endpoints on `feature/download-strategy-imule`:
   - Added new endpoints under `/api/v1`:
     - `POST /downloads`

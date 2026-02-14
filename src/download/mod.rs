@@ -8,5 +8,7 @@ pub use service::{
     CreateDownloadRequest, DownloadCommand, DownloadServiceConfig, DownloadServiceHandle,
     DownloadServiceStatus, DownloadSummary, start_service,
 };
-pub use store::{LoadedMetSource, PART_MET_VERSION, PartMet, PartState, RecoveredDownload};
+pub use store::{
+    ByteRange, LoadedMetSource, PART_MET_VERSION, PartMet, PartState, RecoveredDownload,
+};
 pub use types::DownloadId;

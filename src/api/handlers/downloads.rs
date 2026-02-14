@@ -11,6 +11,11 @@ pub(crate) struct DownloadEntry {
     pub(crate) file_size: u64,
     pub(crate) state: String,
     pub(crate) downloaded_bytes: u64,
+    pub(crate) progress_pct: u8,
+    pub(crate) missing_ranges: usize,
+    pub(crate) inflight_ranges: usize,
+    pub(crate) retry_count: u32,
+    pub(crate) last_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,6 +59,11 @@ pub(crate) async fn downloads(
             file_size: d.file_size,
             state: format!("{:?}", d.state).to_lowercase(),
             downloaded_bytes: d.downloaded_bytes,
+            progress_pct: d.progress_pct,
+            missing_ranges: d.missing_ranges,
+            inflight_ranges: d.inflight_ranges,
+            retry_count: d.retry_count,
+            last_error: d.last_error.clone(),
         })
         .collect::<Vec<_>>();
 
@@ -91,6 +101,11 @@ pub(crate) async fn downloads_create(
                 file_size: summary.file_size,
                 state: format!("{:?}", summary.state).to_lowercase(),
                 downloaded_bytes: summary.downloaded_bytes,
+                progress_pct: summary.progress_pct,
+                missing_ranges: summary.missing_ranges,
+                inflight_ranges: summary.inflight_ranges,
+                retry_count: summary.retry_count,
+                last_error: summary.last_error,
             },
         }),
     ))
@@ -112,6 +127,11 @@ pub(crate) async fn downloads_pause(
             file_size: summary.file_size,
             state: format!("{:?}", summary.state).to_lowercase(),
             downloaded_bytes: summary.downloaded_bytes,
+            progress_pct: summary.progress_pct,
+            missing_ranges: summary.missing_ranges,
+            inflight_ranges: summary.inflight_ranges,
+            retry_count: summary.retry_count,
+            last_error: summary.last_error,
         },
     }))
 }
@@ -132,6 +152,11 @@ pub(crate) async fn downloads_resume(
             file_size: summary.file_size,
             state: format!("{:?}", summary.state).to_lowercase(),
             downloaded_bytes: summary.downloaded_bytes,
+            progress_pct: summary.progress_pct,
+            missing_ranges: summary.missing_ranges,
+            inflight_ranges: summary.inflight_ranges,
+            retry_count: summary.retry_count,
+            last_error: summary.last_error,
         },
     }))
 }
@@ -152,6 +177,11 @@ pub(crate) async fn downloads_cancel(
             file_size: summary.file_size,
             state: format!("{:?}", summary.state).to_lowercase(),
             downloaded_bytes: summary.downloaded_bytes,
+            progress_pct: summary.progress_pct,
+            missing_ranges: summary.missing_ranges,
+            inflight_ranges: summary.inflight_ranges,
+            retry_count: summary.retry_count,
+            last_error: summary.last_error,
         },
     }))
 }
