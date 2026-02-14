@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-12)
 
+- Status: Refactored API god-file (`src/api/mod.rs`) into focused modules on `main` (no behavior change):
+  - New modules:
+    - `src/api/router.rs` (router wiring)
+    - `src/api/auth.rs` (auth/session middleware + helpers)
+    - `src/api/cors.rs` (CORS middleware + helpers)
+    - `src/api/ui.rs` (embedded UI/static serving and SPA fallback)
+    - `src/api/handlers/core.rs` (health/auth/session/status/events handlers)
+    - `src/api/handlers/kad.rs` (KAD/search/debug handlers)
+    - `src/api/handlers/settings.rs` (settings handlers/validation/patch logic)
+    - `src/api/handlers/mod.rs` (handler exports)
+    - `src/api/tests.rs` (existing API tests moved out of `mod.rs`)
+  - `src/api/mod.rs` now focuses on API state, startup/serve path, module wiring, and test-only re-exports.
+  - Endpoint paths, middleware order, and response behavior were kept unchanged.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features`, and `cargo test` (all passing; 68 tests).
+- Decisions: Keep this as a structural split only (no endpoint contract or middleware semantic changes) to reduce risk while improving maintainability.
+- Next steps: Optional follow-up can split `handlers/kad.rs` further by sub-domain (`search`, `debug`, `publish`) if we want even tighter module boundaries.
+- Change log: API surface is now modularized by concern, replacing the prior single-file implementation.
+
 - Status: Fixed `nodes2.dat` download persistence path bug on `main`:
   - In `try_download_nodes2_dat(...)` (`src/app.rs`), persistence previously hardcoded `./data/nodes.dat`.
   - Updated function to accept an explicit output path and persist there.
