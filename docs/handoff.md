@@ -8,6 +8,34 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Completed transfer execution groundwork (peer-owned inflight + packet ingest + timeout retry) on `feature/download-strategy-imule`:
+  - Added `src/download/protocol.rs`:
+    - ED2K transfer opcode constants (`OP_REQUESTPARTS`, `OP_SENDINGPART`, `OP_COMPRESSEDPART`)
+    - payload encode/decode helpers and typed protocol errors
+    - unit tests for requestparts roundtrip and sendingpart validation.
+  - Finished peer-aware transfer flow in `src/download/service.rs`:
+    - fixed service loop to use a single `tokio::select!` over command receive + timeout tick
+    - `ReserveBlocks` now assigns peer-owned inflight leases with expiration deadline
+    - `MarkBlockReceived` / `MarkBlockFailed` now validate lease ownership by peer
+    - added `PeerDisconnected` reclaim path to requeue leased blocks for that peer
+    - added timeout processing to requeue expired leases with retry/error tracking
+    - added `IngestInboundPacket` handling for `OP_SENDINGPART` and `OP_COMPRESSEDPART` that maps inbound payloads to block completion.
+  - Extended persisted transfer state in `src/download/store.rs`:
+    - `ByteRange`, `missing_ranges`, `inflight_ranges`, `retry_count`, `last_error` (with serde defaults).
+  - Updated download API DTO mapping in `src/api/handlers/downloads.rs` to expose progress + transfer counters/error.
+  - Added service tests:
+    - `peer_disconnected_reclaims_only_that_peers_leases`
+    - `ingest_sendingpart_marks_reserved_block_received`.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 86 tests).
+- Decisions:
+  - Keep lease tracking in-memory (`ManagedDownload.leases`) and persist only range/error projections in `.part.met`.
+  - Keep packet ingest scope minimal in this slice: decode + hash/range validation + state transition; deferred real payload write/verification pipeline.
+- Next steps:
+  - Wire TCP peer session handler to emit `IngestInboundPacket` and `PeerDisconnected` events from live network traffic.
+  - Add block payload write path into `.part` files and integrity checks before `completing -> completed`.
+  - Tune lease timeout/retry policy from soak-test observations and expose counters in API/UI if needed.
+- Change log: Download actor now supports peer-bound inflight reservations with timeout/disconnect recovery and first inbound transfer packet ingestion path.
+
 - Status: Added download transfer-state skeleton (phase 2 groundwork) on `feature/download-strategy-imule`:
   - Extended persisted metadata (`src/download/store.rs`):
     - new `ByteRange` model

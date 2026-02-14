@@ -1,4 +1,5 @@
 pub mod errors;
+pub mod protocol;
 pub mod service;
 pub mod store;
 pub mod types;

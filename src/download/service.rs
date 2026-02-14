@@ -1,13 +1,15 @@
 use crate::download::errors::{DownloadError, DownloadStoreError};
+use crate::download::protocol;
 use crate::download::store::{
     ByteRange, PartMet, PartState, RecoveredDownload, allocate_next_part_number, met_path_for_part,
     part_path_for_part, save_part_met, scan_recoverable_downloads,
 };
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, watch};
 
 pub type Result<T> = std::result::Result<T, DownloadError>;
+const INFLIGHT_LEASE_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, Clone)]
 pub struct DownloadServiceConfig {
@@ -59,6 +61,12 @@ pub struct BlockRange {
     pub end: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct InboundPacket {
+    pub opcode: u8,
+    pub payload: Vec<u8>,
+}
+
 #[derive(Debug)]
 pub enum DownloadCommand {
     Ping {
@@ -92,19 +100,32 @@ pub enum DownloadCommand {
     },
     ReserveBlocks {
         part_number: u16,
+        peer_id: String,
         max_blocks: usize,
         block_size: u64,
         reply: oneshot::Sender<Result<Vec<BlockRange>>>,
     },
     MarkBlockReceived {
         part_number: u16,
+        peer_id: String,
         block: BlockRange,
         reply: oneshot::Sender<Result<DownloadSummary>>,
     },
     MarkBlockFailed {
         part_number: u16,
+        peer_id: String,
         block: BlockRange,
         reason: String,
+        reply: oneshot::Sender<Result<DownloadSummary>>,
+    },
+    PeerDisconnected {
+        peer_id: String,
+        reply: oneshot::Sender<Result<usize>>,
+    },
+    IngestInboundPacket {
+        part_number: u16,
+        peer_id: String,
+        packet: InboundPacket,
         reply: oneshot::Sender<Result<DownloadSummary>>,
     },
     Shutdown {
@@ -219,10 +240,22 @@ impl DownloadServiceHandle {
         max_blocks: usize,
         block_size: u64,
     ) -> Result<Vec<BlockRange>> {
+        self.reserve_blocks_for_peer(part_number, "local".to_string(), max_blocks, block_size)
+            .await
+    }
+
+    pub async fn reserve_blocks_for_peer(
+        &self,
+        part_number: u16,
+        peer_id: String,
+        max_blocks: usize,
+        block_size: u64,
+    ) -> Result<Vec<BlockRange>> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(DownloadCommand::ReserveBlocks {
                 part_number,
+                peer_id,
                 max_blocks,
                 block_size,
                 reply: tx,
@@ -237,10 +270,21 @@ impl DownloadServiceHandle {
         part_number: u16,
         block: BlockRange,
     ) -> Result<DownloadSummary> {
+        self.mark_block_received_by_peer(part_number, "local".to_string(), block)
+            .await
+    }
+
+    pub async fn mark_block_received_by_peer(
+        &self,
+        part_number: u16,
+        peer_id: String,
+        block: BlockRange,
+    ) -> Result<DownloadSummary> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(DownloadCommand::MarkBlockReceived {
                 part_number,
+                peer_id,
                 block,
                 reply: tx,
             })
@@ -255,12 +299,52 @@ impl DownloadServiceHandle {
         block: BlockRange,
         reason: String,
     ) -> Result<DownloadSummary> {
+        self.mark_block_failed_by_peer(part_number, "local".to_string(), block, reason)
+            .await
+    }
+
+    pub async fn mark_block_failed_by_peer(
+        &self,
+        part_number: u16,
+        peer_id: String,
+        block: BlockRange,
+        reason: String,
+    ) -> Result<DownloadSummary> {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(DownloadCommand::MarkBlockFailed {
                 part_number,
+                peer_id,
                 block,
                 reason,
+                reply: tx,
+            })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)?
+    }
+
+    pub async fn peer_disconnected(&self, peer_id: String) -> Result<usize> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::PeerDisconnected { peer_id, reply: tx })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)?
+    }
+
+    pub async fn ingest_inbound_packet(
+        &self,
+        part_number: u16,
+        peer_id: String,
+        packet: InboundPacket,
+    ) -> Result<DownloadSummary> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::IngestInboundPacket {
+                part_number,
+                peer_id,
+                packet,
                 reply: tx,
             })
             .await
@@ -305,6 +389,12 @@ impl DownloadServiceHandle {
                         let _ = reply.send(Err(DownloadError::ChannelClosed));
                     }
                     DownloadCommand::MarkBlockFailed { reply, .. } => {
+                        let _ = reply.send(Err(DownloadError::ChannelClosed));
+                    }
+                    DownloadCommand::PeerDisconnected { reply, .. } => {
+                        let _ = reply.send(Err(DownloadError::ChannelClosed));
+                    }
+                    DownloadCommand::IngestInboundPacket { reply, .. } => {
                         let _ = reply.send(Err(DownloadError::ChannelClosed));
                     }
                     DownloadCommand::Shutdown { reply } => {
@@ -389,104 +479,131 @@ async fn run_service(
                 met_path: r.met_path,
                 part_path: r.part_path,
                 met,
+                leases: Vec::new(),
             },
         );
     }
     let recovered_on_start = downloads.len();
+    let mut timeout_tick = tokio::time::interval(Duration::from_secs(1));
+    timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-    while let Some(cmd) = rx.recv().await {
-        match cmd {
-            DownloadCommand::Ping { reply } => {
-                let _ = reply.send(());
+    loop {
+        tokio::select! {
+            _ = timeout_tick.tick() => {
+                let changed = process_timeouts(&mut downloads).await?;
+                if changed {
+                    publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                }
             }
-            DownloadCommand::RecoveredCount { reply } => {
-                let _ = reply.send(recovered_on_start);
-            }
-            DownloadCommand::CreateDownload { req, reply } => {
-                let result = create_download(&mut downloads, &download_dir, req).await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::Pause { part_number, reply } => {
-                let result = set_state(
-                    &mut downloads,
-                    part_number,
-                    PartState::Paused,
-                    &[PartState::Queued, PartState::Downloading],
-                )
-                .await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::Resume { part_number, reply } => {
-                let result = set_state(
-                    &mut downloads,
-                    part_number,
-                    PartState::Queued,
-                    &[PartState::Paused],
-                )
-                .await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::Cancel { part_number, reply } => {
-                let result = set_state(
-                    &mut downloads,
-                    part_number,
-                    PartState::Cancelled,
-                    &[PartState::Queued, PartState::Paused, PartState::Downloading],
-                )
-                .await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::Delete { part_number, reply } => {
-                let result = delete_download(&mut downloads, part_number).await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::List { reply } => {
-                let _ = reply.send(list_summaries(&downloads));
-            }
-            DownloadCommand::ReserveBlocks {
-                part_number,
-                max_blocks,
-                block_size,
-                reply,
-            } => {
-                let result =
-                    reserve_blocks(&mut downloads, part_number, max_blocks, block_size).await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::MarkBlockReceived {
-                part_number,
-                block,
-                reply,
-            } => {
-                let result = mark_block_received(&mut downloads, part_number, block).await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::MarkBlockFailed {
-                part_number,
-                block,
-                reason,
-                reply,
-            } => {
-                let result = mark_block_failed(&mut downloads, part_number, block, reason).await;
-                publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
-                let _ = reply.send(result);
-            }
-            DownloadCommand::Shutdown { reply } => {
-                let _ = reply.send(());
-                let _ = status_tx.send(DownloadServiceStatus {
-                    running: false,
-                    queue_len: downloads.len(),
-                    recovered_on_start,
-                    started_at,
-                });
-                return Ok(());
+            cmd = rx.recv() => {
+                let Some(cmd) = cmd else { break; };
+                match cmd {
+                    DownloadCommand::Ping { reply } => {
+                        let _ = reply.send(());
+                    }
+                    DownloadCommand::RecoveredCount { reply } => {
+                        let _ = reply.send(recovered_on_start);
+                    }
+                    DownloadCommand::CreateDownload { req, reply } => {
+                        let result = create_download(&mut downloads, &download_dir, req).await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::Pause { part_number, reply } => {
+                        let result = set_state(
+                            &mut downloads,
+                            part_number,
+                            PartState::Paused,
+                            &[PartState::Queued, PartState::Downloading],
+                        )
+                        .await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::Resume { part_number, reply } => {
+                        let result = set_state(
+                            &mut downloads,
+                            part_number,
+                            PartState::Queued,
+                            &[PartState::Paused],
+                        )
+                        .await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::Cancel { part_number, reply } => {
+                        let result = set_state(
+                            &mut downloads,
+                            part_number,
+                            PartState::Cancelled,
+                            &[PartState::Queued, PartState::Paused, PartState::Downloading],
+                        )
+                        .await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::Delete { part_number, reply } => {
+                        let result = delete_download(&mut downloads, part_number).await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::List { reply } => {
+                        let _ = reply.send(list_summaries(&downloads));
+                    }
+                    DownloadCommand::ReserveBlocks {
+                        part_number,
+                        peer_id,
+                        max_blocks,
+                        block_size,
+                        reply,
+                    } => {
+                        let result =
+                            reserve_blocks(&mut downloads, part_number, peer_id, max_blocks, block_size).await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::MarkBlockReceived {
+                        part_number,
+                        peer_id,
+                        block,
+                        reply,
+                    } => {
+                        let result = mark_block_received(&mut downloads, part_number, &peer_id, block).await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::MarkBlockFailed {
+                        part_number,
+                        peer_id,
+                        block,
+                        reason,
+                        reply,
+                    } => {
+                        let result = mark_block_failed(&mut downloads, part_number, &peer_id, block, reason).await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::PeerDisconnected { peer_id, reply } => {
+                        let result = peer_disconnected(&mut downloads, &peer_id).await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::IngestInboundPacket { part_number, peer_id, packet, reply } => {
+                        let result = ingest_inbound_packet(&mut downloads, part_number, &peer_id, packet).await;
+                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        let _ = reply.send(result);
+                    }
+                    DownloadCommand::Shutdown { reply } => {
+                        let _ = reply.send(());
+                        let _ = status_tx.send(DownloadServiceStatus {
+                            running: false,
+                            queue_len: downloads.len(),
+                            recovered_on_start,
+                            started_at,
+                        });
+                        return Ok(());
+                    }
+                }
             }
         }
     }
@@ -505,6 +622,14 @@ struct ManagedDownload {
     met_path: PathBuf,
     part_path: PathBuf,
     met: PartMet,
+    leases: Vec<InflightLease>,
+}
+
+#[derive(Debug, Clone)]
+struct InflightLease {
+    range: BlockRange,
+    peer_id: String,
+    deadline: Instant,
 }
 
 fn list_summaries(
@@ -607,6 +732,7 @@ async fn create_download(
             met_path,
             part_path,
             met: met.clone(),
+            leases: Vec::new(),
         },
     );
     Ok(summary_from_download(
@@ -640,6 +766,7 @@ async fn set_state(
 async fn reserve_blocks(
     downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
     part_number: u16,
+    peer_id: String,
     max_blocks: usize,
     block_size: u64,
 ) -> Result<Vec<BlockRange>> {
@@ -667,6 +794,7 @@ async fn reserve_blocks(
     }
 
     let mut out = Vec::new();
+    let deadline = Instant::now() + INFLIGHT_LEASE_TIMEOUT;
     for _ in 0..max_blocks {
         let Some(first) = d.met.missing_ranges.first().copied() else {
             break;
@@ -681,6 +809,11 @@ async fn reserve_blocks(
         d.met.inflight_ranges.push(ByteRange {
             start: block.start,
             end: block.end,
+        });
+        d.leases.push(InflightLease {
+            range: block,
+            peer_id: peer_id.clone(),
+            deadline,
         });
         out.push(block);
     }
@@ -697,11 +830,17 @@ async fn reserve_blocks(
 async fn mark_block_received(
     downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
     part_number: u16,
+    peer_id: &str,
     block: BlockRange,
 ) -> Result<DownloadSummary> {
     let d = downloads
         .get_mut(&part_number)
         .ok_or(DownloadError::NotFound(part_number))?;
+    if !release_lease(d, peer_id, block) {
+        return Err(DownloadError::InvalidInput(
+            "block is not leased by this peer".to_string(),
+        ));
+    }
     remove_inflight(&mut d.met.inflight_ranges, block.start, block.end);
 
     d.met.downloaded_bytes = d
@@ -722,12 +861,18 @@ async fn mark_block_received(
 async fn mark_block_failed(
     downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
     part_number: u16,
+    peer_id: &str,
     block: BlockRange,
     reason: String,
 ) -> Result<DownloadSummary> {
     let d = downloads
         .get_mut(&part_number)
         .ok_or(DownloadError::NotFound(part_number))?;
+    if !release_lease(d, peer_id, block) {
+        return Err(DownloadError::InvalidInput(
+            "block is not leased by this peer".to_string(),
+        ));
+    }
     remove_inflight(&mut d.met.inflight_ranges, block.start, block.end);
     d.met.missing_ranges.push(ByteRange {
         start: block.start,
@@ -748,6 +893,155 @@ async fn mark_block_failed(
     d.met.updated_unix_secs = now_secs();
     save_part_met(&d.met_path, &d.met).await?;
     Ok(summary_from_download(d))
+}
+
+async fn peer_disconnected(
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
+    peer_id: &str,
+) -> Result<usize> {
+    let mut reclaimed = 0usize;
+    for d in downloads.values_mut() {
+        let mut changed = false;
+        let mut i = 0usize;
+        while i < d.leases.len() {
+            if d.leases[i].peer_id == peer_id {
+                let lease = d.leases.remove(i);
+                reclaimed = reclaimed.saturating_add(1);
+                remove_inflight(
+                    &mut d.met.inflight_ranges,
+                    lease.range.start,
+                    lease.range.end,
+                );
+                d.met.missing_ranges.push(ByteRange {
+                    start: lease.range.start,
+                    end: lease.range.end,
+                });
+                changed = true;
+            } else {
+                i += 1;
+            }
+        }
+        if changed {
+            merge_ranges(&mut d.met.missing_ranges);
+            d.met.retry_count = d.met.retry_count.saturating_add(1);
+            d.met.last_error = Some(format!("peer disconnected: {peer_id}"));
+            if d.met.state == PartState::Downloading {
+                d.met.state = PartState::Queued;
+            }
+            d.met.downloaded_bytes = d
+                .met
+                .file_size
+                .saturating_sub(total_missing(&d.met.missing_ranges));
+            d.met.updated_unix_secs = now_secs();
+            save_part_met(&d.met_path, &d.met).await?;
+        }
+    }
+    Ok(reclaimed)
+}
+
+async fn process_timeouts(
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
+) -> Result<bool> {
+    let now = Instant::now();
+    let mut changed_any = false;
+    for d in downloads.values_mut() {
+        let mut changed = false;
+        let mut i = 0usize;
+        while i < d.leases.len() {
+            if d.leases[i].deadline <= now {
+                let lease = d.leases.remove(i);
+                remove_inflight(
+                    &mut d.met.inflight_ranges,
+                    lease.range.start,
+                    lease.range.end,
+                );
+                d.met.missing_ranges.push(ByteRange {
+                    start: lease.range.start,
+                    end: lease.range.end,
+                });
+                changed = true;
+            } else {
+                i += 1;
+            }
+        }
+        if changed {
+            merge_ranges(&mut d.met.missing_ranges);
+            d.met.retry_count = d.met.retry_count.saturating_add(1);
+            d.met.last_error = Some("block timeout".to_string());
+            if d.met.state == PartState::Downloading {
+                d.met.state = PartState::Queued;
+            }
+            d.met.downloaded_bytes = d
+                .met
+                .file_size
+                .saturating_sub(total_missing(&d.met.missing_ranges));
+            d.met.updated_unix_secs = now_secs();
+            save_part_met(&d.met_path, &d.met).await?;
+            changed_any = true;
+        }
+    }
+    Ok(changed_any)
+}
+
+async fn ingest_inbound_packet(
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
+    part_number: u16,
+    peer_id: &str,
+    packet: InboundPacket,
+) -> Result<DownloadSummary> {
+    let d = downloads
+        .get(&part_number)
+        .ok_or(DownloadError::NotFound(part_number))?;
+    let expected_hash = parse_hex_hash(&d.met.file_hash_md4_hex)?;
+
+    let block = match packet.opcode {
+        protocol::OP_SENDINGPART => {
+            let p = protocol::decode_sendingpart_payload(&packet.payload).map_err(|e| {
+                DownloadError::InvalidInput(format!("invalid sendingpart payload: {e}"))
+            })?;
+            if p.file_hash != expected_hash {
+                return Err(DownloadError::InvalidInput(
+                    "sendingpart file hash mismatch".to_string(),
+                ));
+            }
+            BlockRange {
+                start: p.start,
+                end: p.end_exclusive - 1,
+            }
+        }
+        protocol::OP_COMPRESSEDPART => {
+            let p = protocol::decode_compressedpart_payload(&packet.payload).map_err(|e| {
+                DownloadError::InvalidInput(format!("invalid compressedpart payload: {e}"))
+            })?;
+            if p.file_hash != expected_hash {
+                return Err(DownloadError::InvalidInput(
+                    "compressedpart file hash mismatch".to_string(),
+                ));
+            }
+            if p.unpacked_len == 0 {
+                return Err(DownloadError::InvalidInput(
+                    "compressedpart unpacked_len must be > 0".to_string(),
+                ));
+            }
+            let end = p
+                .start
+                .checked_add(u64::from(p.unpacked_len))
+                .and_then(|v| v.checked_sub(1))
+                .ok_or_else(|| {
+                    DownloadError::InvalidInput("compressedpart range overflow".to_string())
+                })?;
+            BlockRange {
+                start: p.start,
+                end,
+            }
+        }
+        other => {
+            return Err(DownloadError::InvalidInput(format!(
+                "unsupported inbound opcode 0x{other:02x}"
+            )));
+        }
+    };
+    mark_block_received(downloads, part_number, peer_id, block).await
 }
 
 async fn delete_download(
@@ -856,6 +1150,35 @@ fn remove_inflight(inflight: &mut Vec<ByteRange>, start: u64, end: u64) {
     {
         inflight.remove(idx);
     }
+}
+
+fn release_lease(d: &mut ManagedDownload, peer_id: &str, block: BlockRange) -> bool {
+    if let Some(idx) = d
+        .leases
+        .iter()
+        .position(|l| l.peer_id == peer_id && l.range == block)
+    {
+        d.leases.remove(idx);
+        true
+    } else {
+        false
+    }
+}
+
+fn parse_hex_hash(s: &str) -> Result<[u8; 16]> {
+    if s.len() != 32 {
+        return Err(DownloadError::InvalidInput(
+            "file hash must be 32 hex chars".to_string(),
+        ));
+    }
+    let mut out = [0u8; 16];
+    for (idx, chunk) in s.as_bytes().chunks_exact(2).enumerate() {
+        let pair = std::str::from_utf8(chunk)
+            .map_err(|_| DownloadError::InvalidInput("file hash must be valid hex".to_string()))?;
+        out[idx] = u8::from_str_radix(pair, 16)
+            .map_err(|_| DownloadError::InvalidInput("file hash must be valid hex".to_string()))?;
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -1106,5 +1429,100 @@ mod tests {
         handle2.shutdown().await.expect("shutdown2");
         join2.await.expect("join2").expect("svc2");
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn peer_disconnected_reclaims_only_that_peers_leases() {
+        let root = temp_dir("peer-drop");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "peer.bin".to_string(),
+                file_size: 600,
+                file_hash_md4_hex: "11111111111111111111111111111111".to_string(),
+            })
+            .await
+            .expect("create");
+
+        let a = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 100)
+            .await
+            .expect("reserve a");
+        let b = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-b".to_string(), 1, 100)
+            .await
+            .expect("reserve b");
+        assert_eq!(a.len(), 1);
+        assert_eq!(b.len(), 1);
+
+        let reclaimed = handle
+            .peer_disconnected("peer-a".to_string())
+            .await
+            .expect("disconnect");
+        assert_eq!(reclaimed, 1);
+
+        let list = handle.list().await.expect("list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].inflight_ranges, 1);
+        assert_eq!(list[0].retry_count, 1);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn ingest_sendingpart_marks_reserved_block_received() {
+        let root = temp_dir("ingest");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "ingest.bin".to_string(),
+                file_size: 256,
+                file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
+            })
+            .await
+            .expect("create");
+        let reserved = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 64)
+            .await
+            .expect("reserve");
+        assert_eq!(reserved.len(), 1);
+        let block = reserved[0];
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&hex_hash("0123456789abcdef0123456789abcdef"));
+        payload.extend_from_slice(&block.start.to_le_bytes());
+        payload.extend_from_slice(&(block.end + 1).to_le_bytes());
+        payload.extend_from_slice(&vec![0xAA; (block.end - block.start + 1) as usize]);
+
+        let got = handle
+            .ingest_inbound_packet(
+                d.part_number,
+                "peer-a".to_string(),
+                InboundPacket {
+                    opcode: protocol::OP_SENDINGPART,
+                    payload,
+                },
+            )
+            .await
+            .expect("ingest");
+        assert_eq!(got.inflight_ranges, 0);
+        assert!(got.progress_pct > 0);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn hex_hash(input: &str) -> [u8; 16] {
+        let mut out = [0u8; 16];
+        for (idx, chunk) in input.as_bytes().chunks_exact(2).enumerate() {
+            let pair = std::str::from_utf8(chunk).expect("utf8");
+            out[idx] = u8::from_str_radix(pair, 16).expect("hex");
+        }
+        out
     }
 }
