@@ -8,6 +8,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Cleaned soak status PID reporting on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh`:
+    - `stop_nodes` now removes `logs/a.pid` and `logs/b.pid` after stop.
+    - `status` now reports node PID liveness (`alive=1|0`) when pid files exist.
+  - `scripts/test/README.md` updated to document stale-PID cleanup behavior.
+- Decisions:
+  - Prefer clearing pid files at stop to avoid false confidence in stale process IDs.
+- Next steps:
+  - Run quick `start -> status -> stop -> status` check and confirm node pid lines disappear after stop.
+  - Proceed with baseline/tuned soak comparison runs.
+- Change log: Soak status output no longer keeps stale node PID files after stop.
+
 - Status: Hardened soak `stop` reliability and failure cleanup on `feature/download-strategy-imule`:
   - `scripts/test/source_probe_soak_bg.sh`:
     - added `kill_pid_gracefully` (TERM + KILL fallback with result logging)

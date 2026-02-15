@@ -242,12 +242,17 @@ start_nodes() {
 }
 
 stop_nodes() {
+  local a_pid b_pid
+  a_pid="$(cat "$LOG_DIR/a.pid" 2>/dev/null || true)"
+  b_pid="$(cat "$LOG_DIR/b.pid" 2>/dev/null || true)"
+
   if [[ -f "$LOG_DIR/a.pid" ]]; then
-    kill_pid_gracefully "$(cat "$LOG_DIR/a.pid")" "node A"
+    kill_pid_gracefully "$a_pid" "node A"
   fi
   if [[ -f "$LOG_DIR/b.pid" ]]; then
-    kill_pid_gracefully "$(cat "$LOG_DIR/b.pid")" "node B"
+    kill_pid_gracefully "$b_pid" "node B"
   fi
+  rm -f "$LOG_DIR/a.pid" "$LOG_DIR/b.pid"
   log "node stop requested"
 }
 
@@ -451,10 +456,22 @@ status_runner() {
     echo "runner_state=$(cat "$RUNNER_STATE_FILE")"
   fi
   if [[ -f "$LOG_DIR/a.pid" ]]; then
-    echo "node_a_pid=$(cat "$LOG_DIR/a.pid")"
+    local a_pid
+    a_pid="$(cat "$LOG_DIR/a.pid")"
+    if is_pid_alive "$a_pid"; then
+      echo "node_a_pid=$a_pid alive=1"
+    else
+      echo "node_a_pid=$a_pid alive=0"
+    fi
   fi
   if [[ -f "$LOG_DIR/b.pid" ]]; then
-    echo "node_b_pid=$(cat "$LOG_DIR/b.pid")"
+    local b_pid
+    b_pid="$(cat "$LOG_DIR/b.pid")"
+    if is_pid_alive "$b_pid"; then
+      echo "node_b_pid=$b_pid alive=1"
+    else
+      echo "node_b_pid=$b_pid alive=0"
+    fi
   fi
 }
 
