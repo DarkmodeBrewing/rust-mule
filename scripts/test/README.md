@@ -25,6 +25,8 @@ Safety behavior:
 - Fails fast on repeated readiness `403` responses (likely token mismatch against an old process).
 - Verifies spawned node PIDs are running from the expected per-run directories.
 - `stop` also attempts to kill `rust-mule` listeners bound to `A_URL`/`B_URL` ports if PID files are stale.
+- `stop` also scans `/proc` for soak-owned processes whose cwd/cmdline points into the current `RUN_ROOT` and force-stops them.
+- Startup/readiness failures now mark runner state as `failed` and run cleanup immediately.
 
 Defaults:
 - binaries: `../../mule-a/rust-mule` and `../../mule-b/rust-mule`

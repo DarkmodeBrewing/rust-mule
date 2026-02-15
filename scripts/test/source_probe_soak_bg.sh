@@ -74,6 +74,43 @@ is_pid_alive() {
   kill -0 "$pid" 2>/dev/null
 }
 
+kill_pid_gracefully() {
+  local pid="$1"
+  local label="$2"
+  [[ -n "$pid" ]] || return 0
+  [[ -d "/proc/$pid" ]] || return 0
+
+  kill "$pid" 2>/dev/null || true
+  sleep 1
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    log "WARN: failed to kill $label pid=$pid"
+    return 1
+  fi
+  log "killed $label pid=$pid"
+}
+
+is_soak_node_pid() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  [[ -d "/proc/$pid" ]] || return 1
+
+  local cmdline cwd root_abs
+  cmdline="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+  cwd="$(readlink -f "/proc/$pid/cwd" 2>/dev/null || true)"
+  root_abs="$(readlink -f "$RUN_ROOT" 2>/dev/null || echo "$RUN_ROOT")"
+
+  if [[ "$cwd" == "$root_abs"* ]]; then
+    return 0
+  fi
+  if [[ "$cmdline" == *"$A_DIR"* || "$cmdline" == *"$B_DIR"* || "$cmdline" == *"$root_abs"* ]]; then
+    return 0
+  fi
+  return 1
+}
+
 configure_b_instance() {
   sed -i 's/session_name = "rust-mule-b"/session_name = "rust-mule-b-soak"/' "$B_DIR/config.toml" || true
   sed -i 's/forward_port = 40000/forward_port = 40001/' "$B_DIR/config.toml" || true
@@ -160,15 +197,9 @@ kill_pid_if_rust_mule() {
   local pid="$1"
   [[ -n "$pid" ]] || return 0
   [[ -d "/proc/$pid" ]] || return 0
-  local cmdline
-  cmdline="$(tr '\0' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
-  if [[ "$cmdline" == *"rust-mule"* ]]; then
-    kill "$pid" 2>/dev/null || true
-    sleep 1
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -9 "$pid" 2>/dev/null || true
-    fi
-    log "killed rust-mule listener pid=$pid"
+
+  if is_soak_node_pid "$pid"; then
+    kill_pid_gracefully "$pid" "soak listener"
   fi
 }
 
@@ -211,9 +242,27 @@ start_nodes() {
 }
 
 stop_nodes() {
-  [[ -f "$LOG_DIR/a.pid" ]] && kill "$(cat "$LOG_DIR/a.pid")" 2>/dev/null || true
-  [[ -f "$LOG_DIR/b.pid" ]] && kill "$(cat "$LOG_DIR/b.pid")" 2>/dev/null || true
+  if [[ -f "$LOG_DIR/a.pid" ]]; then
+    kill_pid_gracefully "$(cat "$LOG_DIR/a.pid")" "node A"
+  fi
+  if [[ -f "$LOG_DIR/b.pid" ]]; then
+    kill_pid_gracefully "$(cat "$LOG_DIR/b.pid")" "node B"
+  fi
   log "node stop requested"
+}
+
+stop_run_root_nodes() {
+  if [[ ! -d /proc ]]; then
+    return 0
+  fi
+
+  local pid
+  for proc_dir in /proc/[0-9]*; do
+    pid="${proc_dir##*/}"
+    if is_soak_node_pid "$pid"; then
+      kill_pid_gracefully "$pid" "soak process"
+    fi
+  done
 }
 
 wait_ready() {
@@ -327,8 +376,18 @@ run_foreground() {
   deadline="$(( $(ts_epoch) + duration_secs ))"
   log "soak-start duration_secs=$duration_secs deadline_epoch=$deadline"
 
-  start_nodes
-  wait_ready
+  if ! start_nodes; then
+    log "ERROR: failed to start nodes"
+    echo "failed" >"$RUNNER_STATE_FILE"
+    cleanup_runner
+    exit 1
+  fi
+  if ! wait_ready; then
+    log "ERROR: nodes failed readiness checks"
+    echo "failed" >"$RUNNER_STATE_FILE"
+    cleanup_runner
+    exit 1
+  fi
 
   round=0
   while true; do
@@ -417,6 +476,7 @@ stop_runner() {
   fi
 
   stop_nodes
+  stop_run_root_nodes
   stop_port_listeners
   echo "stopped" >"$RUNNER_STATE_FILE"
   log "runner stop requested"

@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened soak `stop` reliability and failure cleanup on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh`:
+    - added `kill_pid_gracefully` (TERM + KILL fallback with result logging)
+    - upgraded `stop_nodes` to use graceful escalation, not single-shot `kill`
+    - added `stop_run_root_nodes` fallback scan over `/proc` to terminate soak-owned processes tied to current `RUN_ROOT`
+    - tightened ownership matching to cwd/cmdline rooted in current `RUN_ROOT` (avoids killing unrelated local processes)
+    - startup/readiness failure now sets `runner.state=failed` and runs cleanup immediately.
+  - `scripts/test/README.md` updated with the stronger stop/cleanup behavior.
+- Decisions:
+  - Prioritize deterministic cleanup of soak-owned processes over PID-file-only teardown.
+  - Keep process kill scope constrained to the active `RUN_ROOT`.
+- Next steps:
+  - Re-run `start -> stop -> status` smoke to verify no listeners remain on `A_URL`/`B_URL` after stop.
+  - Resume baseline vs miss-recheck comparison soak once stop behavior is confirmed.
+- Change log: Soak stop path now aggressively reaps RUN_ROOT-owned processes and failed starts no longer leave stale running state.
+
 - Status: Added optional miss recheck pass in timed background soak harness on `feature/download-strategy-imule`:
   - `scripts/test/source_probe_soak_bg.sh` now supports:
     - `MISS_RECHECK_ATTEMPTS` (default `1`)
