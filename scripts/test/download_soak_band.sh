@@ -43,7 +43,16 @@ require_file() {
 status_field() {
   local output="$1"
   local key="$2"
-  echo "$output" | awk -F '=' -v k="$key" '$1==k {print $2}' | tail -n 1
+  echo "$output" \
+    | awk -v k="$key" '
+        $0 ~ ("^" k "=") {
+          line=$0
+          sub("^" k "=", "", line)
+          split(line, a, " ")
+          print a[1]
+        }
+      ' \
+    | tail -n 1
 }
 
 wait_for_runner() {

@@ -8,6 +8,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed in-band download soak status parsing bug on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_band.sh` now parses `status=running pid=...` lines correctly.
+  - Previous behavior treated `running pid` as non-running and advanced scenarios immediately.
+- Decisions:
+  - Parse only the first token value for `status`/`runner_state` lines.
+- Next steps:
+  - Re-run `download_soak_band.sh` and confirm each scenario blocks for intended duration unless stopped/fails.
+- Change log: Band runner no longer short-circuits after first poll.
+
 - Status: Added in-band download soak orchestrator on `feature/download-strategy-imule`:
   - New script: `scripts/test/download_soak_band.sh`
     - runs download soak scenarios sequentially:
