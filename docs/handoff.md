@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added in-band download soak orchestrator on `feature/download-strategy-imule`:
+  - New script: `scripts/test/download_soak_band.sh`
+    - runs download soak scenarios sequentially:
+      1. `integrity` (default 3600s)
+      2. `single_e2e` (default 3600s)
+      3. `concurrency` (default 7200s)
+      4. `long_churn` (default 7200s)
+    - polls runner status, forces stop on timeout, and collects tarball for each scenario
+    - copies collected tarballs + writes `results.tsv` and `status.tsv` under `OUT_DIR`
+  - `scripts/test/README.md` updated with one-command in-band run instructions and overrides.
+- Decisions:
+  - Keep orchestrator shell-native and reuse existing per-scenario wrappers rather than duplicating scenario logic.
+  - Preserve scenario isolation by running each with its own existing scenario run root and collect step.
+- Next steps:
+  - Run `download_soak_band.sh` after current source soak and share generated `OUT_DIR` + tarballs for triage.
+  - If needed, add a companion triage script for `results.tsv` + per-scenario tar summaries.
+- Change log: Added a one-command sequential download soak runner with automatic stop/collect.
+
 - Status: Added download soak scaffolding and execution plan on `feature/download-strategy-imule`:
   - New generic runner: `scripts/test/download_soak_bg.sh`
     - background lifecycle: `start/run/status/stop/collect`

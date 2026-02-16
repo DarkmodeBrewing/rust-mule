@@ -10,6 +10,7 @@ Scenario and soak test scripts.
 - `download_soak_long_churn_bg.sh`: long churn lifecycle soak wrapper.
 - `download_soak_integrity_bg.sh`: API invariant/integrity soak wrapper.
 - `download_soak_concurrency_bg.sh`: concurrent queue pressure soak wrapper.
+- `download_soak_band.sh`: sequential runner that executes all four download soaks in one command and auto-collects tarballs.
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## Timed Background Soak
@@ -119,3 +120,23 @@ Pass signals:
 Stop any scenario early:
 - `bash scripts/test/download_soak_<scenario>_bg.sh stop`
   - where `<scenario>` is `single_e2e`, `long_churn`, `integrity`, or `concurrency`.
+
+## Download Soak In-Band Runner
+
+Run all four download scenarios sequentially with automatic status polling, stop, and collect:
+
+- `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_soak_band.sh`
+
+Outputs:
+- per-scenario tarballs copied into `OUT_DIR` (default `/tmp/rust-mule-download-soak-band-<timestamp>`)
+- `results.tsv` with final state/result per scenario
+- `status.tsv` with polling snapshots
+
+Optional overrides:
+- `OUT_DIR=/tmp/my-band`
+- `INTEGRITY_SECS=3600`
+- `SINGLE_E2E_SECS=3600`
+- `CONCURRENCY_SECS=7200`
+- `LONG_CHURN_SECS=7200`
+- `CONCURRENCY_TARGET=20`
+- `CHURN_MAX_QUEUE=25`
