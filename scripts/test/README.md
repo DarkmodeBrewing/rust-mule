@@ -127,6 +127,9 @@ Run all four download scenarios sequentially with automatic status polling, stop
 
 - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_soak_band.sh`
 
+Precondition:
+- rust-mule API must already be running at `BASE_URL` (`/api/v1/health` must return `200`).
+
 Outputs:
 - per-scenario tarballs copied into `OUT_DIR` (default `/tmp/rust-mule-download-soak-band-<timestamp>`)
 - `results.tsv` with final state/result per scenario

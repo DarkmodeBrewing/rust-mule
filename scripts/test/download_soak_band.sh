@@ -40,6 +40,15 @@ require_file() {
   }
 }
 
+require_api_reachable() {
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/health" || true)"
+  if [[ "$code" != "200" ]]; then
+    echo "ERROR: API is not reachable at $BASE_URL (health code=$code). Start rust-mule first." >&2
+    exit 1
+  fi
+}
+
 status_field() {
   local output="$1"
   local key="$2"
@@ -128,6 +137,7 @@ main() {
   : >"$OUT_DIR/status.tsv"
 
   require_file "$TOKEN_FILE"
+  require_api_reachable
   require_file "$SCRIPT_DIR/download_soak_integrity_bg.sh"
   require_file "$SCRIPT_DIR/download_soak_single_e2e_bg.sh"
   require_file "$SCRIPT_DIR/download_soak_concurrency_bg.sh"

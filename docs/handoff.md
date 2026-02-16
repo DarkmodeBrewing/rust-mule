@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened download band-runner preflight and state handling on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_band.sh` now preflights API reachability (`GET /api/v1/health == 200`) and aborts early with a clear message if rust-mule is not running.
+  - `scripts/test/download_soak_bg.sh` `stop` no longer overwrites terminal `failed/completed` state with `stopped`.
+  - `scripts/test/README.md` now documents API-running precondition for band runs.
+- Decisions:
+  - Prefer fast-fail precondition checks over delayed per-scenario readiness timeouts when API is down.
+  - Preserve terminal runner state for accurate post-run interpretation.
+- Next steps:
+  - Re-run `download_soak_band.sh` with rust-mule running and token present, then triage collected tarballs.
+- Change log: Band runs now fail fast when API is offline and keep accurate scenario terminal states.
+
 - Status: Fixed in-band download soak status parsing bug on `feature/download-strategy-imule`:
   - `scripts/test/download_soak_band.sh` now parses `status=running pid=...` lines correctly.
   - Previous behavior treated `running pid` as non-running and advanced scenarios immediately.

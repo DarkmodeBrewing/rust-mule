@@ -429,7 +429,11 @@ stop_runner() {
     fi
     rm -f "$RUNNER_PID_FILE"
   fi
-  echo "stopped" >"$RUNNER_STATE_FILE"
+  local current_state
+  current_state="$(cat "$RUNNER_STATE_FILE" 2>/dev/null || true)"
+  if [[ "$current_state" != "failed" && "$current_state" != "completed" ]]; then
+    echo "stopped" >"$RUNNER_STATE_FILE"
+  fi
   log "runner stop requested scenario=$SCENARIO"
 }
 
