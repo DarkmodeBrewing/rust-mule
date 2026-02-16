@@ -177,3 +177,7 @@ Common overrides:
 - `SINGLE_E2E_SECS=3600`
 - `CONCURRENCY_SECS=7200`
 - `LONG_CHURN_SECS=7200`
+
+Troubleshooting:
+- If status is `failed` immediately, inspect `/tmp/rust-mule-download-stack/logs/stack.out`.
+- The stack runner now attempts to add `~/.cargo/bin` to `PATH` automatically when `cargo` is not found.

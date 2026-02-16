@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed download stack runner false-running behavior on `feature/download-strategy-imule`:
+  - Root cause observed in logs: background shell could not find `cargo` (`cargo: command not found`), causing early exit before build/stage.
+  - `scripts/test/download_soak_stack_bg.sh` now:
+    - bootstraps PATH with `~/.cargo/bin` when needed
+    - handles build failures explicitly (`runner.state=failed`, cleanup, pid removal)
+    - validates runner process remains alive right after `start` and reports immediate-exit failure.
+  - `scripts/test/README.md` troubleshooting updated (`stack.out` path and cargo PATH note).
+- Decisions:
+  - Prefer explicit failure state over stale/running ambiguity when background bootstrap fails.
+- Next steps:
+  - Re-run `download_soak_stack_bg.sh start`; verify build and run-dir staging occur and status transitions correctly.
+- Change log: Stack runner now fails fast/cleanly on missing cargo or early runner death.
+
 - Status: Added full background download soak pipeline runner on `feature/download-strategy-imule`:
   - New script: `scripts/test/download_soak_stack_bg.sh` with `start|run|status|stop|collect`.
   - It now performs end-to-end automation:

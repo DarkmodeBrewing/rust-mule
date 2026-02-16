@@ -62,6 +62,15 @@ RUNNER_STDOUT_FILE="$LOG_DIR/stack.out"
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
 
+ensure_toolchain_path() {
+  if command -v cargo >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
+}
+
 ensure_dirs() {
   mkdir -p "$CONTROL_DIR" "$LOG_DIR"
 }
@@ -158,6 +167,7 @@ start_app() {
 
 run_foreground() {
   ensure_dirs
+  ensure_toolchain_path
   : >"$RUNNER_LOG_FILE"
   echo "running" >"$RUNNER_STATE_FILE"
   rm -f "$STOP_FILE"
@@ -165,7 +175,13 @@ run_foreground() {
   trap 'log "runner interrupted"; echo "stopped" >"$RUNNER_STATE_FILE"; cleanup_children; rm -f "$RUNNER_PID_FILE"; exit 0' INT TERM
 
   log "build-start cmd=$BUILD_CMD"
-  (cd "$ROOT" && bash -lc "$BUILD_CMD")
+  if ! (cd "$ROOT" && bash -lc "$BUILD_CMD"); then
+    log "ERROR: build failed cmd=$BUILD_CMD"
+    echo "failed" >"$RUNNER_STATE_FILE"
+    cleanup_children
+    rm -f "$RUNNER_PID_FILE"
+    exit 1
+  fi
   if [[ ! -x "$(binary_path)" ]]; then
     log "ERROR: built binary not found at $(binary_path)"
     echo "failed" >"$RUNNER_STATE_FILE"
@@ -221,6 +237,7 @@ run_foreground() {
 
 start_background() {
   ensure_dirs
+  ensure_toolchain_path
   if [[ -f "$RUNNER_PID_FILE" ]]; then
     local pid
     pid="$(cat "$RUNNER_PID_FILE")"
@@ -234,7 +251,16 @@ start_background() {
   nohup bash -lc "cd '$ROOT' && ROOT='$ROOT' STACK_ROOT='$STACK_ROOT' RUN_DIR='$RUN_DIR' API_PORT='$API_PORT' SAM_HOST='$SAM_HOST' SAM_PORT='$SAM_PORT' LOG_LEVEL='$LOG_LEVEL' BUILD_PROFILE='$BUILD_PROFILE' BUILD_CMD='$BUILD_CMD' HEALTH_TIMEOUT_SECS='$HEALTH_TIMEOUT_SECS' POLL_SECS='$POLL_SECS' INTEGRITY_SECS='${INTEGRITY_SECS:-3600}' SINGLE_E2E_SECS='${SINGLE_E2E_SECS:-3600}' CONCURRENCY_SECS='${CONCURRENCY_SECS:-7200}' LONG_CHURN_SECS='${LONG_CHURN_SECS:-7200}' CONCURRENCY_TARGET='${CONCURRENCY_TARGET:-20}' CHURN_MAX_QUEUE='${CHURN_MAX_QUEUE:-25}' '$0' run" >"$RUNNER_STDOUT_FILE" 2>&1 &
   echo $! >"$RUNNER_PID_FILE"
   echo "$RUN_DIR" >"$RUN_DIR_FILE"
-  log "stack-runner-started pid=$(cat "$RUNNER_PID_FILE") run_dir=$RUN_DIR"
+  local pid
+  pid="$(cat "$RUNNER_PID_FILE")"
+  sleep 1
+  if ! is_pid_alive "$pid"; then
+    echo "failed" >"$RUNNER_STATE_FILE"
+    log "ERROR: stack runner exited immediately pid=$pid (see $RUNNER_STDOUT_FILE)"
+    rm -f "$RUNNER_PID_FILE"
+    return 1
+  fi
+  log "stack-runner-started pid=$pid run_dir=$RUN_DIR"
 }
 
 status_runner() {
