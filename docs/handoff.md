@@ -8,6 +8,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed download band wait/result logic for stale PID races on `feature/download-strategy-imule`:
+  - Analysis from `/tmp/rust-mule-download-stack-20260216_140814.tar.gz` showed scenarios being advanced when `status=stale_pid` but `runner_state=running`.
+  - `scripts/test/download_soak_band.sh` now:
+    - treats terminal states strictly via `runner_state in {completed, failed, stopped}`
+    - keeps waiting while `runner_state=running` (even if `status=stale_pid`)
+    - maps final `results.tsv` outcome from terminal state (`completed|failed|stopped|running_after_wait|unknown`).
+- Decisions:
+  - Trust explicit runner state over transient status pid interpretation.
+- Next steps:
+  - Re-run stack/band soak and verify concurrency/long_churn no longer short-circuit after first poll.
+- Change log: Band runner no longer treats `stale_pid + running` as finished.
+
 - Status: Fixed stack runner build shell context on `feature/download-strategy-imule`:
   - Root cause: build command was executed via nested `bash -lc`, which lost the PATH bootstrap and still could not find `cargo`.
   - `scripts/test/download_soak_stack_bg.sh` now executes build command in current shell context (`eval "$BUILD_CMD"` in repo dir), preserving PATH/toolchain setup.

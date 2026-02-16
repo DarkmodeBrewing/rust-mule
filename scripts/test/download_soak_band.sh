@@ -80,13 +80,24 @@ wait_for_runner() {
     log "scenario=$scenario poll status=${status_value:-unknown} state=${state_value:-unknown}"
     printf '%s\t%s\t%s\t%s\n' "$(ts)" "$scenario" "${status_value:-unknown}" "${state_value:-unknown}" >>"$OUT_DIR/status.tsv"
 
-    if [[ "$status_value" != "running" ]]; then
+    if [[ "$state_value" == "completed" || "$state_value" == "failed" || "$state_value" == "stopped" ]]; then
       return 0
     fi
 
     if (( now >= deadline )); then
       log "scenario=$scenario timeout waiting for completion; forcing stop"
       "$wrapper" stop >/dev/null 2>&1 || true
+      return 0
+    fi
+
+    # While runner state is still "running", tolerate transient status parser/runtime
+    # mismatches (e.g. stale pid file races) and keep waiting.
+    if [[ "$state_value" == "running" ]]; then
+      sleep "$POLL_SECS"
+      continue
+    fi
+
+    if [[ "$status_value" == "not_running" || "$status_value" == "stale_pid" ]]; then
       return 0
     fi
     sleep "$POLL_SECS"
@@ -101,7 +112,7 @@ run_one() {
   local extra_env=("$@")
 
   local tarball status_out state_value result
-  result="completed"
+  result="unknown"
 
   log "scenario=$scenario start duration_secs=$duration"
   env BASE_URL="$BASE_URL" TOKEN_FILE="$TOKEN_FILE" "${extra_env[@]}" "$wrapper" start "$duration"
@@ -123,9 +134,13 @@ run_one() {
     result="collect_failed"
   fi
 
-  if [[ "$state_value" == "failed" ]]; then
-    result="failed"
-  fi
+  case "${state_value:-unknown}" in
+  completed) result="completed" ;;
+  failed) result="failed" ;;
+  stopped) result="stopped" ;;
+  running) result="running_after_wait" ;;
+  *) result="unknown" ;;
+  esac
 
   printf '%s\t%s\t%s\t%s\t%s\n' \
     "$(ts)" "$scenario" "$duration" "${state_value:-unknown}" "$result" >>"$OUT_DIR/results.tsv"
