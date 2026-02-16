@@ -8,6 +8,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed stack runner build shell context on `feature/download-strategy-imule`:
+  - Root cause: build command was executed via nested `bash -lc`, which lost the PATH bootstrap and still could not find `cargo`.
+  - `scripts/test/download_soak_stack_bg.sh` now executes build command in current shell context (`eval "$BUILD_CMD"` in repo dir), preserving PATH/toolchain setup.
+- Decisions:
+  - Avoid nested login-shell build execution in stack runner.
+- Next steps:
+  - Re-run `download_soak_stack_bg.sh start` and confirm build begins and run directory stages.
+- Change log: Stack runner build step now honors PATH bootstrap reliably.
+
 - Status: Fixed download stack runner false-running behavior on `feature/download-strategy-imule`:
   - Root cause observed in logs: background shell could not find `cargo` (`cargo: command not found`), causing early exit before build/stage.
   - `scripts/test/download_soak_stack_bg.sh` now:

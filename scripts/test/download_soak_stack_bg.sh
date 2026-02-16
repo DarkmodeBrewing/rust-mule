@@ -175,7 +175,8 @@ run_foreground() {
   trap 'log "runner interrupted"; echo "stopped" >"$RUNNER_STATE_FILE"; cleanup_children; rm -f "$RUNNER_PID_FILE"; exit 0' INT TERM
 
   log "build-start cmd=$BUILD_CMD"
-  if ! (cd "$ROOT" && bash -lc "$BUILD_CMD"); then
+  # Run build in current shell context so PATH/toolchain bootstrap is preserved.
+  if ! (cd "$ROOT" && eval "$BUILD_CMD"); then
     log "ERROR: build failed cmd=$BUILD_CMD"
     echo "failed" >"$RUNNER_STATE_FILE"
     cleanup_children
