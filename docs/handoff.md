@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Updated soak identity/session handling on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh` now:
+    - generates unique per-run SAM session names for A/B using `RUN_TAG`
+    - supports `SOAK_RUN_TAG` override for deterministic debug runs
+    - defaults to `SOAK_FRESH_IDENTITY=1`, removing copied `data/sam.keys` so each run gets fresh I2P destinations
+  - `scripts/test/README.md` updated with new identity/session controls.
+- Decisions:
+  - Keep fresh identity default enabled to avoid duplicate-destination registration when previous sessions linger.
+  - Keep opt-out (`SOAK_FRESH_IDENTITY=0`) for controlled continuity tests.
+- Next steps:
+  - Restart soak with defaults and confirm no duplicate destination registration warnings from I2P router logs.
+  - Continue soak comparison with `MISS_RECHECK_ATTEMPTS=0` once stable baseline resumes.
+- Change log: Soak runs now isolate SAM identities and session names by default.
+
 - Status: Cleaned soak status PID reporting on `feature/download-strategy-imule`:
   - `scripts/test/source_probe_soak_bg.sh`:
     - `stop_nodes` now removes `logs/a.pid` and `logs/b.pid` after stop.

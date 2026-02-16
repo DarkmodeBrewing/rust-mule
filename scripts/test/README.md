@@ -28,16 +28,20 @@ Safety behavior:
 - `stop` also scans `/proc` for soak-owned processes whose cwd/cmdline points into the current `RUN_ROOT` and force-stops them.
 - Startup/readiness failures now mark runner state as `failed` and run cleanup immediately.
 - `stop` clears `logs/a.pid` and `logs/b.pid` so `status` does not report stale node pid files.
+- Each run now writes unique SAM `session_name` values for A/B (`rust-mule-a-soak-<tag>`, `rust-mule-b-soak-<tag>`).
+- By default, copied `data/sam.keys` are removed per run (`SOAK_FRESH_IDENTITY=1`) so each soak run gets a fresh destination identity.
 
 Defaults:
 - binaries: `../../mule-a/rust-mule` and `../../mule-b/rust-mule`
 - run root: `/tmp/rust-mule-soak-bg`
 - API URLs: `127.0.0.1:17835` and `127.0.0.1:17836`
 - miss recheck: `MISS_RECHECK_ATTEMPTS=1`, `MISS_RECHECK_DELAY=20`
+- identity: `SOAK_FRESH_IDENTITY=1` (set to `0` to reuse copied `sam.keys`)
 - detached runner stdout/stderr: `/tmp/rust-mule-soak-bg/logs/runner.out`
 
 Override via env vars, for example:
 - `A_SRC=/dist/mule-a B_SRC=/dist/mule-b RUN_ROOT=/tmp/my-soak bash scripts/test/source_probe_soak_bg.sh start 7200`
+- `SOAK_FRESH_IDENTITY=0 SOAK_RUN_TAG=manual-debug bash scripts/test/source_probe_soak_bg.sh start 3600`
 
 Miss recheck behavior:
 - After each round's first `GET /api/v1/kad/sources/:file_id_hex` miss, the runner can recheck before classifying a miss.

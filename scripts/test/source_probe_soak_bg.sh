@@ -22,6 +22,8 @@ set -euo pipefail
 #   WAIT_BETWEEN=5
 #   MISS_RECHECK_ATTEMPTS=1
 #   MISS_RECHECK_DELAY=20
+#   SOAK_FRESH_IDENTITY=1
+#   SOAK_RUN_TAG=custom-tag
 #   READY_TIMEOUT_SECS=1200
 
 ROOT="${ROOT:-$PWD}"
@@ -40,7 +42,11 @@ WAIT_SEARCH="${WAIT_SEARCH:-20}"
 WAIT_BETWEEN="${WAIT_BETWEEN:-5}"
 MISS_RECHECK_ATTEMPTS="${MISS_RECHECK_ATTEMPTS:-1}"
 MISS_RECHECK_DELAY="${MISS_RECHECK_DELAY:-20}"
+SOAK_FRESH_IDENTITY="${SOAK_FRESH_IDENTITY:-1}"
 READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-1200}"
+RUN_TAG="${SOAK_RUN_TAG:-}"
+SESSION_A=""
+SESSION_B=""
 
 RUNNER_PID_FILE="$RUN_ROOT/runner.pid"
 RUNNER_LOG_FILE="$LOG_DIR/runner.log"
@@ -67,6 +73,14 @@ url_port() {
 
 ensure_dirs() {
   mkdir -p "$RUN_ROOT" "$LOG_DIR"
+}
+
+init_run_identity() {
+  if [[ -z "$RUN_TAG" ]]; then
+    RUN_TAG="$(date +%Y%m%d%H%M%S)-$$"
+  fi
+  SESSION_A="rust-mule-a-soak-${RUN_TAG}"
+  SESSION_B="rust-mule-b-soak-${RUN_TAG}"
 }
 
 is_pid_alive() {
@@ -112,13 +126,14 @@ is_soak_node_pid() {
 }
 
 configure_b_instance() {
-  sed -i 's/session_name = "rust-mule-b"/session_name = "rust-mule-b-soak"/' "$B_DIR/config.toml" || true
+  sed -i -E "s#^session_name = .*#session_name = \"$SESSION_B\"#" "$B_DIR/config.toml" || true
   sed -i 's/forward_port = 40000/forward_port = 40001/' "$B_DIR/config.toml" || true
   sed -i 's/udp_port = 4665/udp_port = 4666/' "$B_DIR/config.toml" || true
   sed -i "s/port = 17835/port = $(url_port "$B_URL")/" "$B_DIR/config.toml" || true
 }
 
 configure_a_instance() {
+  sed -i -E "s#^session_name = .*#session_name = \"$SESSION_A\"#" "$A_DIR/config.toml" || true
   sed -i "s/port = 17835/port = $(url_port "$A_URL")/" "$A_DIR/config.toml" || true
 }
 
@@ -215,6 +230,7 @@ stop_port_listeners() {
 
 start_nodes() {
   ensure_ports_available
+  init_run_identity
 
   rm -rf "$A_DIR" "$B_DIR"
   cp -a "$A_SRC" "$A_DIR"
@@ -224,7 +240,12 @@ start_nodes() {
   configure_b_instance
 
   rm -f "$A_DIR/data/rust-mule.lock" "$B_DIR/data/rust-mule.lock"
+  if [[ "$SOAK_FRESH_IDENTITY" == "1" ]]; then
+    rm -f "$A_DIR/data/sam.keys" "$B_DIR/data/sam.keys"
+  fi
   mkdir -p "$A_DIR/data/logs" "$B_DIR/data/logs"
+
+  log "run-tag=$RUN_TAG session_a=$SESSION_A session_b=$SESSION_B fresh_identity=$SOAK_FRESH_IDENTITY"
 
   (cd "$A_DIR" && nohup ./rust-mule >"$LOG_DIR/a.out" 2>&1 & echo $! >"$LOG_DIR/a.pid")
   (cd "$B_DIR" && nohup ./rust-mule >"$LOG_DIR/b.out" 2>&1 & echo $! >"$LOG_DIR/b.pid")
