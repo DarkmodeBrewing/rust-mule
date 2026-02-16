@@ -11,6 +11,7 @@ Scenario and soak test scripts.
 - `download_soak_integrity_bg.sh`: API invariant/integrity soak wrapper.
 - `download_soak_concurrency_bg.sh`: concurrent queue pressure soak wrapper.
 - `download_soak_band.sh`: sequential runner that executes all four download soaks in one command and auto-collects tarballs.
+- `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## Timed Background Soak
@@ -143,3 +144,36 @@ Optional overrides:
 - `LONG_CHURN_SECS=7200`
 - `CONCURRENCY_TARGET=20`
 - `CHURN_MAX_QUEUE=25`
+
+## Full Background Pipeline (Build + Run + Soak)
+
+Use this when you want one command to:
+1. build latest rust-mule
+2. stage run dir in `/tmp/rustmule-run-<timestamp>`
+3. write run-specific `config.toml`
+4. start rust-mule
+5. health-check and wait for `data/api.token`
+6. run `download_soak_band.sh`
+
+Start:
+- `bash scripts/test/download_soak_stack_bg.sh start`
+
+Status:
+- `bash scripts/test/download_soak_stack_bg.sh status`
+
+Stop:
+- `bash scripts/test/download_soak_stack_bg.sh stop`
+
+Collect:
+- `bash scripts/test/download_soak_stack_bg.sh collect`
+
+Common overrides:
+- `API_PORT=17835`
+- `SAM_HOST=10.99.0.2`
+- `SAM_PORT=7656`
+- `LOG_LEVEL=info`
+- `BUILD_CMD='cargo build --release'`
+- `INTEGRITY_SECS=3600`
+- `SINGLE_E2E_SECS=3600`
+- `CONCURRENCY_SECS=7200`
+- `LONG_CHURN_SECS=7200`

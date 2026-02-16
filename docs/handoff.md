@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added full background download soak pipeline runner on `feature/download-strategy-imule`:
+  - New script: `scripts/test/download_soak_stack_bg.sh` with `start|run|status|stop|collect`.
+  - It now performs end-to-end automation:
+    - builds latest sources (`BUILD_CMD`, default `cargo build --release`)
+    - stages isolated run dir (`/tmp/rustmule-run-<timestamp>`)
+    - writes run-specific `config.toml` (section-aware updates for `[sam]`, `[general]`, `[api]`)
+    - starts rust-mule from staged dir and waits for health + token
+    - runs `download_soak_band.sh` with forwarded soak parameters
+    - supports post-run tarball collection.
+  - `scripts/test/README.md` updated with full pipeline usage and env overrides.
+- Decisions:
+  - Keep app lifecycle isolated per run directory for reproducible soak artifacts.
+  - Keep orchestration shell-native and reuse existing `download_soak_band.sh` logic.
+- Next steps:
+  - Execute `download_soak_stack_bg.sh start`, monitor `status`, and collect the resulting stack tarball for triage.
+- Change log: Added one-command background build+run+download-soak pipeline.
+
 - Status: Hardened download band-runner preflight and state handling on `feature/download-strategy-imule`:
   - `scripts/test/download_soak_band.sh` now preflights API reachability (`GET /api/v1/health == 200`) and aborts early with a clear message if rust-mule is not running.
   - `scripts/test/download_soak_bg.sh` `stop` no longer overwrites terminal `failed/completed` state with `stopped`.
