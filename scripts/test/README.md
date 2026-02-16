@@ -5,6 +5,11 @@ Scenario and soak test scripts.
 - `two_instance_dht_selftest.sh`: two-instance publish/search/source flow checks.
 - `rust_mule_soak.sh`: long-running soak runner scaffold.
 - `source_probe_soak_bg.sh`: timed background soak runner with PID/status/stop controls.
+- `download_soak_bg.sh`: generic timed background soak runner for download API scenarios.
+- `download_soak_single_e2e_bg.sh`: single-download lifecycle soak wrapper.
+- `download_soak_long_churn_bg.sh`: long churn lifecycle soak wrapper.
+- `download_soak_integrity_bg.sh`: API invariant/integrity soak wrapper.
+- `download_soak_concurrency_bg.sh`: concurrent queue pressure soak wrapper.
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## Timed Background Soak
@@ -48,3 +53,69 @@ Miss recheck behavior:
 - Tune with:
   - `MISS_RECHECK_ATTEMPTS` (how many additional polls to run after first miss)
   - `MISS_RECHECK_DELAY` (seconds between additional polls)
+
+## Download Soak Plan (Run After Current Source Soak Completes)
+
+These scripts target the current download API/control-plane behavior (`/api/v1/downloads` and pause/resume/cancel/delete actions).
+
+Pre-check:
+- Ensure one node API is reachable and token file is valid.
+- Defaults:
+  - `BASE_URL=http://127.0.0.1:17835`
+  - `TOKEN_FILE=data/api.token`
+
+### 1) Single File E2E Lifecycle Soak
+
+- Start:
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_soak_single_e2e_bg.sh start 3600`
+- Status:
+  - `bash scripts/test/download_soak_single_e2e_bg.sh status`
+- Collect:
+  - `bash scripts/test/download_soak_single_e2e_bg.sh collect`
+
+Pass signals:
+- Runner state ends `completed`.
+- No repeated API hard failures in `logs/runner.log`.
+
+### 2) Long Churn Soak
+
+- Start:
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token CHURN_MAX_QUEUE=25 bash scripts/test/download_soak_long_churn_bg.sh start 7200`
+- Status:
+  - `bash scripts/test/download_soak_long_churn_bg.sh status`
+- Collect:
+  - `bash scripts/test/download_soak_long_churn_bg.sh collect`
+
+Pass signals:
+- Runner state ends `completed`.
+- Queue remains bounded by churn cleanup logic (no unbounded growth).
+
+### 3) Integrity/Invariants Soak
+
+- Start:
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_soak_integrity_bg.sh start 3600`
+- Status:
+  - `bash scripts/test/download_soak_integrity_bg.sh status`
+- Collect:
+  - `bash scripts/test/download_soak_integrity_bg.sh collect`
+
+Pass signals:
+- Runner state ends `completed` (not `failed`).
+- No `ERROR: integrity_violations` or `ERROR: duplicate_part_numbers` in `logs/runner.log`.
+
+### 4) Concurrency Soak
+
+- Start:
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token CONCURRENCY_TARGET=20 bash scripts/test/download_soak_concurrency_bg.sh start 7200`
+- Status:
+  - `bash scripts/test/download_soak_concurrency_bg.sh status`
+- Collect:
+  - `bash scripts/test/download_soak_concurrency_bg.sh collect`
+
+Pass signals:
+- Runner state ends `completed`.
+- API continues to respond without repeated readiness/list failures under queue pressure.
+
+Stop any scenario early:
+- `bash scripts/test/download_soak_<scenario>_bg.sh stop`
+  - where `<scenario>` is `single_e2e`, `long_churn`, `integrity`, or `concurrency`.

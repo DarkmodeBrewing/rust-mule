@@ -8,6 +8,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added download soak scaffolding and execution plan on `feature/download-strategy-imule`:
+  - New generic runner: `scripts/test/download_soak_bg.sh`
+    - background lifecycle: `start/run/status/stop/collect`
+    - scenario switch via `SCENARIO=single_e2e|long_churn|integrity|concurrency`
+    - writes per-scenario logs/bundles under `/tmp/rust-mule-download-soak/<scenario>`.
+  - New scenario wrappers:
+    - `scripts/test/download_soak_single_e2e_bg.sh`
+    - `scripts/test/download_soak_long_churn_bg.sh`
+    - `scripts/test/download_soak_integrity_bg.sh`
+    - `scripts/test/download_soak_concurrency_bg.sh`
+  - Updated `scripts/test/README.md` with post-source-soak run order, commands, and pass signals.
+- Decisions:
+  - Keep download soak scope API/control-plane focused for now (queue lifecycle + invariants + pressure), matching currently implemented download functionality.
+  - Use scenario wrappers for simpler operator usage and isolated per-scenario run roots.
+- Next steps:
+  - After current source soak completes, run the four download soak scenarios in documented order.
+  - Collect tarballs and triage runner/list logs for invariant violations and queue-pressure regressions.
+- Change log: Added runnable download soak scripts and a concrete operator runbook.
+
 - Status: Updated soak identity/session handling on `feature/download-strategy-imule`:
   - `scripts/test/source_probe_soak_bg.sh` now:
     - generates unique per-run SAM session names for A/B using `RUN_TAG`
