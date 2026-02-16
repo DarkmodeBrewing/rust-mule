@@ -8,6 +8,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened stack `stop` teardown to avoid orphaned processes on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_stack_bg.sh` now:
+    - stops all per-scenario download soak runners before killing stack runner
+    - kills stack runner process group (TERM/KILL) instead of only top PID
+    - scans `/proc` and terminates remaining processes tied to current run dir (`cwd`/`cmdline` match)
+  - this addresses observed behavior where `stop` left `rust-mule` and soak helper processes alive.
+- Decisions:
+  - Prefer process-group and run-dir scoping for deterministic teardown.
+- Next steps:
+  - Re-run stack runner and verify `stop` leaves no matching processes (`pgrep -af rustmule-run-` returns none).
+- Change log: Stack stop now performs full tree + run-dir cleanup.
+
 - Status: Fixed download band wait/result logic for stale PID races on `feature/download-strategy-imule`:
   - Analysis from `/tmp/rust-mule-download-stack-20260216_140814.tar.gz` showed scenarios being advanced when `status=stale_pid` but `runner_state=running`.
   - `scripts/test/download_soak_band.sh` now:

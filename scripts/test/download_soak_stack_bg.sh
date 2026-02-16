@@ -100,6 +100,54 @@ stop_pid_if_alive() {
   fi
 }
 
+stop_process_group_if_alive() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 0
+  if ! is_pid_alive "$pid"; then
+    return 0
+  fi
+  local pgid
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+  if [[ -z "$pgid" ]]; then
+    stop_pid_if_alive "$pid"
+    return 0
+  fi
+
+  kill -TERM "-$pgid" 2>/dev/null || true
+  sleep 1
+  if is_pid_alive "$pid"; then
+    kill -KILL "-$pgid" 2>/dev/null || true
+  fi
+}
+
+stop_run_dir_processes() {
+  local run_dir="$1"
+  [[ -n "$run_dir" && -d "$run_dir" ]] || return 0
+
+  local proc pid cwd cmdline
+  for proc in /proc/[0-9]*; do
+    pid="${proc##*/}"
+    [[ -d "$proc" ]] || continue
+    cwd="$(readlink -f "$proc/cwd" 2>/dev/null || true)"
+    cmdline="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+    if [[ "$cwd" == "$run_dir"* || "$cmdline" == *"$run_dir"* ]]; then
+      stop_pid_if_alive "$pid"
+    fi
+  done
+}
+
+stop_download_soak_runners() {
+  local run_dir="$1"
+  [[ -n "$run_dir" && -d "$run_dir" ]] || return 0
+
+  local token_file
+  token_file="$run_dir/data/api.token"
+  BASE_URL="$BASE_URL" TOKEN_FILE="$token_file" "$SCRIPT_DIR/download_soak_integrity_bg.sh" stop >/dev/null 2>&1 || true
+  BASE_URL="$BASE_URL" TOKEN_FILE="$token_file" "$SCRIPT_DIR/download_soak_single_e2e_bg.sh" stop >/dev/null 2>&1 || true
+  BASE_URL="$BASE_URL" TOKEN_FILE="$token_file" "$SCRIPT_DIR/download_soak_concurrency_bg.sh" stop >/dev/null 2>&1 || true
+  BASE_URL="$BASE_URL" TOKEN_FILE="$token_file" "$SCRIPT_DIR/download_soak_long_churn_bg.sh" stop >/dev/null 2>&1 || true
+}
+
 cleanup_children() {
   local app_pid
   app_pid="$(cat "$APP_PID_FILE" 2>/dev/null || true)"
@@ -294,15 +342,20 @@ status_runner() {
 stop_runner() {
   ensure_dirs
   touch "$STOP_FILE"
+  local run_dir
+  run_dir="$(read_run_dir)"
+
+  stop_download_soak_runners "$run_dir"
 
   if [[ -f "$RUNNER_PID_FILE" ]]; then
     local pid
     pid="$(cat "$RUNNER_PID_FILE")"
-    stop_pid_if_alive "$pid"
+    stop_process_group_if_alive "$pid"
     rm -f "$RUNNER_PID_FILE"
   fi
 
   cleanup_children
+  stop_run_dir_processes "$run_dir"
   local current_state
   current_state="$(cat "$RUNNER_STATE_FILE" 2>/dev/null || true)"
   if [[ "$current_state" != "failed" && "$current_state" != "completed" ]]; then

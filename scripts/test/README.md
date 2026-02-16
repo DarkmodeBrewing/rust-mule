@@ -181,3 +181,4 @@ Common overrides:
 Troubleshooting:
 - If status is `failed` immediately, inspect `/tmp/rust-mule-download-stack/logs/stack.out`.
 - The stack runner now attempts to add `~/.cargo/bin` to `PATH` automatically when `cargo` is not found.
+- `stop` now kills the full stack process tree (runner group + per-scenario soak runners + run-dir processes) to avoid orphaned `rust-mule`/soak processes.
