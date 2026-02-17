@@ -8,6 +8,99 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed settings-shell logout button label mismatch in UI smoke on `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('button', { name: 'Logout Session' })` not found.
+  - Root cause:
+    - UI shell label is `Logout` across pages, not `Logout Session`.
+  - Fix:
+    - updated smoke assertion to `getByRole('button', { name: 'Logout' })`.
+- Decisions:
+  - Keep smoke selectors aligned to current visible labels in shared shell controls.
+- Next steps:
+  - Re-run `ui-smoke` and confirm settings-shell control assertions pass.
+- Change log: Smoke logout assertion now matches real shell label.
+
+- Status: Fixed search-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('button', { name: 'Search Keyword' })` not found on `/ui/search`.
+  - Root cause:
+    - search submit label is rendered via Alpine `x-text` (`Searching...`/`Search Keyword`), so role-name lookup can race reactive text.
+  - Fix:
+    - changed assertion to target search submit control structurally: `form button[type="submit"]`.
+- Decisions:
+  - Use structural selectors for Alpine-dynamic button labels in smoke tests.
+- Next steps:
+  - Re-run `ui-smoke` and verify search-page controls test passes reliably in CI.
+- Change log: Search smoke no longer depends on Alpine timing for submit button text.
+
+- Status: Fixed settings-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('button', { name: 'Save Settings' })` not found on `/ui/settings`.
+  - Root cause:
+    - submit label is rendered through Alpine `x-text`; accessible name can be absent before reactive text is applied.
+  - Fix:
+    - changed assertion to target the submit control structurally: `form button[type="submit"]`.
+- Decisions:
+  - Use stable structural selectors for controls whose labels are dynamically set at runtime.
+- Next steps:
+  - Re-run `ui-smoke` and verify settings-page controls test passes reliably in CI.
+- Change log: Settings smoke no longer depends on Alpine timing for submit button text.
+
+- Status: Fixed Node Stats UI smoke chart selectors on `feature/pages-cache-fix`:
+  - CI failure:
+    - `locator('#hitsChart')` not found in `/ui/node_stats`.
+  - Root cause:
+    - Node stats charts are rendered with Alpine refs (`x-ref`) and ARIA labels, not element IDs.
+  - Fix:
+    - updated `ui/tests/e2e/smoke.spec.mjs` to assert chart visibility via accessible labels:
+      - `Line chart showing search hits over time`
+      - `Line chart showing request and response rate over time`
+      - `Bar chart showing live and idle peer state mix over time`
+- Decisions:
+  - Prefer ARIA-label based locators for canvas-based chart controls to avoid brittle DOM/id coupling.
+- Next steps:
+  - Re-run `ui-smoke` in CI and confirm node stats test is stable.
+- Change log: Node stats smoke test no longer expects non-existent chart IDs.
+
+- Status: Fixed Playwright strict heading ambiguity on settings page in `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('heading', { name: 'Settings' })` matched both `h1 Settings` and `h2 Application Settings`.
+  - Fix:
+    - updated selector to `getByRole('heading', { level: 1, name: 'Settings' })`.
+- Decisions:
+  - Prefer explicit heading level in smoke selectors when pages include repeated heading text as prefixes.
+- Next steps:
+  - Re-run `ui-smoke` and verify the settings-page assertion no longer fails strict-mode resolution.
+- Change log: Settings smoke assertion now targets a unique heading.
+
+- Status: Synced UI smoke tests with current UI labels/IDs on `feature/pages-cache-fix`:
+  - Updated `ui/tests/e2e/smoke.spec.mjs` expectations to match current UI:
+    - heading `Search Overview` (was `Overview`)
+    - search page heading `Keyword Search` (was `Searches`)
+    - search field id `#keyword-id-hex` (was `#keywordIdHex`)
+    - search action button `Search Keyword` (was `Start Search`)
+    - node stats heading `Node Stats` (was `Nodes / Routing`)
+    - logs action button `Snapshot` (was `Refresh Snapshot`)
+- Decisions:
+  - Keep smoke assertions aligned to user-facing labels in current HTML, not historic wording.
+- Next steps:
+  - Re-run CI `ui-smoke` job to confirm selectors are now stable.
+- Change log: UI smoke selectors now match current UI shell and form controls.
+
+- Status: Fixed GitHub Pages Node setup cache path failure on `feature/pages-cache-fix`:
+  - Workflow error:
+    - `Error: Some specified paths were not resolved, unable to cache dependencies.`
+  - Root cause:
+    - `.github/workflows/pages.yml` configured `setup-node` npm cache with `cache-dependency-path: package-lock.json`, but repository does not commit a lockfile.
+  - Fix:
+    - removed lockfile-based npm cache settings from `setup-node`; keep only Node version setup.
+- Decisions:
+  - Prefer deterministic workflow success over npm cache optimization when lockfiles are intentionally absent.
+- Next steps:
+  - Re-run Pages workflow and confirm successful setup/install/build/deploy stages.
+- Change log: Pages workflow no longer fails during Node setup due to unresolved cache dependency path.
+
 - Status: Patched VitePress/GitHub Pages build resolution issue on `feature/docs-vitepress-build-fix`:
   - CI error observed:
     - `Rollup failed to resolve import "vue/server-renderer" from docs/API_DESIGN.md`
