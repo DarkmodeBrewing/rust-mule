@@ -11,6 +11,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [ ] Memory management
 - [ ] Timezone selection - for logging
 - [ ] Fuzzing
+- [ ] Ensure CI/CD build + release flow is fully tag-driven (triggered from Git tags with artifact publish and verification).
 - [ ] Naming refactor pass: replace `Imule*` type/module/function identifiers with neutral `Mule*` naming (or neutral equivalents) across codebase.
 - [ ] Comment text normalization: avoid explicit iMule/aMule/eMule wording in code comments; use compatibility-focused wording instead (keep protocol-compat details in docs/tests as needed).
 

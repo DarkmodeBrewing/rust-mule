@@ -8,6 +8,13 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added TODO note for tag-driven CI/CD build/release flow on `feature/download-strategy-imule`.
+- Decisions:
+  - Track Git-tag-triggered build/publish verification as an explicit backlog item.
+- Next steps:
+  - Confirm release workflow behavior from tag push through artifact publication and document gaps.
+- Change log: `docs/TODO.md` now includes tag-driven build/release automation verification.
+
 - Status: Added cross-cutting naming/comment refactor TODO notes on `feature/download-strategy-imule`:
   - `docs/TODO.md` now tracks:
     - `Imule*` -> neutral `Mule*`/neutral identifier rename pass
