@@ -13,6 +13,9 @@
 - implement typed download errors and persistence primitives first
 - keep KAD reliability tracking and UI/API contract checks updated as fields evolve
 - keep behavior-contract documentation authoritative for all network/protocol changes
+- add repo-wide naming/comment refactor task:
+  - replace `Imule*` identifiers with neutral `Mule*`/protocol-neutral naming
+  - normalize code comments to compatibility wording (avoid explicit iMule/aMule/eMule wording in code comments)
 
 ## Definition Of Done
 

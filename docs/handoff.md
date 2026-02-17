@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added cross-cutting naming/comment refactor TODO notes on `feature/download-strategy-imule`:
+  - `docs/TODO.md` now tracks:
+    - `Imule*` -> neutral `Mule*`/neutral identifier rename pass
+    - code-comment wording normalization to compatibility-focused language
+  - `docs/TASKS.md` scope now includes the same naming/comment normalization task.
+- Decisions:
+  - Keep explicit iMule/aMule/eMule wording for protocol reference documentation/tests where needed, but avoid it in production identifier names and code comments.
+- Next steps:
+  - Plan a repo-wide mechanical rename + comment wording sweep in bounded slices to minimize merge-risk.
+- Change log: TODO/TASKS now explicitly capture naming and comment normalization policy.
+
 - Status: Merged latest `main` into `feature/download-strategy-imule` to sync CI/docs/UI smoke and Pages workflow updates.
 - Decisions:
   - Kept branch-local soak/download handoff history as primary during `docs/handoff.md` conflict resolution.
