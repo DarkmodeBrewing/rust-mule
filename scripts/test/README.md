@@ -144,6 +144,8 @@ Optional overrides:
 - `LONG_CHURN_SECS=7200`
 - `CONCURRENCY_TARGET=20`
 - `CHURN_MAX_QUEUE=25`
+- `API_CONNECT_TIMEOUT_SECS=3`
+- `API_MAX_TIME_SECS=8`
 
 ## Full Background Pipeline (Build + Run + Soak)
 

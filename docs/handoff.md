@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added bounded API curl timeouts in download soak runner on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_bg.sh` now uses shared timeout env knobs on all API calls (GET/POST/DELETE + readiness status probe):
+    - `API_CONNECT_TIMEOUT_SECS` (default `3`)
+    - `API_MAX_TIME_SECS` (default `8`)
+  - `start` now forwards timeout env vars into detached `run` process so overrides are preserved.
+  - `scripts/test/README.md` updated with new optional overrides for in-band runner usage.
+- Decisions:
+  - Prevent indefinite round hangs by time-bounding all API curl calls in the scenario runner.
+  - Keep defaults conservative and operator-overridable for slower environments.
+- Next steps:
+  - Re-run stack/band soak and confirm scenarios keep progressing past round 1 without long `runner_state=running` stalls.
+  - If timeouts are too aggressive under load, tune via env or bump defaults.
+- Change log: Download soak API calls are now timeout-bounded and configurable.
+
 - Status: Hardened stack `stop` teardown to avoid orphaned processes on `feature/download-strategy-imule`:
   - `scripts/test/download_soak_stack_bg.sh` now:
     - stops all per-scenario download soak runners before killing stack runner

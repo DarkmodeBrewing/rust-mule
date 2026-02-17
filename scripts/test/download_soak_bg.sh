@@ -17,6 +17,8 @@ set -euo pipefail
 #   READY_TIMEOUT_SECS=180
 #   CONCURRENCY_TARGET=20
 #   CHURN_MAX_QUEUE=25
+#   API_CONNECT_TIMEOUT_SECS=3
+#   API_MAX_TIME_SECS=8
 
 SCENARIO="${SCENARIO:-}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:17835}"
@@ -26,6 +28,8 @@ WAIT_BETWEEN="${WAIT_BETWEEN:-5}"
 READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-180}"
 CONCURRENCY_TARGET="${CONCURRENCY_TARGET:-20}"
 CHURN_MAX_QUEUE="${CHURN_MAX_QUEUE:-25}"
+API_CONNECT_TIMEOUT_SECS="${API_CONNECT_TIMEOUT_SECS:-3}"
+API_MAX_TIME_SECS="${API_MAX_TIME_SECS:-8}"
 
 if [[ -z "$SCENARIO" ]]; then
   echo "ERROR: SCENARIO is required (single_e2e|long_churn|integrity|concurrency)" >&2
@@ -81,7 +85,11 @@ api_get() {
   local path="$1"
   local auth
   auth="$(auth_header)" || return 1
-  curl -sS -H "$auth" "$BASE_URL$path"
+  curl -sS \
+    --connect-timeout "$API_CONNECT_TIMEOUT_SECS" \
+    --max-time "$API_MAX_TIME_SECS" \
+    -H "$auth" \
+    "$BASE_URL$path"
 }
 
 api_post() {
@@ -89,14 +97,25 @@ api_post() {
   local json="${2:-{}}"
   local auth
   auth="$(auth_header)" || return 1
-  curl -sS -H "$auth" -H "content-type: application/json" -d "$json" "$BASE_URL$path"
+  curl -sS \
+    --connect-timeout "$API_CONNECT_TIMEOUT_SECS" \
+    --max-time "$API_MAX_TIME_SECS" \
+    -H "$auth" \
+    -H "content-type: application/json" \
+    -d "$json" \
+    "$BASE_URL$path"
 }
 
 api_delete() {
   local path="$1"
   local auth
   auth="$(auth_header)" || return 1
-  curl -sS -X DELETE -H "$auth" "$BASE_URL$path"
+  curl -sS \
+    --connect-timeout "$API_CONNECT_TIMEOUT_SECS" \
+    --max-time "$API_MAX_TIME_SECS" \
+    -X DELETE \
+    -H "$auth" \
+    "$BASE_URL$path"
 }
 
 downloads_list() {
@@ -146,7 +165,13 @@ wait_ready() {
       sleep 2
       continue
     }
-    code="$(curl -s -o /dev/null -w '%{http_code}' -H "$auth" "$BASE_URL/api/v1/status" || true)"
+    code="$(curl -s \
+      --connect-timeout "$API_CONNECT_TIMEOUT_SECS" \
+      --max-time "$API_MAX_TIME_SECS" \
+      -o /dev/null \
+      -w '%{http_code}' \
+      -H "$auth" \
+      "$BASE_URL/api/v1/status" || true)"
     log "ready-check elapsed=${elapsed}s status_code=$code"
     if [[ "$code" == "200" ]]; then
       return 0
@@ -391,7 +416,7 @@ start_background() {
     rm -f "$RUNNER_PID_FILE"
   fi
 
-  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
   echo $! >"$RUNNER_PID_FILE"
   log "runner started pid=$(cat "$RUNNER_PID_FILE") scenario=$SCENARIO duration_secs=$duration_secs"
 }
