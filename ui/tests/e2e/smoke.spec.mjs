@@ -28,9 +28,11 @@ test.describe('rust-mule ui smoke', () => {
     await ensureAuthenticated(page);
     await page.goto('/ui/node_stats');
     await expect(page.getByRole('heading', { name: 'Node Stats' })).toBeVisible();
-    await expect(page.locator('#hitsChart')).toBeVisible();
-    await expect(page.locator('#rateChart')).toBeVisible();
-    await expect(page.locator('#peersChart')).toBeVisible();
+    await expect(page.getByLabel('Line chart showing search hits over time')).toBeVisible();
+    await expect(
+      page.getByLabel('Line chart showing request and response rate over time'),
+    ).toBeVisible();
+    await expect(page.getByLabel('Bar chart showing live and idle peer state mix over time')).toBeVisible();
     await expect(page.getByRole('table')).toBeVisible();
   });
 

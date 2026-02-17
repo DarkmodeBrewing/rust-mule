@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed Node Stats UI smoke chart selectors on `feature/pages-cache-fix`:
+  - CI failure:
+    - `locator('#hitsChart')` not found in `/ui/node_stats`.
+  - Root cause:
+    - Node stats charts are rendered with Alpine refs (`x-ref`) and ARIA labels, not element IDs.
+  - Fix:
+    - updated `ui/tests/e2e/smoke.spec.mjs` to assert chart visibility via accessible labels:
+      - `Line chart showing search hits over time`
+      - `Line chart showing request and response rate over time`
+      - `Bar chart showing live and idle peer state mix over time`
+- Decisions:
+  - Prefer ARIA-label based locators for canvas-based chart controls to avoid brittle DOM/id coupling.
+- Next steps:
+  - Re-run `ui-smoke` in CI and confirm node stats test is stable.
+- Change log: Node stats smoke test no longer expects non-existent chart IDs.
+
 - Status: Fixed Playwright strict heading ambiguity on settings page in `feature/pages-cache-fix`:
   - CI failure:
     - `getByRole('heading', { name: 'Settings' })` matched both `h1 Settings` and `h2 Application Settings`.
