@@ -11,6 +11,7 @@ Use this as the entrypoint for project documentation.
 - `TASKS.md`: current prioritized execution plan.
 - `TODO.md`: normalized backlog by subsystem.
 - `handoff.md`: rolling implementation log and continuation notes.
+- `../site/`: VitePress configuration for docs-site builds.
 - `../scripts/docs/`: endpoint-focused API helper scripts.
 - `../scripts/test/`: scenario/soak test harness scripts.
 - `../scripts/build/`: platform build/release bundle scripts.
