@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed Playwright strict heading ambiguity on settings page in `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('heading', { name: 'Settings' })` matched both `h1 Settings` and `h2 Application Settings`.
+  - Fix:
+    - updated selector to `getByRole('heading', { level: 1, name: 'Settings' })`.
+- Decisions:
+  - Prefer explicit heading level in smoke selectors when pages include repeated heading text as prefixes.
+- Next steps:
+  - Re-run `ui-smoke` and verify the settings-page assertion no longer fails strict-mode resolution.
+- Change log: Settings smoke assertion now targets a unique heading.
+
 - Status: Synced UI smoke tests with current UI labels/IDs on `feature/pages-cache-fix`:
   - Updated `ui/tests/e2e/smoke.spec.mjs` expectations to match current UI:
     - heading `Search Overview` (was `Overview`)

@@ -41,7 +41,7 @@ test.describe('rust-mule ui smoke', () => {
     await expect(page.getByRole('button', { name: 'Snapshot' })).toBeVisible();
 
     await page.goto('/ui/settings');
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save Settings' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Rotate API Token' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Logout Session' })).toBeVisible();
