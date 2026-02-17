@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed settings-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('button', { name: 'Save Settings' })` not found on `/ui/settings`.
+  - Root cause:
+    - submit label is rendered through Alpine `x-text`; accessible name can be absent before reactive text is applied.
+  - Fix:
+    - changed assertion to target the submit control structurally: `form button[type="submit"]`.
+- Decisions:
+  - Use stable structural selectors for controls whose labels are dynamically set at runtime.
+- Next steps:
+  - Re-run `ui-smoke` and verify settings-page controls test passes reliably in CI.
+- Change log: Settings smoke no longer depends on Alpine timing for submit button text.
+
 - Status: Fixed Node Stats UI smoke chart selectors on `feature/pages-cache-fix`:
   - CI failure:
     - `locator('#hitsChart')` not found in `/ui/node_stats`.
