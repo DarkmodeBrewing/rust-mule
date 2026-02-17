@@ -8,6 +8,13 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Merged latest `main` into `feature/download-strategy-imule` to sync CI/docs/UI smoke and Pages workflow updates.
+- Decisions:
+  - Kept branch-local soak/download handoff history as primary during `docs/handoff.md` conflict resolution.
+- Next steps:
+  - Continue soak stabilization on top of synced branch baseline.
+- Change log: Branch now includes latest `main` changes as merge base.
+
 - Status: Fixed stack soak runner dependency on mutable repo script paths on `feature/download-strategy-imule`:
   - Failure analyzed from `/tmp/rust-mule-download-stack-20260217_170055.tar.gz`:
     - `concurrency` polling stayed `status=unknown state=unknown`

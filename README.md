@@ -76,6 +76,14 @@ Tag-driven release builds are automated in GitHub Actions:
 - Workflow `.github/workflows/release.yml` builds Linux/macOS/Windows bundles
 - Artifacts are attached to the GitHub Release for that tag
 
+Documentation site builds are automated in GitHub Actions:
+- Workflow `.github/workflows/pages.yml` builds and deploys VitePress to GitHub Pages on `main`.
+- VitePress config lives in `site/` and renders markdown from `docs/`.
+- Custom domain is set by `docs/public/CNAME` (`rust-mule.darkmode.tools`).
+- Local docs commands:
+  - `npm run docs:dev`
+  - `npm run docs:build`
+
 ## Quality Gates
 
 ```bash
@@ -127,6 +135,7 @@ Runtime state lives under `data/` (gitignored):
 - `docs/TODO.md`: normalized backlog by subsystem
 - `docs/TASKS.md`: current prioritized execution plan
 - `docs/handoff.md`: rolling status log for continuation between sessions
+- `site/`: VitePress configuration used by GitHub Pages builds
 
 ## Utility Scripts
 
