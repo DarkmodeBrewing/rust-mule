@@ -8,6 +8,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added MIT license file on `feature/docs-site-vitepress`:
+  - Added root `LICENSE` with standard MIT text.
+- Decisions:
+  - Use MIT as requested by project owner.
+- Next steps:
+  - Merge docs-site branch once Pages workflow/domain and license update are approved.
+- Change log: Repository now includes explicit MIT licensing text.
+
+- Status: Added GitHub Pages docs-site scaffolding on `feature/docs-site-vitepress`:
+  - Added VitePress project in `site/`:
+    - `site/package.json`
+    - `site/.vitepress/config.mts`
+  - Added docs site entrypoint and domain file:
+    - `docs/index.md`
+    - `docs/public/CNAME` (`rust-mule.darkmode.tools`)
+  - Added deployment workflow:
+    - `.github/workflows/pages.yml` builds VitePress on `main` and deploys to GitHub Pages.
+  - Updated docs references and ignores:
+    - `README.md`, `docs/README.md`, `.gitignore`.
+- Decisions:
+  - Use `site/` as the dedicated website config folder; keep markdown source canonical in `docs/`.
+  - Build/deploy static docs through GitHub Pages workflow instead of manual publish.
+- Next steps:
+  - Merge this branch and enable/verify Pages in repository settings (GitHub Actions source).
+  - Verify DNS/CNAME resolution for `rust-mule.darkmode.tools`.
+- Change log: Repo now includes an automated VitePress -> GitHub Pages pipeline for project documentation.
+
 - Status: Added UI smoke testing to CI on `main` push/PR via Playwright + mocked backend:
   - Updated `.github/workflows/ci.yml`:
     - new `ui-smoke` job on `ubuntu-latest` with Node 20

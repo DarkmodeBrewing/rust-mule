@@ -15,3 +15,6 @@
 /ui/node_modules
 /ui/test-results
 /ui/playwright-report
+/site/node_modules
+/docs/.vitepress/cache
+/docs/.vitepress/dist
