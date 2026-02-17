@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed GitHub Pages Node setup cache path failure on `feature/pages-cache-fix`:
+  - Workflow error:
+    - `Error: Some specified paths were not resolved, unable to cache dependencies.`
+  - Root cause:
+    - `.github/workflows/pages.yml` configured `setup-node` npm cache with `cache-dependency-path: package-lock.json`, but repository does not commit a lockfile.
+  - Fix:
+    - removed lockfile-based npm cache settings from `setup-node`; keep only Node version setup.
+- Decisions:
+  - Prefer deterministic workflow success over npm cache optimization when lockfiles are intentionally absent.
+- Next steps:
+  - Re-run Pages workflow and confirm successful setup/install/build/deploy stages.
+- Change log: Pages workflow no longer fails during Node setup due to unresolved cache dependency path.
+
 - Status: Patched VitePress/GitHub Pages build resolution issue on `feature/docs-vitepress-build-fix`:
   - CI error observed:
     - `Rollup failed to resolve import "vue/server-renderer" from docs/API_DESIGN.md`
