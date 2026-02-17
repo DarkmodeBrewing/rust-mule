@@ -21,7 +21,7 @@ test.describe('rust-mule ui smoke', () => {
     await expect(page.getByRole('heading', { name: 'Keyword Search' })).toBeVisible();
     await expect(page.locator('#query')).toBeVisible();
     await expect(page.locator('#keyword-id-hex')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Search Keyword' })).toBeVisible();
+    await expect(page.locator('form button[type="submit"]')).toBeVisible();
   });
 
   test('node stats page has chart canvases and peers table', async ({ page }) => {

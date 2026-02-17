@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed search-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('button', { name: 'Search Keyword' })` not found on `/ui/search`.
+  - Root cause:
+    - search submit label is rendered via Alpine `x-text` (`Searching...`/`Search Keyword`), so role-name lookup can race reactive text.
+  - Fix:
+    - changed assertion to target search submit control structurally: `form button[type="submit"]`.
+- Decisions:
+  - Use structural selectors for Alpine-dynamic button labels in smoke tests.
+- Next steps:
+  - Re-run `ui-smoke` and verify search-page controls test passes reliably in CI.
+- Change log: Search smoke no longer depends on Alpine timing for submit button text.
+
 - Status: Fixed settings-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
   - CI failure:
     - `getByRole('button', { name: 'Save Settings' })` not found on `/ui/settings`.
