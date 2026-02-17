@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Synced UI smoke tests with current UI labels/IDs on `feature/pages-cache-fix`:
+  - Updated `ui/tests/e2e/smoke.spec.mjs` expectations to match current UI:
+    - heading `Search Overview` (was `Overview`)
+    - search page heading `Keyword Search` (was `Searches`)
+    - search field id `#keyword-id-hex` (was `#keywordIdHex`)
+    - search action button `Search Keyword` (was `Start Search`)
+    - node stats heading `Node Stats` (was `Nodes / Routing`)
+    - logs action button `Snapshot` (was `Refresh Snapshot`)
+- Decisions:
+  - Keep smoke assertions aligned to user-facing labels in current HTML, not historic wording.
+- Next steps:
+  - Re-run CI `ui-smoke` job to confirm selectors are now stable.
+- Change log: UI smoke selectors now match current UI shell and form controls.
+
 - Status: Fixed GitHub Pages Node setup cache path failure on `feature/pages-cache-fix`:
   - Workflow error:
     - `Error: Some specified paths were not resolved, unable to cache dependencies.`
