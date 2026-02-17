@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed download soak long-churn round crash on `feature/download-strategy-imule`:
+  - Triage of `/tmp/rust-mule-download-stack-20260217_104554.tar.gz` showed:
+    - `concurrency` completed
+    - `long_churn` stuck as `status=stale_pid runner_state=running`
+    - no long_churn tarball/result row in band output
+  - Root cause from `/tmp/rust-mule-download-soak/long_churn/logs/runner.out`:
+    - `download_soak_bg.sh: line 230: round: unbound variable`
+  - Fix: assign `round="$1"` at start of `scenario_long_churn_round`.
+- Decisions:
+  - Keep `set -u`; patch all scenario entrypoints to bind function args explicitly.
+- Next steps:
+  - Re-run stack soak and verify long_churn now emits round ticks, terminal state, and collected tarball.
+  - Separately evaluate repeated integrity readiness `503` behavior (startup/warmup timing).
+- Change log: Long-churn scenario no longer crashes on unbound `round`.
+
 - Status: Synced documentation to new contract/checklist/timing policy and created deferred KAD/wire refactor task plan on `feature/download-strategy-imule`:
   - Added `docs/KAD_WIRE_REFACTOR_PLAN.md` with phased tasks (baseline, shaper, bypass removal, retry envelope, validation).
   - Updated `README.md` and `docs/README.md` to include:

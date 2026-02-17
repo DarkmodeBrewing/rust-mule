@@ -226,6 +226,7 @@ scenario_single_e2e_round() {
 scenario_long_churn_round() {
   local round part action queue_len
   local name size md4
+  round="$1"
 
   name="churn-${round}-$(rand_hex16).bin"
   size="$(( (RANDOM % 10000000) + 500000 ))"
