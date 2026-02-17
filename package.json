@@ -1,0 +1,13 @@
+{
+  "name": "rust-mule",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "docs:dev": "vitepress dev docs --config ./site/.vitepress",
+    "docs:build": "vitepress build docs --config ./site/.vitepress",
+    "docs:preview": "vitepress preview docs --config ./site/.vitepress"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4"
+  }
+}

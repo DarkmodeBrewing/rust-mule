@@ -80,6 +80,9 @@ Documentation site builds are automated in GitHub Actions:
 - Workflow `.github/workflows/pages.yml` builds and deploys VitePress to GitHub Pages on `main`.
 - VitePress config lives in `site/` and renders markdown from `docs/`.
 - Custom domain is set by `docs/public/CNAME` (`rust-mule.darkmode.tools`).
+- Local docs commands:
+  - `npm run docs:dev`
+  - `npm run docs:build`
 
 ## Quality Gates
 
