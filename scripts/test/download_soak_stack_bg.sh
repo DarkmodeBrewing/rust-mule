@@ -215,6 +215,7 @@ start_app() {
 }
 
 run_foreground() {
+  local staged_script_dir
   ensure_dirs
   ensure_toolchain_path
   : >"$RUNNER_LOG_FILE"
@@ -257,8 +258,14 @@ run_foreground() {
   local band_out_dir token_file band_exit=0
   token_file="$RUN_DIR/data/api.token"
   band_out_dir="$RUN_DIR/soak-band"
+  staged_script_dir="$RUN_DIR/soak-scripts"
   mkdir -p "$band_out_dir"
+  rm -rf "$staged_script_dir"
+  mkdir -p "$staged_script_dir"
+  cp -f "$SCRIPT_DIR"/download_soak_* "$staged_script_dir"/
+  chmod +x "$staged_script_dir"/download_soak_*
   log "band-start out_dir=$band_out_dir token_file=$token_file"
+  log "band-scripts-staged dir=$staged_script_dir"
 
   BASE_URL="$BASE_URL" \
     TOKEN_FILE="$token_file" \
@@ -269,7 +276,7 @@ run_foreground() {
     LONG_CHURN_SECS="${LONG_CHURN_SECS:-7200}" \
     CONCURRENCY_TARGET="${CONCURRENCY_TARGET:-20}" \
     CHURN_MAX_QUEUE="${CHURN_MAX_QUEUE:-25}" \
-    "$SCRIPT_DIR/download_soak_band.sh" || band_exit=$?
+    "$staged_script_dir/download_soak_band.sh" || band_exit=$?
 
   if (( band_exit != 0 )); then
     log "ERROR: band-run failed exit=$band_exit"

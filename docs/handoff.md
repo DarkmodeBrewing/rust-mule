@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed stack soak runner dependency on mutable repo script paths on `feature/download-strategy-imule`:
+  - Failure analyzed from `/tmp/rust-mule-download-stack-20260217_170055.tar.gz`:
+    - `concurrency` polling stayed `status=unknown state=unknown`
+    - terminal error in stack output:
+      - `env: '/home/coder/projects/rust-mule/scripts/test/download_soak_concurrency_bg.sh': No such file or directory`
+      - `ERROR: band-run failed exit=127`
+  - Root cause:
+    - long-running stack run invoked wrappers directly from working-tree `scripts/test`; if those files change/disappear (e.g. branch switch) mid-run, scenario status/collect commands fail.
+  - Fix:
+    - `scripts/test/download_soak_stack_bg.sh` now stages `download_soak_*` scripts into `$RUN_DIR/soak-scripts` at startup and executes the band runner from that staged immutable copy.
+- Decisions:
+  - Treat soak script set as run artifact; do not depend on mutable working tree during long background runs.
+- Next steps:
+  - Re-run stack soak and confirm all four scenarios write results rows and artifacts even if repo branch changes during execution.
+- Change log: Stack soak now uses per-run staged scripts and is resilient to working-tree churn.
+
 - Status: Fixed stack runner shell-recursion regression on `feature/download-strategy-imule`:
   - Root cause of `bash: warning: shell level (1000) too high` was accidental command text inserted at the top of `scripts/test/download_soak_stack_bg.sh` before the shebang.
   - Removed the stray lines so script starts directly with `#!/usr/bin/env bash`.
