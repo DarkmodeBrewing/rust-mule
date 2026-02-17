@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed settings-shell logout button label mismatch in UI smoke on `feature/pages-cache-fix`:
+  - CI failure:
+    - `getByRole('button', { name: 'Logout Session' })` not found.
+  - Root cause:
+    - UI shell label is `Logout` across pages, not `Logout Session`.
+  - Fix:
+    - updated smoke assertion to `getByRole('button', { name: 'Logout' })`.
+- Decisions:
+  - Keep smoke selectors aligned to current visible labels in shared shell controls.
+- Next steps:
+  - Re-run `ui-smoke` and confirm settings-shell control assertions pass.
+- Change log: Smoke logout assertion now matches real shell label.
+
 - Status: Fixed search-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
   - CI failure:
     - `getByRole('button', { name: 'Search Keyword' })` not found on `/ui/search`.
