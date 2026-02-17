@@ -1,0 +1,52 @@
+# KAD/Wire Behavioral Alignment Plan
+
+This plan captures the required refactor work to align KAD/wire behavior with:
+
+- `docs/BEHAVIOURAL_CONTRACT.md`
+- `docs/REVIEWERS_CHECKLIST.md`
+- `docs/IMULE_COMPABILITY_TIMING.md`
+
+Policy:
+
+- Behavior contract is authoritative.
+- iMule compatibility is maintained at protocol and timing-envelope level.
+- Refactor is deferred until current soak stabilization remains green.
+
+## Phase 0: Baseline and Guardrails (Document/Measure First)
+
+- [ ] Capture baseline soak metrics for current KAD/search/publish behavior.
+- [ ] Define observable timing/ordering counters to compare before/after refactor.
+- [ ] Add PR template/checklist reference to reviewer gates for KAD/wire changes.
+
+## Phase 1: Central Outbound Shaper
+
+- [ ] Introduce a single outbound scheduling layer for KAD traffic.
+- [ ] Enforce base delay + jitter on all outbound messages.
+- [ ] Enforce randomized dequeue/ordering (no deterministic send order).
+- [ ] Enforce global and per-peer hard caps independent of host performance.
+
+## Phase 2: Remove Bypass Paths
+
+- [ ] Route all KAD responses through the shaper (no immediate sends).
+- [ ] Route maintenance/refresh traffic through the shaper.
+- [ ] Route error/failure traffic through the same scheduler path.
+- [ ] Remove or gate any message-type fast paths.
+
+## Phase 3: Retry/Timeout Envelope Alignment
+
+- [ ] Match iMule-compatible timeout ranges with randomized per-transaction jitter.
+- [ ] Preserve retry shape (including backoff family), not exact periodic spacing.
+- [ ] Ensure no retry occurs on exact deterministic cadence.
+
+## Phase 4: Failure Uniformity and Fingerprint Hardening
+
+- [ ] Normalize observable failure behavior (delay + generic drop/failure classes).
+- [ ] Verify unknown/malformed messages do not emit distinct external timing patterns.
+- [ ] Audit logging/API exposure so internals do not leak on-wire behavior differences.
+
+## Phase 5: Validation and Rollout
+
+- [ ] Re-run A/B soak comparisons (before/after) for search/publish success and timing drift.
+- [ ] Confirm no regression in interoperability envelope with iMule-like peers.
+- [ ] Update `docs/handoff.md`, `docs/TODO.md`, and `docs/TASKS.md` with results.
+

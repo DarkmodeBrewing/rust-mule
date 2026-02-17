@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Synced documentation to new contract/checklist/timing policy and created deferred KAD/wire refactor task plan on `feature/download-strategy-imule`:
+  - Added `docs/KAD_WIRE_REFACTOR_PLAN.md` with phased tasks (baseline, shaper, bypass removal, retry envelope, validation).
+  - Updated `README.md` and `docs/README.md` to include:
+    - `docs/BEHAVIOURAL_CONTRACT.md`
+    - `docs/REVIEWERS_CHECKLIST.md`
+    - `docs/IMULE_COMPABILITY_TIMING.md`
+    - `docs/KAD_WIRE_REFACTOR_PLAN.md`
+  - Updated `docs/TODO.md` and `docs/TASKS.md` with explicit KAD/wire alignment tasks and “document now, refactor next” sequencing.
+- Decisions:
+  - Defer code-heavy KAD/wire timing refactor until soak baseline remains stable.
+  - Treat behavior contract as authoritative, with iMule compatibility inside timing envelopes.
+- Next steps:
+  - Complete phase 0 baseline/guardrails from `docs/KAD_WIRE_REFACTOR_PLAN.md`.
+  - Continue current soak stabilization; start shaper refactor only after baseline is green.
+- Change log: Documentation and backlog are now aligned to contract-first timing policy and phased KAD/wire refactor plan.
+
 - Status: Fixed download soak concurrency round crash on `feature/download-strategy-imule`:
   - Triage of `/tmp/rust-mule-download-stack-20260217_095242.tar.gz` showed `concurrency` aborting at round 1 with:
     - `download_soak_bg.sh: line 308: round: unbound variable`
