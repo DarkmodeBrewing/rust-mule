@@ -8,6 +8,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added MIT license file on `feature/docs-site-vitepress`:
+  - Added root `LICENSE` with standard MIT text.
+- Decisions:
+  - Use MIT as requested by project owner.
+- Next steps:
+  - Merge docs-site branch once Pages workflow/domain and license update are approved.
+- Change log: Repository now includes explicit MIT licensing text.
+
 - Status: Added GitHub Pages docs-site scaffolding on `feature/docs-site-vitepress`:
   - Added VitePress project in `site/`:
     - `site/package.json`
