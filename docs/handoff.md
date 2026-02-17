@@ -8,6 +8,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Patched VitePress/GitHub Pages build resolution issue on `feature/docs-vitepress-build-fix`:
+  - CI error observed:
+    - `Rollup failed to resolve import "vue/server-renderer" from docs/API_DESIGN.md`
+  - Root cause:
+    - VitePress rendered `docs/` markdown while deps were installed under `site/node_modules`; resolver for `docs/*.md` could not find Vue runtime modules.
+  - Fix:
+    - added repo-root `package.json` with docs scripts:
+      - `docs:dev`
+      - `docs:build`
+      - `docs:preview`
+    - moved Pages workflow install/build to repo root (`npm install`, `npm run docs:build`).
+    - removed now-unused `site/package.json`.
+    - added root `/node_modules` ignore.
+- Decisions:
+  - Keep `site/` for VitePress config/theme assets, but install Node deps at repo root so `docs/` source files resolve runtime imports reliably.
+- Next steps:
+  - Validate Pages workflow on PR/merge and confirm successful deployment for `rust-mule.darkmode.tools`.
+- Change log: VitePress build now runs from root context with correct dependency resolution for markdown under `docs/`.
+
 - Status: Added MIT license file on `feature/docs-site-vitepress`:
   - Added root `LICENSE` with standard MIT text.
 - Decisions:
