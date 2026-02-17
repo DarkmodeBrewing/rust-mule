@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Tuned download soak readiness probing on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_bg.sh` readiness now probes a configurable endpoint instead of hardcoding `/api/v1/status`.
+  - New readiness env knobs:
+    - `READY_TIMEOUT_SECS` (default `300`)
+    - `READY_PATH` (default `/api/v1/downloads`)
+    - `READY_HTTP_CODES` (default `200`, comma-separated)
+  - Background `start` now forwards readiness env vars to detached run.
+  - Also fixed latent integrity scenario crash risk by binding `round="$1"` in `scenario_integrity_round`.
+  - `scripts/test/README.md` updated with readiness override knobs.
+- Decisions:
+  - For download-soak scenarios, readiness should key on download API availability, not KAD status endpoint warmup.
+  - Keep readiness behavior configurable for environment-specific tuning.
+- Next steps:
+  - Re-run stack soak and verify integrity no longer fails on repeated startup `503` from `/api/v1/status`.
+- Change log: Download soak readiness is now download-endpoint based and less brittle during startup.
+
 - Status: Fixed download soak long-churn round crash on `feature/download-strategy-imule`:
   - Triage of `/tmp/rust-mule-download-stack-20260217_104554.tar.gz` showed:
     - `concurrency` completed

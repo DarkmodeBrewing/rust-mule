@@ -14,7 +14,9 @@ set -euo pipefail
 #   TOKEN_FILE=data/api.token
 #   RUN_ROOT=/tmp/rust-mule-download-soak
 #   WAIT_BETWEEN=5
-#   READY_TIMEOUT_SECS=180
+#   READY_TIMEOUT_SECS=300
+#   READY_PATH=/api/v1/downloads
+#   READY_HTTP_CODES=200
 #   CONCURRENCY_TARGET=20
 #   CHURN_MAX_QUEUE=25
 #   API_CONNECT_TIMEOUT_SECS=3
@@ -25,7 +27,9 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:17835}"
 TOKEN_FILE="${TOKEN_FILE:-data/api.token}"
 RUN_ROOT_BASE="${RUN_ROOT:-/tmp/rust-mule-download-soak}"
 WAIT_BETWEEN="${WAIT_BETWEEN:-5}"
-READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-180}"
+READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-300}"
+READY_PATH="${READY_PATH:-/api/v1/downloads}"
+READY_HTTP_CODES="${READY_HTTP_CODES:-200}"
 CONCURRENCY_TARGET="${CONCURRENCY_TARGET:-20}"
 CHURN_MAX_QUEUE="${CHURN_MAX_QUEUE:-25}"
 API_CONNECT_TIMEOUT_SECS="${API_CONNECT_TIMEOUT_SECS:-3}"
@@ -171,9 +175,9 @@ wait_ready() {
       -o /dev/null \
       -w '%{http_code}' \
       -H "$auth" \
-      "$BASE_URL/api/v1/status" || true)"
-    log "ready-check elapsed=${elapsed}s status_code=$code"
-    if [[ "$code" == "200" ]]; then
+      "$BASE_URL$READY_PATH" || true)"
+    log "ready-check elapsed=${elapsed}s path=$READY_PATH status_code=$code ok_codes=$READY_HTTP_CODES"
+    if [[ ",$READY_HTTP_CODES," == *",$code,"* ]]; then
       return 0
     fi
     sleep 3
@@ -259,6 +263,7 @@ scenario_long_churn_round() {
 scenario_integrity_round() {
   local round list_json violations
   local name size md4
+  round="$1"
 
   if (( round <= 3 )); then
     name="integrity-${round}.bin"
@@ -418,7 +423,7 @@ start_background() {
     rm -f "$RUNNER_PID_FILE"
   fi
 
-  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' READY_PATH='$READY_PATH' READY_HTTP_CODES='$READY_HTTP_CODES' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
   echo $! >"$RUNNER_PID_FILE"
   log "runner started pid=$(cat "$RUNNER_PID_FILE") scenario=$SCENARIO duration_secs=$duration_secs"
 }
