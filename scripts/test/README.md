@@ -135,6 +135,7 @@ Outputs:
 - per-scenario tarballs copied into `OUT_DIR` (default `/tmp/rust-mule-download-soak-band-<timestamp>`)
 - `results.tsv` with final state/result per scenario
 - `status.tsv` with polling snapshots
+- on external interruption (`SIGINT`/`SIGTERM`), the active scenario is stopped, a best-effort collect is attempted, and `results.tsv` gets an `interrupted` row.
 
 Optional overrides:
 - `OUT_DIR=/tmp/my-band`

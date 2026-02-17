@@ -28,6 +28,9 @@ CONCURRENCY_TARGET="${CONCURRENCY_TARGET:-20}"
 CHURN_MAX_QUEUE="${CHURN_MAX_QUEUE:-25}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CURRENT_SCENARIO=""
+CURRENT_WRAPPER=""
+CURRENT_DURATION=""
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 log() { echo "$(ts) $*"; }
@@ -62,6 +65,25 @@ status_field() {
         }
       ' \
     | tail -n 1
+}
+
+handle_signal() {
+  local sig="$1"
+  local status_out state_value tarball
+  log "band interrupted signal=$sig scenario=${CURRENT_SCENARIO:-none}"
+  if [[ -n "${CURRENT_WRAPPER:-}" ]]; then
+    env BASE_URL="$BASE_URL" TOKEN_FILE="$TOKEN_FILE" "$CURRENT_WRAPPER" stop >/dev/null 2>&1 || true
+    status_out="$(env BASE_URL="$BASE_URL" TOKEN_FILE="$TOKEN_FILE" "$CURRENT_WRAPPER" status 2>&1 || true)"
+    state_value="$(status_field "$status_out" "runner_state")"
+    tarball="$(env BASE_URL="$BASE_URL" TOKEN_FILE="$TOKEN_FILE" "$CURRENT_WRAPPER" collect 2>/dev/null || true)"
+    if [[ -n "$tarball" && -f "$tarball" ]]; then
+      cp -f "$tarball" "$OUT_DIR/" || true
+      log "scenario=${CURRENT_SCENARIO:-unknown} collected_on_interrupt=$(basename "$tarball")"
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$(ts)" "${CURRENT_SCENARIO:-unknown}" "${CURRENT_DURATION:-unknown}" "${state_value:-unknown}" "interrupted" >>"$OUT_DIR/results.tsv"
+  fi
+  exit 130
 }
 
 wait_for_runner() {
@@ -113,6 +135,9 @@ run_one() {
 
   local tarball status_out state_value result
   result="unknown"
+  CURRENT_SCENARIO="$scenario"
+  CURRENT_WRAPPER="$wrapper"
+  CURRENT_DURATION="$duration"
 
   log "scenario=$scenario start duration_secs=$duration"
   env BASE_URL="$BASE_URL" TOKEN_FILE="$TOKEN_FILE" "${extra_env[@]}" "$wrapper" start "$duration"
@@ -144,12 +169,17 @@ run_one() {
 
   printf '%s\t%s\t%s\t%s\t%s\n' \
     "$(ts)" "$scenario" "$duration" "${state_value:-unknown}" "$result" >>"$OUT_DIR/results.tsv"
+  CURRENT_SCENARIO=""
+  CURRENT_WRAPPER=""
+  CURRENT_DURATION=""
 }
 
 main() {
   mkdir -p "$OUT_DIR"
   : >"$OUT_DIR/results.tsv"
   : >"$OUT_DIR/status.tsv"
+  trap 'handle_signal INT' INT
+  trap 'handle_signal TERM' TERM
 
   require_file "$TOKEN_FILE"
   require_api_reachable

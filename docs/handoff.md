@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened in-band download runner interruption handling on `feature/download-strategy-imule`:
+  - Triage of `/tmp/rust-mule-download-stack-20260217_130154.tar.gz` showed no scenario crash; `long_churn` was actively progressing but the band process received external termination (`Terminated` / `runner interrupted`) before writing final row.
+  - `scripts/test/download_soak_band.sh` now traps `SIGINT`/`SIGTERM` and:
+    - stops active scenario wrapper
+    - performs best-effort `collect`
+    - appends an `interrupted` row to `results.tsv`
+  - `scripts/test/README.md` updated with interruption behavior.
+- Decisions:
+  - Treat external runner termination as first-class outcome in results, not silent truncation.
+- Next steps:
+  - Re-run stack soak; if interrupted, confirm `results.tsv` contains `interrupted` row and partial tarball is preserved.
+- Change log: Band soak now records interruption outcomes explicitly.
+
 - Status: Tuned download soak readiness probing on `feature/download-strategy-imule`:
   - `scripts/test/download_soak_bg.sh` readiness now probes a configurable endpoint instead of hardcoding `/api/v1/status`.
   - New readiness env knobs:
