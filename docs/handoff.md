@@ -8,6 +8,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed stack runner shell-recursion regression on `feature/download-strategy-imule`:
+  - Root cause of `bash: warning: shell level (1000) too high` was accidental command text inserted at the top of `scripts/test/download_soak_stack_bg.sh` before the shebang.
+  - Removed the stray lines so script starts directly with `#!/usr/bin/env bash`.
+  - Hardened background self-invocation to use `SELF_PATH` (absolute script path) instead of `$0`.
+- Decisions:
+  - Keep script entrypoint strict and avoid ambiguous `$0` resolution in detached shells.
+- Next steps:
+  - Re-run short stack soak to verify `start` no longer recurses and produces fresh run dirs/tarballs.
+- Change log: Stack runner no longer recurses into nested bash startup loops.
+
 - Status: Hardened in-band download runner interruption handling on `feature/download-strategy-imule`:
   - Triage of `/tmp/rust-mule-download-stack-20260217_130154.tar.gz` showed no scenario crash; `long_churn` was actively progressing but the band process received external termination (`Terminated` / `runner interrupted`) before writing final row.
   - `scripts/test/download_soak_band.sh` now traps `SIGINT`/`SIGTERM` and:
