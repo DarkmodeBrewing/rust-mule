@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed download soak concurrency round crash on `feature/download-strategy-imule`:
+  - Triage of `/tmp/rust-mule-download-stack-20260217_095242.tar.gz` showed `concurrency` aborting at round 1 with:
+    - `download_soak_bg.sh: line 308: round: unbound variable`
+  - Root cause: `scenario_concurrency_round` declared `round` but did not assign from function arg under `set -u`.
+  - Fix: assign `round="$1"` at function start.
+- Decisions:
+  - Keep strict `set -u`; treat unbound vars as script bugs and patch at source.
+- Next steps:
+  - Re-run stack/band soak and verify `concurrency` and `long_churn` progress with regular round ticks and terminal states.
+- Change log: Concurrency scenario no longer crashes due to unbound `round` variable.
+
 - Status: Added bounded API curl timeouts in download soak runner on `feature/download-strategy-imule`:
   - `scripts/test/download_soak_bg.sh` now uses shared timeout env knobs on all API calls (GET/POST/DELETE + readiness status probe):
     - `API_CONNECT_TIMEOUT_SECS` (default `3`)

@@ -301,6 +301,7 @@ scenario_integrity_round() {
 
 scenario_concurrency_round() {
   local round queue_len i target name size md4 part
+  round="$1"
   target="$CONCURRENCY_TARGET"
   queue_len="$(downloads_list | jq -r '.queue_len // 0' 2>/dev/null || echo 0)"
 
