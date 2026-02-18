@@ -8,6 +8,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added automated A->B publish/search visibility probe on `feature/download-strategy-imule`:
+  - New script: `scripts/test/kad_publish_search_probe.sh`
+    - publishes file source on node A (`/api/v1/kad/publish_source`)
+    - repeatedly queues search on node B (`/api/v1/kad/search_sources`)
+    - polls B `/api/v1/kad/sources/:file_id_hex`
+    - logs A/B status counters each interval:
+      - A: `recv_publish_source_reqs`, `sent_publish_source_ress`, `recv_search_source_reqs`, `source_store_entries_total`
+      - B: `sent_search_source_reqs`, `recv_search_ress`, `source_store_entries_total`
+    - exits success when B sees at least one source; times out otherwise.
+  - Added usage entry in `scripts/test/README.md`.
+- Decisions:
+  - Use explicit counter telemetry in probe output so failures are attributable to publish path vs search path vs discovery cache.
+- Next steps:
+  - Run probe for each fixture hash before resume soak and only proceed when probe exits `0`.
+- Change log: Manual publish/search polling is now scripted and repeatable.
+  - Validation run after patch:
+    - `bash -n scripts/test/kad_publish_search_probe.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
 - Status: Fixed fixture validation bug in soak runner on `feature/download-strategy-imule`:
   - Root cause of failed run `/tmp/rustmule-run-20260218_114700`:
     - `download_soak_bg.sh` logged `fixtures not loaded or empty` and repeatedly `fixtures_only enabled but no valid fixture available`.

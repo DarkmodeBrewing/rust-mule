@@ -15,6 +15,7 @@ Scenario and soak test scripts.
 - `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
 - `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
 - `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
+- `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## Timed Background Soak
@@ -71,6 +72,9 @@ Generate fixture JSON from local files:
 - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`
 - Generate and publish those hashes to a specific node:
   - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json --publish --base-url http://127.0.0.1:17835 --token-file data/api.token /path/to/file1 /path/to/file2`
+
+Probe publish->search visibility between two nodes:
+- `scripts/test/kad_publish_search_probe.sh --file-id-hex 52be4bd97ca58ba9507877d71858de96 --file-size 2097152 --a-base-url http://127.0.0.1:17866 --a-token-file ../../mule-a/data/api.token --b-base-url http://127.0.0.1:17835 --b-token-file data/api.token --timeout-secs 900 --poll-secs 5`
 
 Pre-check:
 - Ensure one node API is reachable and token file is valid.
