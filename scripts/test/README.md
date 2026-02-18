@@ -225,3 +225,4 @@ Notes:
 - Crash validation is process-based (killed app PID + no remaining run-dir `rust-mule` process), not strictly `health=000`.
 - This avoids false failures when another process is already serving the same API port.
 - Resume restart now hard-checks `/proc` for any remaining run-dir `rust-mule` process (`cwd`/`cmdline`), and fails early with PID details if single-instance lock would still be held.
+- Crash step now force-kills all run-dir-owned `rust-mule` PIDs found via `/proc` (not only `control/app.pid`) to handle wrapper-PID vs child-PID mismatches.

@@ -231,6 +231,23 @@ list_run_dir_rust_mule_procs() {
   done
 }
 
+run_dir_rust_mule_pids() {
+  local proc pid cwd cmdline
+  for proc in /proc/[0-9]*; do
+    [[ -d "$proc" ]] || continue
+    pid="${proc##*/}"
+    cwd="$(readlink -f "$proc/cwd" 2>/dev/null || true)"
+    cmdline="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+    if [[ "$cwd" == "$RUN_DIR"* && "$cmdline" == *"rust-mule"* ]]; then
+      echo "$pid"
+      continue
+    fi
+    if [[ "$cmdline" == *"$RUN_DIR"* && "$cmdline" == *"rust-mule"* ]]; then
+      echo "$pid"
+    fi
+  done
+}
+
 wait_for_run_dir_processes_gone() {
   local timeout_secs="$1"
   local start now elapsed cnt
@@ -288,18 +305,36 @@ snapshot_downloads() {
 }
 
 crash_app() {
-  local app_pid
+  local app_pid killed_any pid
   app_pid="$(cat "$CONTROL_DIR/app.pid" 2>/dev/null || true)"
-  [[ -n "$app_pid" ]] || {
-    echo "ERROR: missing app pid in $CONTROL_DIR/app.pid" >&2
-    exit 1
-  }
-  kill -9 "$app_pid"
-  CRASH_EPOCH="$(ts_epoch)"
-  echo "$app_pid" >"$RESUME_OUT_DIR/crashed_app.pid"
-  log "crashed app pid=$app_pid"
+  killed_any=0
 
-  wait_for_app_exit_by_pid "$app_pid" "$HEALTH_TIMEOUT_SECS"
+  # Kill tracked pid first if present.
+  if [[ -n "$app_pid" ]] && is_pid_alive "$app_pid"; then
+    kill -9 "$app_pid" 2>/dev/null || true
+    killed_any=1
+  fi
+
+  # Then kill all run-dir rust-mule processes (covers wrapper-pid mismatch).
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    kill -9 "$pid" 2>/dev/null || true
+    killed_any=1
+  done < <(run_dir_rust_mule_pids)
+
+  if [[ "$killed_any" != "1" ]]; then
+    echo "ERROR: no run-dir rust-mule process found to crash" >&2
+    list_run_dir_rust_mule_procs >&2 || true
+    exit 1
+  fi
+
+  CRASH_EPOCH="$(ts_epoch)"
+  echo "${app_pid:-unknown}" >"$RESUME_OUT_DIR/crashed_app.pid"
+  log "crash requested tracked_pid=${app_pid:-none}"
+
+  if [[ -n "$app_pid" ]]; then
+    wait_for_app_exit_by_pid "$app_pid" "$HEALTH_TIMEOUT_SECS"
+  fi
   wait_for_run_dir_processes_gone "$HEALTH_TIMEOUT_SECS"
 
   # Health may remain up if some unrelated process already serves the port.

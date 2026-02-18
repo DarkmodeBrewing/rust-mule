@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed resume-soak crash step for wrapper-pid mismatch on `feature/download-strategy-imule`:
+  - User-observed failure:
+    - after `crashed app pid=<pid>`, one run-dir `./rust-mule` process remained and restart never proceeded.
+  - Root issue:
+    - `control/app.pid` can reference a launcher/wrapper pid while actual rust-mule child keeps running.
+  - Fix:
+    - crash step now force-kills all run-dir-owned `rust-mule` pids discovered via `/proc` (`cwd`/`cmdline`), then waits for zero run-dir rust-mule processes.
+- Decisions:
+  - For forced crash simulation, process discovery by run-dir ownership is more reliable than trusting a single control pid file.
+- Next steps:
+  - Re-run resume soak and verify crash->restart proceeds when wrapper/child pid divergence exists.
+- Change log: Resume crash now targets all run-dir rust-mule processes, eliminating wrapper-pid false negatives.
+
 - Status: Fixed resume-soak restart false-positive by strengthening run-dir process detection on `feature/download-strategy-imule`:
   - User-observed failure:
     - restart exited immediately with `SingleInstance(AlreadyRunning)` after crash step.
