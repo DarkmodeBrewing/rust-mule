@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened resume-soak crash detection on `feature/download-strategy-imule`:
+  - User-observed failure:
+    - after `kill -9`, script timed out waiting for `health=000` for 300s.
+  - Root issue:
+    - health-code shutdown check is brittle when API port can remain served by non-target process.
+  - Fix:
+    - resume script now validates crash by process identity:
+      - killed app PID exits
+      - no remaining run-dir `rust-mule` process
+    - keeps health check as informational post-crash signal
+    - adds restart immediate-exit guard with `rust-mule.resume.out` tail on failure.
+- Decisions:
+  - Use process-level ownership checks as primary crash/restart truth in resume automation.
+- Next steps:
+  - Re-run `download_resume_soak.sh` and confirm post-crash flow proceeds to restart/progress checks without `health=000` false timeout.
+- Change log: Resume soak no longer blocks on strict `health=000` condition.
+
 - Status: Added automated resume-soak orchestration script on `feature/download-strategy-imule`:
   - New script: `scripts/test/download_resume_soak.sh`
   - Flow:

@@ -220,3 +220,7 @@ Outputs:
   - `pre_violations.count`, `post_violations.count`
   - `resume_report.txt`
   - `stack_bundle.path`
+
+Notes:
+- Crash validation is process-based (killed app PID + no remaining run-dir `rust-mule` process), not strictly `health=000`.
+- This avoids false failures when another process is already serving the same API port.

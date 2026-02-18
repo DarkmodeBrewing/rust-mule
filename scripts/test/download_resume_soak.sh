@@ -48,6 +48,12 @@ ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 log() { echo "$(ts) $*"; }
 
+is_pid_alive() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
 require_tools() {
   command -v curl >/dev/null 2>&1 || {
     echo "ERROR: curl is required" >&2
@@ -170,6 +176,50 @@ wait_for_health_code() {
   done
 }
 
+wait_for_app_exit_by_pid() {
+  local pid="$1"
+  local timeout_secs="$2"
+  local start now elapsed
+  start="$(ts_epoch)"
+  while true; do
+    if ! is_pid_alive "$pid"; then
+      return 0
+    fi
+    now="$(ts_epoch)"
+    elapsed="$((now - start))"
+    if (( elapsed > timeout_secs )); then
+      echo "ERROR: app pid=$pid is still alive after ${timeout_secs}s" >&2
+      exit 1
+    fi
+    sleep "$POLL_SECS"
+  done
+}
+
+count_run_dir_rust_mule_procs() {
+  ps -eo pid,args \
+    | awk -v rd="$RUN_DIR" '$0 ~ (rd "/rust-mule") { c++ } END { print c + 0 }'
+}
+
+wait_for_run_dir_processes_gone() {
+  local timeout_secs="$1"
+  local start now elapsed cnt
+  start="$(ts_epoch)"
+  while true; do
+    cnt="$(count_run_dir_rust_mule_procs)"
+    if [[ "$cnt" == "0" ]]; then
+      return 0
+    fi
+    now="$(ts_epoch)"
+    elapsed="$((now - start))"
+    if (( elapsed > timeout_secs )); then
+      echo "ERROR: run-dir rust-mule processes still present after ${timeout_secs}s (count=$cnt)" >&2
+      ps -eo pid,args | awk -v rd="$RUN_DIR" '$0 ~ (rd "/rust-mule") { print }' >&2 || true
+      exit 1
+    fi
+    sleep "$POLL_SECS"
+  done
+}
+
 api_token() {
   cat "$RUN_DIR/data/api.token"
 }
@@ -217,6 +267,15 @@ crash_app() {
   CRASH_EPOCH="$(ts_epoch)"
   echo "$app_pid" >"$RESUME_OUT_DIR/crashed_app.pid"
   log "crashed app pid=$app_pid"
+
+  wait_for_app_exit_by_pid "$app_pid" "$HEALTH_TIMEOUT_SECS"
+  wait_for_run_dir_processes_gone "$HEALTH_TIMEOUT_SECS"
+
+  # Health may remain up if some unrelated process already serves the port.
+  # We no longer require code=000; process-level stop verification is authoritative.
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/health" || true)"
+  log "post-crash health status_code=$code (informational)"
 }
 
 restart_app() {
@@ -227,6 +286,13 @@ restart_app() {
   RESTART_EPOCH="$(ts_epoch)"
   echo "$new_pid" >"$RESUME_OUT_DIR/restarted_app.pid"
   log "restarted app pid=$new_pid"
+
+  sleep 1
+  if ! is_pid_alive "$new_pid"; then
+    echo "ERROR: restarted app exited immediately pid=$new_pid" >&2
+    tail -n 120 "$RUN_DIR/rust-mule.resume.out" >&2 || true
+    exit 1
+  fi
 }
 
 wait_for_post_restart_progress() {
@@ -333,7 +399,6 @@ run_resume_soak() {
   snapshot_downloads "pre"
 
   crash_app
-  wait_for_health_code "000" "$HEALTH_TIMEOUT_SECS"
 
   restart_app
   wait_for_health_code "200" "$HEALTH_TIMEOUT_SECS"
