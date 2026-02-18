@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Extended fixture generation with optional source publish on `feature/download-strategy-imule`:
+  - `scripts/test/gen_download_fixture.sh` now supports:
+    - `--publish`
+    - `--base-url <url>`
+    - `--token` / `--token-file`
+    - `--publish-script <path>`
+  - When `--publish` is set, each generated fixture is sent to `scripts/docs/kad_publish_source.sh` using the generated MD4 hash and file size.
+- Decisions:
+  - Keep publish optional to preserve offline/local-only fixture generation mode.
+- Next steps:
+  - Run one command to generate and publish fixture hashes on source node, then use that fixture file for resume soak on downloader node.
+- Change log: Fixture prep can now generate + publish in a single command.
+  - Validation run after patch:
+    - `bash -n scripts/test/gen_download_fixture.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
 - Status: Added built-in fixture generation tooling on `feature/download-strategy-imule`:
   - New Rust utility: `src/bin/download_fixture_gen.rs`
     - outputs fixture JSON from one or more files using repo-native MD4 (`rust_mule::kad::md4`)

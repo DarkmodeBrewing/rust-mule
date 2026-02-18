@@ -69,6 +69,8 @@ For real transfer/resume validation (not random synthetic hashes), provide fixtu
 
 Generate fixture JSON from local files:
 - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`
+- Generate and publish those hashes to a specific node:
+  - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json --publish --base-url http://127.0.0.1:17835 --token-file data/api.token /path/to/file1 /path/to/file2`
 
 Pre-check:
 - Ensure one node API is reachable and token file is valid.
