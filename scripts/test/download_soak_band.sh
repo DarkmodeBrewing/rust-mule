@@ -26,6 +26,8 @@ LONG_CHURN_SECS="${LONG_CHURN_SECS:-7200}"
 
 CONCURRENCY_TARGET="${CONCURRENCY_TARGET:-20}"
 CHURN_MAX_QUEUE="${CHURN_MAX_QUEUE:-25}"
+DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}"
+FIXTURES_ONLY="${FIXTURES_ONLY:-0}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CURRENT_SCENARIO=""
@@ -189,24 +191,35 @@ main() {
   require_file "$SCRIPT_DIR/download_soak_long_churn_bg.sh"
 
   log "band-start out_dir=$OUT_DIR base_url=$BASE_URL token_file=$TOKEN_FILE"
+  if [[ -n "$DOWNLOAD_FIXTURES_FILE" ]]; then
+    log "band-fixtures file=$DOWNLOAD_FIXTURES_FILE fixtures_only=$FIXTURES_ONLY"
+  fi
 
   run_one "integrity" \
     "$SCRIPT_DIR/download_soak_integrity_bg.sh" \
-    "$INTEGRITY_SECS"
+    "$INTEGRITY_SECS" \
+    "DOWNLOAD_FIXTURES_FILE=$DOWNLOAD_FIXTURES_FILE" \
+    "FIXTURES_ONLY=$FIXTURES_ONLY"
 
   run_one "single_e2e" \
     "$SCRIPT_DIR/download_soak_single_e2e_bg.sh" \
-    "$SINGLE_E2E_SECS"
+    "$SINGLE_E2E_SECS" \
+    "DOWNLOAD_FIXTURES_FILE=$DOWNLOAD_FIXTURES_FILE" \
+    "FIXTURES_ONLY=$FIXTURES_ONLY"
 
   run_one "concurrency" \
     "$SCRIPT_DIR/download_soak_concurrency_bg.sh" \
     "$CONCURRENCY_SECS" \
-    "CONCURRENCY_TARGET=$CONCURRENCY_TARGET"
+    "CONCURRENCY_TARGET=$CONCURRENCY_TARGET" \
+    "DOWNLOAD_FIXTURES_FILE=$DOWNLOAD_FIXTURES_FILE" \
+    "FIXTURES_ONLY=$FIXTURES_ONLY"
 
   run_one "long_churn" \
     "$SCRIPT_DIR/download_soak_long_churn_bg.sh" \
     "$LONG_CHURN_SECS" \
-    "CHURN_MAX_QUEUE=$CHURN_MAX_QUEUE"
+    "CHURN_MAX_QUEUE=$CHURN_MAX_QUEUE" \
+    "DOWNLOAD_FIXTURES_FILE=$DOWNLOAD_FIXTURES_FILE" \
+    "FIXTURES_ONLY=$FIXTURES_ONLY"
 
   log "band-finished out_dir=$OUT_DIR"
   log "results_file=$OUT_DIR/results.tsv"

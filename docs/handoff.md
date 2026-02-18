@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added fixture-driven download creation for soak/resume validation on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_bg.sh` now supports:
+    - `DOWNLOAD_FIXTURES_FILE` (JSON array with `file_name`, `file_size`, `file_hash_md4_hex`)
+    - `FIXTURES_ONLY=1` (fails instead of falling back to random hashes)
+  - Create actions in all scenarios (`single_e2e`, `long_churn`, `integrity`, `concurrency`) now prefer fixtures when provided.
+  - Fixture behavior is propagated through:
+    - `scripts/test/download_soak_band.sh`
+    - `scripts/test/download_soak_stack_bg.sh`
+    - resume workflow (via inherited env into stack start)
+  - Added `scripts/test/download_fixtures.example.json`.
+- Decisions:
+  - Keep fixture mode opt-in for backward compatibility, but recommend `FIXTURES_ONLY=1` for real transfer/resume assertions.
+- Next steps:
+  - Run resume soak with peer-backed fixtures:
+    - `DOWNLOAD_FIXTURES_FILE=<real-fixtures.json> FIXTURES_ONLY=1 bash scripts/test/download_resume_soak.sh`
+  - Confirm active-transfer gate passes and post-restart completion is observed.
+- Change log: Soak/resume tests can now target real downloadable hashes instead of random synthetic IDs.
+  - Validation run after patch:
+    - `bash -n scripts/test/download_soak_bg.sh scripts/test/download_soak_band.sh scripts/test/download_soak_stack_bg.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
 - Status: Strengthened resume-soak acceptance criteria on `feature/download-strategy-imule`:
   - Resume automation now enforces true in-flight resume validation instead of control-plane-only pass/fail.
   - Added pre-crash active-transfer gate: requires at least one download with `downloaded_bytes > 0` and `inflight_ranges > 0`.

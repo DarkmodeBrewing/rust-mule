@@ -21,6 +21,8 @@ set -euo pipefail
 #   CHURN_MAX_QUEUE=25
 #   API_CONNECT_TIMEOUT_SECS=3
 #   API_MAX_TIME_SECS=8
+#   DOWNLOAD_FIXTURES_FILE=scripts/test/download_fixtures.example.json
+#   FIXTURES_ONLY=0
 
 SCENARIO="${SCENARIO:-}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:17835}"
@@ -34,6 +36,8 @@ CONCURRENCY_TARGET="${CONCURRENCY_TARGET:-20}"
 CHURN_MAX_QUEUE="${CHURN_MAX_QUEUE:-25}"
 API_CONNECT_TIMEOUT_SECS="${API_CONNECT_TIMEOUT_SECS:-3}"
 API_MAX_TIME_SECS="${API_MAX_TIME_SECS:-8}"
+DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}"
+FIXTURES_ONLY="${FIXTURES_ONLY:-0}"
 
 if [[ -z "$SCENARIO" ]]; then
   echo "ERROR: SCENARIO is required (single_e2e|long_churn|integrity|concurrency)" >&2
@@ -48,6 +52,9 @@ RUNNER_STDOUT_FILE="$LOG_DIR/runner.out"
 RUNNER_STATE_FILE="$RUN_ROOT/runner.state"
 STOP_FILE="$RUN_ROOT/stop.requested"
 FAIL_FILE="$RUN_ROOT/failed.flag"
+FIXTURE_INDEX_FILE="$RUN_ROOT/fixture.index"
+FIXTURE_COUNT=0
+FIXTURE_NEXT=0
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
@@ -83,6 +90,104 @@ auth_header() {
     return 1
   fi
   echo "Authorization: Bearer $token"
+}
+
+fixtures_path() {
+  if [[ -z "$DOWNLOAD_FIXTURES_FILE" ]]; then
+    return 1
+  fi
+  if [[ -f "$DOWNLOAD_FIXTURES_FILE" ]]; then
+    printf '%s' "$DOWNLOAD_FIXTURES_FILE"
+    return 0
+  fi
+  if [[ -f "$PWD/$DOWNLOAD_FIXTURES_FILE" ]]; then
+    printf '%s' "$PWD/$DOWNLOAD_FIXTURES_FILE"
+    return 0
+  fi
+  return 1
+}
+
+load_fixtures() {
+  local f
+  if ! f="$(fixtures_path)"; then
+    FIXTURE_COUNT=0
+    FIXTURE_NEXT=0
+    return 0
+  fi
+
+  FIXTURE_COUNT="$(jq -r '
+    if type=="array" then
+      [ .[] | select((.file_name|type=="string") and (.file_hash_md4_hex|type=="string") and (.file_size|type=="number" and .file_size > 0)) ] | length
+    else 0 end
+  ' "$f" 2>/dev/null || echo 0)"
+
+  if ! [[ "$FIXTURE_COUNT" =~ ^[0-9]+$ ]]; then
+    FIXTURE_COUNT=0
+  fi
+
+  if (( FIXTURE_COUNT > 0 )); then
+    log "fixtures loaded file=$f count=$FIXTURE_COUNT"
+  else
+    log "fixtures not loaded or empty file=$f"
+  fi
+
+  if [[ -f "$FIXTURE_INDEX_FILE" ]]; then
+    FIXTURE_NEXT="$(cat "$FIXTURE_INDEX_FILE" 2>/dev/null || echo 0)"
+  fi
+  if ! [[ "$FIXTURE_NEXT" =~ ^[0-9]+$ ]]; then
+    FIXTURE_NEXT=0
+  fi
+  if (( FIXTURE_COUNT > 0 )); then
+    FIXTURE_NEXT="$(( FIXTURE_NEXT % FIXTURE_COUNT ))"
+  else
+    FIXTURE_NEXT=0
+  fi
+}
+
+next_fixture_record() {
+  local f idx
+  if (( FIXTURE_COUNT <= 0 )); then
+    return 1
+  fi
+  f="$(fixtures_path)" || return 1
+  idx="$FIXTURE_NEXT"
+  jq -cr --argjson idx "$idx" '
+    [ .[] | select((.file_name|type=="string") and (.file_hash_md4_hex|type=="string") and (.file_size|type=="number" and .file_size > 0)) ]
+    | .[$idx]
+  ' "$f" 2>/dev/null || return 1
+}
+
+advance_fixture_index() {
+  if (( FIXTURE_COUNT <= 0 )); then
+    return 0
+  fi
+  FIXTURE_NEXT="$(( (FIXTURE_NEXT + 1) % FIXTURE_COUNT ))"
+  printf '%s\n' "$FIXTURE_NEXT" >"$FIXTURE_INDEX_FILE"
+}
+
+create_download() {
+  local fallback_name="$1"
+  local fallback_size="$2"
+  local fallback_md4="$3"
+  local rec name size md4 resp
+
+  if rec="$(next_fixture_record)"; then
+    name="$(echo "$rec" | jq -r '.file_name')"
+    size="$(echo "$rec" | jq -r '.file_size')"
+    md4="$(echo "$rec" | jq -r '.file_hash_md4_hex')"
+    resp="$(downloads_create "$name" "$size" "$md4" || true)"
+    advance_fixture_index
+    echo "$resp"
+    return 0
+  fi
+
+  if [[ "$FIXTURES_ONLY" == "1" ]]; then
+    log "ERROR: fixtures_only enabled but no valid fixture available"
+    touch "$FAIL_FILE"
+    return 1
+  fi
+
+  downloads_create "$fallback_name" "$fallback_size" "$fallback_md4" || true
 }
 
 api_get() {
@@ -205,7 +310,7 @@ scenario_single_e2e_round() {
     name="single-e2e-${round}.bin"
     size="$(( (RANDOM % 20000000) + 1000000 ))"
     md4="$(rand_md4_hex)"
-    create_json="$(downloads_create "$name" "$size" "$md4" || true)"
+    create_json="$(create_download "$name" "$size" "$md4" || true)"
     part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
     write_round_row "$round" "create" "part=${part:-none}"
     return 0
@@ -235,7 +340,7 @@ scenario_long_churn_round() {
   name="churn-${round}-$(rand_hex16).bin"
   size="$(( (RANDOM % 10000000) + 500000 ))"
   md4="$(rand_md4_hex)"
-  downloads_create "$name" "$size" "$md4" >/dev/null || true
+  create_download "$name" "$size" "$md4" >/dev/null || true
 
   part="$(downloads_random_part)"
   if [[ -n "$part" ]]; then
@@ -269,7 +374,7 @@ scenario_integrity_round() {
     name="integrity-${round}.bin"
     size="$(( (RANDOM % 5000000) + 2000000 ))"
     md4="$(rand_md4_hex)"
-    downloads_create "$name" "$size" "$md4" >/dev/null || true
+    create_download "$name" "$size" "$md4" >/dev/null || true
   fi
 
   list_json="$(downloads_list || echo '{}')"
@@ -315,7 +420,7 @@ scenario_concurrency_round() {
     name="concurrency-${round}-$(rand_hex16).bin"
     size="$(( (RANDOM % 15000000) + 500000 ))"
     md4="$(rand_md4_hex)"
-    downloads_create "$name" "$size" "$md4" >/dev/null || true
+    create_download "$name" "$size" "$md4" >/dev/null || true
     queue_len="$((queue_len + 1))"
   done
 
@@ -367,6 +472,7 @@ run_foreground() {
   : >"$LOG_DIR/rounds.tsv"
   : >"$LOG_DIR/list.ndjson"
   rm -f "$STOP_FILE" "$FAIL_FILE"
+  load_fixtures
 
   trap 'log "runner interrupted"; echo "stopped" > "$RUNNER_STATE_FILE"; rm -f "$RUNNER_PID_FILE"; exit 0' INT TERM
 
@@ -423,7 +529,7 @@ start_background() {
     rm -f "$RUNNER_PID_FILE"
   fi
 
-  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' READY_PATH='$READY_PATH' READY_HTTP_CODES='$READY_HTTP_CODES' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' READY_PATH='$READY_PATH' READY_HTTP_CODES='$READY_HTTP_CODES' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' DOWNLOAD_FIXTURES_FILE='$DOWNLOAD_FIXTURES_FILE' FIXTURES_ONLY='$FIXTURES_ONLY' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
   echo $! >"$RUNNER_PID_FILE"
   log "runner started pid=$(cat "$RUNNER_PID_FILE") scenario=$SCENARIO duration_secs=$duration_secs"
 }

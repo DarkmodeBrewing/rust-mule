@@ -13,6 +13,7 @@ Scenario and soak test scripts.
 - `download_soak_band.sh`: sequential runner that executes all four download soaks in one command and auto-collects tarballs.
 - `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
 - `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
+- `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## Timed Background Soak
@@ -60,6 +61,10 @@ Miss recheck behavior:
 ## Download Soak Plan (Run After Current Source Soak Completes)
 
 These scripts target the current download API/control-plane behavior (`/api/v1/downloads` and pause/resume/cancel/delete actions).
+
+For real transfer/resume validation (not random synthetic hashes), provide fixtures:
+- `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
+- `FIXTURES_ONLY=1` to fail fast if fixture-backed creates cannot be used.
 
 Pre-check:
 - Ensure one node API is reachable and token file is valid.
@@ -151,6 +156,8 @@ Optional overrides:
 - `READY_HTTP_CODES=200`
 - `API_CONNECT_TIMEOUT_SECS=3`
 - `API_MAX_TIME_SECS=8`
+- `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
+- `FIXTURES_ONLY=1`
 
 ## Full Background Pipeline (Build + Run + Soak)
 
@@ -184,6 +191,8 @@ Common overrides:
 - `SINGLE_E2E_SECS=3600`
 - `CONCURRENCY_SECS=7200`
 - `LONG_CHURN_SECS=7200`
+- `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
+- `FIXTURES_ONLY=1`
 
 Troubleshooting:
 - If status is `failed` immediately, inspect `/tmp/rust-mule-download-stack/logs/stack.out`.
@@ -207,6 +216,7 @@ Automates a hard-crash resume test during download soak:
 
 Run:
 - `bash scripts/test/download_resume_soak.sh`
+- `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json FIXTURES_ONLY=1 bash scripts/test/download_resume_soak.sh`
 
 Common overrides:
 - `RESUME_SCENARIO=concurrency`
