@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added automated resume-soak orchestration script on `feature/download-strategy-imule`:
+  - New script: `scripts/test/download_resume_soak.sh`
+  - Flow:
+    - starts stack soak
+    - waits for target scenario (`concurrency` default)
+    - captures pre-crash `/api/v1/downloads` snapshot
+    - hard-kills app (`SIGKILL`) and restarts in same run dir
+    - captures post-restart snapshot and verifies scenario progress resumes
+    - waits for terminal stack state, collects bundle, writes report.
+  - Documented usage/overrides in `scripts/test/README.md`.
+- Decisions:
+  - Build resume validation as orchestration around existing stack runner instead of adding duplicate per-scenario harnesses.
+- Next steps:
+  - Run one automated resume-soak and validate `resume_report.txt` + stack bundle outcomes.
+- Change log: Repo now has a one-command crash/restart resume-soak automation path.
+
 - Status: Added TODO note for tag-driven CI/CD build/release flow on `feature/download-strategy-imule`.
 - Decisions:
   - Track Git-tag-triggered build/publish verification as an explicit backlog item.

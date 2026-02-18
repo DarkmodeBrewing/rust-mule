@@ -12,6 +12,7 @@ Scenario and soak test scripts.
 - `download_soak_concurrency_bg.sh`: concurrent queue pressure soak wrapper.
 - `download_soak_band.sh`: sequential runner that executes all four download soaks in one command and auto-collects tarballs.
 - `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
+- `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## Timed Background Soak
@@ -188,3 +189,34 @@ Troubleshooting:
 - If status is `failed` immediately, inspect `/tmp/rust-mule-download-stack/logs/stack.out`.
 - The stack runner now attempts to add `~/.cargo/bin` to `PATH` automatically when `cargo` is not found.
 - `stop` now kills the full stack process tree (runner group + per-scenario soak runners + run-dir processes) to avoid orphaned `rust-mule`/soak processes.
+
+## Resume Soak Automation (Crash + Restart)
+
+Automates a hard-crash resume test during download soak:
+1. starts `download_soak_stack_bg.sh`
+2. waits until `RESUME_SCENARIO` is running (default `concurrency`)
+3. snapshots `/api/v1/downloads` (pre-crash)
+4. `kill -9` on `rust-mule`
+5. restarts `rust-mule` in the same staged run dir
+6. snapshots `/api/v1/downloads` (post-restart)
+7. verifies scenario status continues and waits for stack terminal state
+8. collects stack tarball and writes a resume report
+
+Run:
+- `bash scripts/test/download_resume_soak.sh`
+
+Common overrides:
+- `RESUME_SCENARIO=concurrency`
+- `STACK_ROOT=/tmp/rust-mule-download-stack`
+- `API_PORT=17835`
+- `WAIT_TIMEOUT_SECS=21600`
+- `HEALTH_TIMEOUT_SECS=300`
+- `RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>`
+
+Outputs:
+- resume artifacts/report under `RESUME_OUT_DIR`:
+  - `pre_downloads.json`, `post_downloads.json`
+  - `pre_summary.txt`, `post_summary.txt`
+  - `pre_violations.count`, `post_violations.count`
+  - `resume_report.txt`
+  - `stack_bundle.path`
