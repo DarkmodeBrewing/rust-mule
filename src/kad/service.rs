@@ -490,6 +490,9 @@ async fn handle_command(
             .await?;
         }
         KadServiceCommand::PublishSource { file, file_size } => {
+            // Mirror local publish into in-memory source cache so incoming SEARCH_SOURCE_REQ
+            // can return this source before broader network convergence.
+            cache_local_published_source(svc, crypto, file);
             send_publish_source(svc, sock, crypto, cfg, file, file_size).await?;
         }
         KadServiceCommand::GetSources { file, respond_to } => {
@@ -1104,6 +1107,23 @@ async fn progress_keyword_job(
 
     svc.keyword_jobs.insert(keyword, job);
     Ok(())
+}
+
+fn cache_local_published_source(svc: &mut KadService, crypto: KadServiceCrypto, file: KadId) {
+    let entry = svc.sources_by_file.entry(file).or_default();
+    if entry.insert(crypto.my_kad_id, crypto.my_dest).is_none() {
+        svc.stats_window.new_store_source_entries =
+            svc.stats_window.new_store_source_entries.saturating_add(1);
+        let (source_store_files, source_store_entries_total) = source_store_totals(svc);
+        tracing::info!(
+            event = "source_store_local_publish_upsert",
+            file = %crate::logging::redact_hex(&file.to_hex_lower()),
+            source = %crate::logging::redact_hex(&crypto.my_kad_id.to_hex_lower()),
+            source_store_files,
+            source_store_entries_total,
+            "cached local source entry for published file"
+        );
+    }
 }
 
 fn closest_peers_by_distance(

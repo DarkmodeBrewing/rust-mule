@@ -287,3 +287,25 @@ fn source_probe_tracks_first_send_response_latency_and_results() {
     assert_eq!(status.source_probe_publish_latency_ms_total, 40);
     assert_eq!(status.source_probe_search_latency_ms_total, 50);
 }
+
+#[test]
+fn cache_local_published_source_inserts_local_entry_once() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let file = KadId([7u8; 16]);
+    let mut my_dest = [0u8; I2P_DEST_LEN];
+    my_dest[0] = 42;
+    let crypto = KadServiceCrypto {
+        my_kad_id: KadId([9u8; 16]),
+        my_dest_hash: 0,
+        udp_key_secret: 0,
+        my_dest,
+    };
+
+    cache_local_published_source(&mut svc, crypto, file);
+    cache_local_published_source(&mut svc, crypto, file);
+
+    let by_file = svc.sources_by_file.get(&file).expect("file entry exists");
+    assert_eq!(by_file.len(), 1);
+    assert_eq!(by_file.get(&crypto.my_kad_id), Some(&crypto.my_dest));
+}

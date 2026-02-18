@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added local source-cache upsert on publish path in `feature/download-strategy-imule`:
+  - In `KadServiceCommand::PublishSource` handling, we now cache local source entry
+    (`file -> my_kad_id/my_dest`) before sending network publish requests.
+  - This allows inbound `SEARCH_SOURCE_REQ` to return the local source immediately,
+    instead of waiting for external network re-ingestion.
+  - Added unit test:
+    - `kad::service::tests::cache_local_published_source_inserts_local_entry_once`
+- Decisions:
+  - Preserve network publish behavior; add local cache as compatibility/convergence aid.
+- Next steps:
+  - Re-run `kad_publish_search_probe.sh` and verify B observes at least one source for published fixture hashes.
+- Change log: local publishes now populate `sources_by_file` cache immediately.
+  - Validation run after patch:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (87 tests)
+
 - Status: Extended publish/search probe with periodic republish on `feature/download-strategy-imule`:
   - `scripts/test/kad_publish_search_probe.sh` now supports:
     - `--republish-every N` (poll intervals; `0` disables)
