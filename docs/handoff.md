@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Extended publish/search probe with periodic republish on `feature/download-strategy-imule`:
+  - `scripts/test/kad_publish_search_probe.sh` now supports:
+    - `--republish-every N` (poll intervals; `0` disables)
+  - This allows repeated `publish_source` on node A while node B continues `search_sources` polling.
+- Decisions:
+  - Keep republish disabled by default for minimal baseline behavior, opt-in for sparse/slow networks.
+- Next steps:
+  - Re-run probe with `--republish-every 12 --poll-secs 5` (republish every 60s) and longer timeout if needed.
+- Change log: A->B probe now supports periodic republish to improve source visibility convergence.
+  - Validation run after patch:
+    - `bash -n scripts/test/kad_publish_search_probe.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
 - Status: Added automated A->B publish/search visibility probe on `feature/download-strategy-imule`:
   - New script: `scripts/test/kad_publish_search_probe.sh`
     - publishes file source on node A (`/api/v1/kad/publish_source`)

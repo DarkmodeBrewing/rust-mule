@@ -37,6 +37,7 @@ timing options:
   --timeout-secs N         overall timeout (default: 900)
   --poll-secs N            poll interval (default: 5)
   --search-every N         issue B search every N polls (default: 2)
+  --republish-every N      re-issue A publish every N polls (default: 0 = disabled)
 EOF
 }
 
@@ -51,6 +52,7 @@ B_TOKEN_FILE="data/api.token"
 TIMEOUT_SECS=900
 POLL_SECS=5
 SEARCH_EVERY=2
+REPUBLISH_EVERY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -96,6 +98,10 @@ while [[ $# -gt 0 ]]; do
     ;;
   --search-every)
     SEARCH_EVERY="$2"
+    shift 2
+    ;;
+  --republish-every)
+    REPUBLISH_EVERY="$2"
     shift 2
     ;;
   -h | --help)
@@ -182,7 +188,7 @@ b_get() {
 publish_payload="{\"file_id_hex\":\"$FILE_ID_HEX\",\"file_size\":$FILE_SIZE}"
 search_payload="$publish_payload"
 
-log "publish-start file_id_hex=$FILE_ID_HEX file_size=$FILE_SIZE a_base_url=$A_BASE_URL b_base_url=$B_BASE_URL"
+log "publish-start file_id_hex=$FILE_ID_HEX file_size=$FILE_SIZE a_base_url=$A_BASE_URL b_base_url=$B_BASE_URL republish_every=${REPUBLISH_EVERY}"
 pub_res="$(a_post "/api/v1/kad/publish_source" "$publish_payload" || true)"
 log "publish-response $(echo "$pub_res" | tr -d '\n')"
 
@@ -198,6 +204,11 @@ while true; do
   fi
 
   poll_idx="$((poll_idx + 1))"
+
+  if (( REPUBLISH_EVERY > 0 )) && (( poll_idx % REPUBLISH_EVERY == 0 )); then
+    rp_res="$(a_post "/api/v1/kad/publish_source" "$publish_payload" || true)"
+    log "republish elapsed=${elapsed}s response=$(echo "$rp_res" | tr -d '\n')"
+  fi
 
   if (( poll_idx % SEARCH_EVERY == 1 )); then
     s_res="$(b_post "/api/v1/kad/search_sources" "$search_payload" || true)"

@@ -75,6 +75,8 @@ Generate fixture JSON from local files:
 
 Probe publish->search visibility between two nodes:
 - `scripts/test/kad_publish_search_probe.sh --file-id-hex 52be4bd97ca58ba9507877d71858de96 --file-size 2097152 --a-base-url http://127.0.0.1:17866 --a-token-file ../../mule-a/data/api.token --b-base-url http://127.0.0.1:17835 --b-token-file data/api.token --timeout-secs 900 --poll-secs 5`
+- If discovery is slow, keep source advertisements warm:
+  - add `--republish-every 12` (with `--poll-secs 5`, this republishes every 60s).
 
 Pre-check:
 - Ensure one node API is reachable and token file is valid.
