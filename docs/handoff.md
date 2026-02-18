@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed resume-soak restart false-positive by strengthening run-dir process detection on `feature/download-strategy-imule`:
+  - User-observed failure:
+    - restart exited immediately with `SingleInstance(AlreadyRunning)` after crash step.
+  - Root issue:
+    - run-dir process check matched only absolute binary path; missed `./rust-mule` processes started from run-dir cwd.
+  - Fix:
+    - switched run-dir process detection to `/proc`-based `cwd` + `cmdline` matching.
+    - restart now refuses to proceed if any run-dir rust-mule process remains and prints PID diagnostics.
+- Decisions:
+  - Treat `/proc` ownership checks as authoritative for single-instance lock safety in resume automation.
+- Next steps:
+  - Re-run resume soak and verify crash->restart proceeds without lock conflict.
+- Change log: Resume soak now correctly detects lingering `./rust-mule` run-dir processes before restart.
+
 - Status: Hardened resume-soak crash detection on `feature/download-strategy-imule`:
   - User-observed failure:
     - after `kill -9`, script timed out waiting for `health=000` for 300s.

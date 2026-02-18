@@ -196,8 +196,39 @@ wait_for_app_exit_by_pid() {
 }
 
 count_run_dir_rust_mule_procs() {
-  ps -eo pid,args \
-    | awk -v rd="$RUN_DIR" '$0 ~ (rd "/rust-mule") { c++ } END { print c + 0 }'
+  local proc pid cwd cmdline count
+  count=0
+  for proc in /proc/[0-9]*; do
+    [[ -d "$proc" ]] || continue
+    pid="${proc##*/}"
+    cwd="$(readlink -f "$proc/cwd" 2>/dev/null || true)"
+    cmdline="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+    if [[ "$cwd" == "$RUN_DIR"* && "$cmdline" == *"rust-mule"* ]]; then
+      count=$((count + 1))
+      continue
+    fi
+    if [[ "$cmdline" == *"$RUN_DIR"* && "$cmdline" == *"rust-mule"* ]]; then
+      count=$((count + 1))
+    fi
+  done
+  echo "$count"
+}
+
+list_run_dir_rust_mule_procs() {
+  local proc pid cwd cmdline
+  for proc in /proc/[0-9]*; do
+    [[ -d "$proc" ]] || continue
+    pid="${proc##*/}"
+    cwd="$(readlink -f "$proc/cwd" 2>/dev/null || true)"
+    cmdline="$(tr '\0' ' ' <"$proc/cmdline" 2>/dev/null || true)"
+    if [[ "$cwd" == "$RUN_DIR"* && "$cmdline" == *"rust-mule"* ]]; then
+      printf '%s\tcwd=%s\tcmd=%s\n' "$pid" "$cwd" "$cmdline"
+      continue
+    fi
+    if [[ "$cmdline" == *"$RUN_DIR"* && "$cmdline" == *"rust-mule"* ]]; then
+      printf '%s\tcwd=%s\tcmd=%s\n' "$pid" "$cwd" "$cmdline"
+    fi
+  done
 }
 
 wait_for_run_dir_processes_gone() {
@@ -213,7 +244,7 @@ wait_for_run_dir_processes_gone() {
     elapsed="$((now - start))"
     if (( elapsed > timeout_secs )); then
       echo "ERROR: run-dir rust-mule processes still present after ${timeout_secs}s (count=$cnt)" >&2
-      ps -eo pid,args | awk -v rd="$RUN_DIR" '$0 ~ (rd "/rust-mule") { print }' >&2 || true
+      list_run_dir_rust_mule_procs >&2 || true
       exit 1
     fi
     sleep "$POLL_SECS"
@@ -280,6 +311,13 @@ crash_app() {
 
 restart_app() {
   local new_pid
+  local existing
+  existing="$(count_run_dir_rust_mule_procs)"
+  if [[ "$existing" != "0" ]]; then
+    echo "ERROR: refusing restart; run-dir rust-mule process(es) still alive count=$existing" >&2
+    list_run_dir_rust_mule_procs >&2 || true
+    exit 1
+  fi
   nohup bash -lc "cd '$RUN_DIR' && ./rust-mule" >"$RUN_DIR/rust-mule.resume.out" 2>&1 &
   new_pid="$!"
   echo "$new_pid" >"$CONTROL_DIR/app.pid"
