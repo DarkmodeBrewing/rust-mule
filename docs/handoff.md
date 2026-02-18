@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Strengthened resume-soak acceptance criteria on `feature/download-strategy-imule`:
+  - Resume automation now enforces true in-flight resume validation instead of control-plane-only pass/fail.
+  - Added pre-crash active-transfer gate: requires at least one download with `downloaded_bytes > 0` and `inflight_ranges > 0`.
+  - Added post-restart monotonicity gate: fails if any pre-existing download regresses in `downloaded_bytes`.
+  - Added post-restart completion gate: requires at least one completed download within configurable timeout.
+- Decisions:
+  - Treat resume success as data-plane continuity, not only process restart + scenario completion.
+  - Keep thresholds configurable for slow environments via script env overrides.
+- Next steps:
+  - Run `scripts/test/download_resume_soak.sh` and verify the new gates pass under load.
+  - If active-transfer gate times out, increase scenario duration/load or tune discovery/source readiness before crash point.
+- Change log: `scripts/test/download_resume_soak.sh` now validates active transfer before crash, monotonic post-restart bytes, and post-restart completion.
+  - Validation run after patch:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
 - Status: Fixed resume-soak crash step for wrapper-pid mismatch on `feature/download-strategy-imule`:
   - User-observed failure:
     - after `crashed app pid=<pid>`, one run-dir `./rust-mule` process remained and restart never proceeded.

@@ -21,6 +21,8 @@ set -euo pipefail
 #   RESUME_SCENARIO=concurrency
 #   WAIT_TIMEOUT_SECS=21600
 #   HEALTH_TIMEOUT_SECS=300
+#   ACTIVE_TRANSFER_TIMEOUT_SECS=1800
+#   COMPLETION_TIMEOUT_SECS=3600
 #   POLL_SECS=2
 #   RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>
 
@@ -35,6 +37,8 @@ RESUME_SCENARIO="${RESUME_SCENARIO:-concurrency}"
 
 WAIT_TIMEOUT_SECS="${WAIT_TIMEOUT_SECS:-21600}"
 HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-300}"
+ACTIVE_TRANSFER_TIMEOUT_SECS="${ACTIVE_TRANSFER_TIMEOUT_SECS:-1800}"
+COMPLETION_TIMEOUT_SECS="${COMPLETION_TIMEOUT_SECS:-3600}"
 POLL_SECS="${POLL_SECS:-2}"
 RESUME_OUT_DIR="${RESUME_OUT_DIR:-/tmp/rust-mule-download-resume-$(date +%Y%m%d_%H%M%S)}"
 
@@ -272,11 +276,16 @@ api_token() {
   cat "$RUN_DIR/data/api.token"
 }
 
-snapshot_downloads() {
-  local label="$1"
+poll_downloads_json() {
+  local out="$1"
   local token
   token="$(api_token)"
-  curl -sS -H "Authorization: Bearer $token" "$BASE_URL/api/v1/downloads" >"$RESUME_OUT_DIR/${label}_downloads.json"
+  curl -sS -H "Authorization: Bearer $token" "$BASE_URL/api/v1/downloads" >"$out"
+}
+
+snapshot_downloads() {
+  local label="$1"
+  poll_downloads_json "$RESUME_OUT_DIR/${label}_downloads.json"
 
   {
     echo "timestamp=$(ts)"
@@ -302,6 +311,88 @@ snapshot_downloads() {
       )
     ] | length
   ' "$RESUME_OUT_DIR/${label}_downloads.json" >"$RESUME_OUT_DIR/${label}_violations.count"
+}
+
+has_active_transfer_in_file() {
+  local file="$1"
+  jq -e '
+    ((.downloads // []) | length) > 0
+    and any(.downloads[]?; ((.downloaded_bytes // 0) > 0) and ((.inflight_ranges // 0) > 0))
+  ' "$file" >/dev/null 2>&1
+}
+
+wait_for_active_transfer() {
+  local timeout_secs="$1"
+  local start now elapsed tmp_json
+  tmp_json="$RESUME_OUT_DIR/active_probe.json"
+  start="$(ts_epoch)"
+  while true; do
+    poll_downloads_json "$tmp_json"
+    if has_active_transfer_in_file "$tmp_json"; then
+      log "active-transfer detected (downloaded_bytes>0 && inflight_ranges>0)"
+      return 0
+    fi
+    now="$(ts_epoch)"
+    elapsed="$((now - start))"
+    if (( elapsed > timeout_secs )); then
+      echo "ERROR: no active transfer observed within ${timeout_secs}s" >&2
+      jq -r '
+        "downloads=\((.downloads // []) | length) total_downloaded=\(((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0) inflight_total=\(((.downloads // []) | map(.inflight_ranges // 0) | add) // 0)"
+      ' "$tmp_json" >&2 || true
+      exit 1
+    fi
+    sleep "$POLL_SECS"
+  done
+}
+
+assert_monotonic_download_bytes() {
+  local pre="$RESUME_OUT_DIR/pre_downloads.json"
+  local post="$RESUME_OUT_DIR/post_downloads.json"
+  local out="$RESUME_OUT_DIR/post_monotonic_violations.txt"
+
+  jq -nr --argfile pre "$pre" --argfile post "$post" '
+    def by_id($arr): reduce ($arr[]?) as $d ({}; .[$d.id] = ($d.downloaded_bytes // 0));
+    ($pre.downloads // []) as $pre_dl
+    | ($post.downloads // []) as $post_dl
+    | (by_id($pre_dl)) as $pre_map
+    | (by_id($post_dl)) as $post_map
+    | ($pre_map | to_entries[])
+    | select((($post_map[.key] // -1) < .value))
+    | "\(.key)\tpre=\(.value)\tpost=\($post_map[.key] // -1)"
+  ' >"$out"
+
+  if [[ -s "$out" ]]; then
+    echo "ERROR: post-restart downloaded_bytes regressed for one or more downloads" >&2
+    cat "$out" >&2
+    exit 1
+  fi
+  log "monotonic check passed (post downloaded_bytes >= pre for all pre-existing downloads)"
+}
+
+wait_for_any_completed_download() {
+  local timeout_secs="$1"
+  local start now elapsed tmp_json
+  tmp_json="$RESUME_OUT_DIR/completion_probe.json"
+  start="$(ts_epoch)"
+  while true; do
+    poll_downloads_json "$tmp_json"
+    if jq -e '
+      any(.downloads[]?; (.state == "completed") or (((.file_size // 0) > 0) and ((.downloaded_bytes // 0) >= (.file_size // 0))))
+    ' "$tmp_json" >/dev/null 2>&1; then
+      log "completion gate passed (>=1 completed download observed)"
+      return 0
+    fi
+    now="$(ts_epoch)"
+    elapsed="$((now - start))"
+    if (( elapsed > timeout_secs )); then
+      echo "ERROR: no completed download observed within ${timeout_secs}s after restart" >&2
+      jq -r '
+        "downloads=\((.downloads // []) | length) completed=\(((.downloads // []) | map(select(.state=="completed")) | length)) total_downloaded=\(((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0)"
+      ' "$tmp_json" >&2 || true
+      exit 1
+    fi
+    sleep "$POLL_SECS"
+  done
 }
 
 crash_app() {
@@ -469,6 +560,7 @@ run_resume_soak() {
   log "run_dir=$RUN_DIR status_tsv=$STATUS_TSV"
 
   wait_for_scenario_running "$RESUME_SCENARIO" "$WAIT_TIMEOUT_SECS"
+  wait_for_active_transfer "$ACTIVE_TRANSFER_TIMEOUT_SECS"
   snapshot_downloads "pre"
 
   crash_app
@@ -476,8 +568,10 @@ run_resume_soak() {
   restart_app
   wait_for_health_code "200" "$HEALTH_TIMEOUT_SECS"
   snapshot_downloads "post"
+  assert_monotonic_download_bytes
 
   wait_for_post_restart_progress "$RESUME_SCENARIO" "$HEALTH_TIMEOUT_SECS"
+  wait_for_any_completed_download "$COMPLETION_TIMEOUT_SECS"
 
   if ! wait_for_stack_terminal; then
     log "stack terminal state is non-completed; requesting stop"

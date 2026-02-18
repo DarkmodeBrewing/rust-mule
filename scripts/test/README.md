@@ -199,8 +199,11 @@ Automates a hard-crash resume test during download soak:
 4. `kill -9` on `rust-mule`
 5. restarts `rust-mule` in the same staged run dir
 6. snapshots `/api/v1/downloads` (post-restart)
-7. verifies scenario status continues and waits for stack terminal state
-8. collects stack tarball and writes a resume report
+7. verifies per-download monotonicity (`downloaded_bytes` never regresses post-restart)
+8. verifies scenario status continues
+9. waits for at least one completed download after restart
+10. waits for stack terminal state
+11. collects stack tarball and writes a resume report
 
 Run:
 - `bash scripts/test/download_resume_soak.sh`
@@ -211,6 +214,8 @@ Common overrides:
 - `API_PORT=17835`
 - `WAIT_TIMEOUT_SECS=21600`
 - `HEALTH_TIMEOUT_SECS=300`
+- `ACTIVE_TRANSFER_TIMEOUT_SECS=1800`
+- `COMPLETION_TIMEOUT_SECS=3600`
 - `RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>`
 
 Outputs:
@@ -226,3 +231,6 @@ Notes:
 - This avoids false failures when another process is already serving the same API port.
 - Resume restart now hard-checks `/proc` for any remaining run-dir `rust-mule` process (`cwd`/`cmdline`), and fails early with PID details if single-instance lock would still be held.
 - Crash step now force-kills all run-dir-owned `rust-mule` PIDs found via `/proc` (not only `control/app.pid`) to handle wrapper-PID vs child-PID mismatches.
+- Resume now waits for an active transfer before crash (`downloaded_bytes>0` and `inflight_ranges>0`) so the run validates true in-flight resume behavior.
+- Resume now fails if any pre-existing download has lower `downloaded_bytes` after restart.
+- Resume now requires at least one completed download post-restart within `COMPLETION_TIMEOUT_SECS`.
