@@ -14,6 +14,7 @@ Scenario and soak test scripts.
 - `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
 - `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
 - `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
+- `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## Timed Background Soak
@@ -65,6 +66,9 @@ These scripts target the current download API/control-plane behavior (`/api/v1/d
 For real transfer/resume validation (not random synthetic hashes), provide fixtures:
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1` to fail fast if fixture-backed creates cannot be used.
+
+Generate fixture JSON from local files:
+- `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`
 
 Pre-check:
 - Ensure one node API is reachable and token file is valid.

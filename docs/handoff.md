@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added built-in fixture generation tooling on `feature/download-strategy-imule`:
+  - New Rust utility: `src/bin/download_fixture_gen.rs`
+    - outputs fixture JSON from one or more files using repo-native MD4 (`rust_mule::kad::md4`)
+  - New wrapper script: `scripts/test/gen_download_fixture.sh`
+    - usage: `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 ...`
+  - Updated `scripts/test/README.md` with generation command.
+- Decisions:
+  - Avoid OpenSSL/legacy-provider variability by using project-native MD4 implementation for fixture generation.
+- Next steps:
+  - Generate real peer-backed fixture file and run resume soak with:
+    - `DOWNLOAD_FIXTURES_FILE=<fixtures.json> FIXTURES_ONLY=1 bash scripts/test/download_resume_soak.sh`
+- Change log: Fixture generation is now one command and does not depend on external MD4 support.
+  - Validation run after patch:
+    - `bash -n scripts/test/gen_download_fixture.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
 - Status: Added fixture-driven download creation for soak/resume validation on `feature/download-strategy-imule`:
   - `scripts/test/download_soak_bg.sh` now supports:
     - `DOWNLOAD_FIXTURES_FILE` (JSON array with `file_name`, `file_size`, `file_hash_md4_hex`)
