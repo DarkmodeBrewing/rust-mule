@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed fixture validation bug in soak runner on `feature/download-strategy-imule`:
+  - Root cause of failed run `/tmp/rustmule-run-20260218_114700`:
+    - `download_soak_bg.sh` logged `fixtures not loaded or empty` and repeatedly `fixtures_only enabled but no valid fixture available`.
+    - The `jq` fixture validator expression incorrectly filtered out valid entries, resulting in `FIXTURE_COUNT=0`.
+  - Fix:
+    - replaced validator with explicit `valid_fixture` predicate using safe field checks:
+      - `file_name` string
+      - `file_hash_md4_hex` string
+      - `file_size` number > 0
+    - applied in both fixture counting and fixture record selection paths.
+- Decisions:
+  - Keep strict fixture schema validation but ensure parser is robust to valid JSON fixtures.
+- Next steps:
+  - Re-run resume soak with the same fixture file and `FIXTURES_ONLY=1`; fixture load should now report non-zero count.
+- Change log: Soak runner now correctly accepts valid fixture JSON entries.
+  - Validation run after patch:
+    - `bash -n scripts/test/download_soak_bg.sh` passed
+    - `jq ... /tmp/download_fixtures.json` returned `2` valid fixtures
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
 - Status: Extended fixture generation with optional source publish on `feature/download-strategy-imule`:
   - `scripts/test/gen_download_fixture.sh` now supports:
     - `--publish`

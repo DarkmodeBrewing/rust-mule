@@ -116,8 +116,14 @@ load_fixtures() {
   fi
 
   FIXTURE_COUNT="$(jq -r '
-    if type=="array" then
-      [ .[] | select((.file_name|type=="string") and (.file_hash_md4_hex|type=="string") and (.file_size|type=="number" and .file_size > 0)) ] | length
+    def valid_fixture:
+      (type == "object")
+      and ((.file_name? | type) == "string")
+      and ((.file_hash_md4_hex? | type) == "string")
+      and ((.file_size? | type) == "number")
+      and (.file_size > 0);
+    if type == "array" then
+      [ .[] | select(valid_fixture) ] | length
     else 0 end
   ' "$f" 2>/dev/null || echo 0)"
 
@@ -152,8 +158,13 @@ next_fixture_record() {
   f="$(fixtures_path)" || return 1
   idx="$FIXTURE_NEXT"
   jq -cr --argjson idx "$idx" '
-    [ .[] | select((.file_name|type=="string") and (.file_hash_md4_hex|type=="string") and (.file_size|type=="number" and .file_size > 0)) ]
-    | .[$idx]
+    def valid_fixture:
+      (type == "object")
+      and ((.file_name? | type) == "string")
+      and ((.file_hash_md4_hex? | type) == "string")
+      and ((.file_size? | type) == "number")
+      and (.file_size > 0);
+    [ .[] | select(valid_fixture) ] | .[$idx]
   ' "$f" 2>/dev/null || return 1
 }
 
