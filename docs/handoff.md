@@ -6,6 +6,89 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
+## Status (2026-02-19)
+
+- Status: Addressed PR review comments on `feature/kad-phase1-shaper` shaper state growth + loop blocking.
+  - Added bounded cleanup for peer-shaper state (`shaper_last_peer_send`):
+    - TTL-based eviction (`SHAPER_PEER_STATE_TTL = 1h`)
+    - hard cap (`SHAPER_PEER_STATE_MAX = 8192`) retaining most-recent peers
+  - Removed blocking sleeps in shaper path:
+    - `shaper_send` no longer calls `sleep_until`
+    - when packet is scheduled for future send, it increments `outbound_shaper_delayed` and returns `false` (caller treats as not sent)
+- Decisions:
+  - Prefer non-blocking service loop behavior over in-loop delayed sends to prevent receive/tick/command head-of-line blocking.
+  - Keep delayed-send visibility via existing `outbound_shaper_delayed` counter.
+- Next steps:
+  - Re-run baseline compare on this revision to quantify impact of non-blocking delayed behavior.
+- Change log:
+  - `src/kad/service.rs`: added stale peer cleanup/cap + non-blocking shaper send behavior.
+  - `src/kad/service/tests.rs`: added `shaper_cleanup_evicts_stale_peer_state`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (94 tests)
+
+- Status: Tuned Phase 1 shaper defaults downward on `feature/kad-phase1-shaper` based on baseline deltas.
+  - Updated defaults in `KadServiceConfig`:
+    - `outbound_shaper_base_delay_ms`: `20 -> 5`
+    - `outbound_shaper_jitter_ms`: `25 -> 10`
+    - `outbound_shaper_peer_min_interval_ms`: `50 -> 20`
+  - Global pacing/cap values unchanged.
+- Decisions:
+  - Keep cap limits as-is (`global_max_per_sec=40`, `peer_max_per_sec=8`) since baseline showed delay engagement but no cap drops.
+- Next steps:
+  - Re-run before/after Phase 0 baseline compare and verify `recv_ress`/`tracked_out_matched` regression narrows while shaper still engages.
+- Change log:
+  - Updated `src/kad/service/types.rs` shaper default values.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (93 tests)
+
+- Status: Extended KAD Phase 0 baseline capture script on `feature/kad-phase1-shaper` to include outbound shaper counters.
+  - `scripts/test/kad_phase0_baseline.sh` now records:
+    - `outbound_shaper_delayed`
+    - `outbound_shaper_drop_global_cap`
+    - `outbound_shaper_drop_peer_cap`
+  - `scripts/test/README.md` updated to document these additional columns.
+- Decisions:
+  - Keep comparer unchanged; it already computes metrics from TSV headers dynamically.
+- Next steps:
+  - Re-run before/after baseline pair so compare output includes shaper engagement/cap deltas.
+- Change log:
+  - Updated `scripts/test/kad_phase0_baseline.sh`.
+  - Updated `scripts/test/README.md`.
+  - Validation:
+    - `bash -n scripts/test/kad_phase0_baseline.sh` passed
+    - `bash -n scripts/test/kad_phase0_compare.sh` passed
+
+- Status: Implemented KAD Phase 1 outbound shaper baseline on `feature/kad-phase1-shaper`.
+  - Added central shaper send path for KAD outbound traffic (requests and inbound replies).
+  - Added shaper metrics to `/api/v1/status` window:
+    - `outbound_shaper_delayed`
+    - `outbound_shaper_drop_global_cap`
+    - `outbound_shaper_drop_peer_cap`
+  - Updated send accounting to increment request counters only when a packet is actually sent (not dropped by shaper caps).
+- Decisions:
+  - Applied shaper in one central helper (`shaper_send`) and routed service + inbound handlers through it.
+  - Kept shaper settings internal for now (wired via `KadServiceConfig` defaults in `app.rs`, not yet exposed in `config.toml`).
+- Next steps:
+  - Run Phase 0 baseline script pair + compare against this branch to quantify cap/delay effects.
+  - Tune shaper defaults against observed KAD stability/latency under soak.
+  - Decide whether to expose shaper knobs in runtime config and docs.
+- Change log:
+  - `src/kad/service.rs`: shaper state, scheduling/cap helpers, centralized send path, request-counter gating.
+  - `src/kad/service/inbound.rs`: response sends now routed via shaper helper.
+  - `src/kad/service/types.rs`: shaper config + status/stat fields.
+  - `src/kad/service/status.rs`: status export for shaper counters.
+  - `src/kad/service/tests.rs`: added shaper unit tests.
+  - `src/api/tests.rs`: updated status fixture for new counters.
+  - `src/app.rs`: populate new shaper config fields from service defaults.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (93 tests)
+
 ## Status (2026-02-14)
 
 - Status: Updated CodeQL export script output path defaults on `feature/add-codeql-export-script`:

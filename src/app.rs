@@ -506,6 +506,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             udp_key_secret,
             my_dest,
         };
+        let svc_cfg_defaults = crate::kad::service::KadServiceConfig::default();
         let svc_cfg = crate::kad::service::KadServiceConfig {
             runtime_secs: config.kad.service_runtime_secs,
             crawl_every_secs: config.kad.service_crawl_every_secs,
@@ -548,6 +549,15 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             store_keyword_max_keywords: config.kad.service_store_keyword_max_keywords,
             store_keyword_max_total_hits: config.kad.service_store_keyword_max_total_hits,
             store_keyword_evict_age_secs: config.kad.service_store_keyword_evict_age_secs,
+
+            outbound_shaper_base_delay_ms: svc_cfg_defaults.outbound_shaper_base_delay_ms,
+            outbound_shaper_jitter_ms: svc_cfg_defaults.outbound_shaper_jitter_ms,
+            outbound_shaper_global_min_interval_ms: svc_cfg_defaults
+                .outbound_shaper_global_min_interval_ms,
+            outbound_shaper_peer_min_interval_ms: svc_cfg_defaults
+                .outbound_shaper_peer_min_interval_ms,
+            outbound_shaper_global_max_per_sec: svc_cfg_defaults.outbound_shaper_global_max_per_sec,
+            outbound_shaper_peer_max_per_sec: svc_cfg_defaults.outbound_shaper_peer_max_per_sec,
         };
 
         let mut seed_once = Some(out_nodes);

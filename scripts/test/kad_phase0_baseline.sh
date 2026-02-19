@@ -44,7 +44,7 @@ fi
 TOKEN="$(cat "$TOKEN_FILE")"
 mkdir -p "$(dirname "$OUT_FILE")"
 
-echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\tsent_reqs\trecv_ress\ttimeouts\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
+echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\toutbound_shaper_delayed\toutbound_shaper_drop_global_cap\toutbound_shaper_drop_peer_cap\tsent_reqs\trecv_ress\ttimeouts\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
 
 start_ts="$(date +%s)"
 deadline="$((start_ts + DURATION_SECS))"
@@ -75,6 +75,9 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
         (.tracked_out_matched // 0),
         (.tracked_out_unmatched // 0),
         (.tracked_out_expired // 0),
+        (.outbound_shaper_delayed // 0),
+        (.outbound_shaper_drop_global_cap // 0),
+        (.outbound_shaper_drop_peer_cap // 0),
         (.sent_reqs // 0),
         (.recv_ress // 0),
         (.timeouts // 0),

@@ -149,6 +149,8 @@ const KEYWORD_JOB_ACTION_BATCH: usize = 5;
 const TRACKED_OUT_REQUEST_TTL: Duration = Duration::from_secs(180);
 const TRACKED_IN_CLEANUP_EVERY: Duration = Duration::from_secs(12 * 60);
 const TRACKED_IN_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
+const SHAPER_PEER_STATE_TTL: Duration = Duration::from_secs(60 * 60);
+const SHAPER_PEER_STATE_MAX: usize = 8192;
 
 #[derive(Debug, Clone)]
 struct TrackedOutRequest {
@@ -196,6 +198,12 @@ pub struct KadService {
     last_unmatched_response: Option<UnmatchedResponseDiag>,
     tracked_in_requests: HashMap<u32, HashMap<u8, TrackedInCounter>>,
     tracked_in_last_cleanup: Instant,
+    shaper_window_started: Instant,
+    shaper_global_sent_in_window: u32,
+    shaper_peer_sent_in_window: HashMap<String, u32>,
+    shaper_last_global_send: Option<Instant>,
+    shaper_last_peer_send: HashMap<String, Instant>,
+    shaper_jitter_seed: u64,
     crawl_round: u64,
     stats_window: KadServiceStats,
     publish_key_decode_fail_logged: HashSet<String>,
@@ -287,6 +295,12 @@ impl KadService {
             last_unmatched_response: None,
             tracked_in_requests: HashMap::new(),
             tracked_in_last_cleanup: now,
+            shaper_window_started: now,
+            shaper_global_sent_in_window: 0,
+            shaper_peer_sent_in_window: HashMap::new(),
+            shaper_last_global_send: None,
+            shaper_last_peer_send: HashMap::new(),
+            shaper_jitter_seed: now.elapsed().as_nanos() as u64 ^ 0x9e37_79b9_7f4a_7c15,
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
             publish_key_decode_fail_logged: HashSet::new(),
@@ -703,6 +717,7 @@ async fn send_search_sources(
         let request_id = match send_kad2_packet(
             svc,
             sock,
+            cfg,
             &p,
             crypto,
             KADEMLIA2_SEARCH_SOURCE_REQ,
@@ -711,7 +726,11 @@ async fn send_search_sources(
         )
         .await
         {
-            Ok(request_id) => request_id,
+            Ok(Some(request_id)) => Some(request_id),
+            Ok(None) => {
+                send_fail += 1;
+                continue;
+            }
             Err(err) => {
                 tracing::debug!(
                     error = %err,
@@ -791,6 +810,7 @@ async fn send_publish_source(
         let request_id = match send_kad2_packet(
             svc,
             sock,
+            cfg,
             &p,
             crypto,
             KADEMLIA2_PUBLISH_SOURCE_REQ,
@@ -799,7 +819,11 @@ async fn send_publish_source(
         )
         .await
         {
-            Ok(request_id) => request_id,
+            Ok(Some(request_id)) => Some(request_id),
+            Ok(None) => {
+                send_fail += 1;
+                continue;
+            }
             Err(err) => {
                 tracing::debug!(
                     error = %err,
@@ -1019,6 +1043,7 @@ async fn progress_keyword_job(
             if send_kad2_packet(
                 svc,
                 sock,
+                cfg,
                 p,
                 crypto,
                 KADEMLIA2_SEARCH_KEY_REQ,
@@ -1026,7 +1051,7 @@ async fn progress_keyword_job(
                 None,
             )
             .await
-            .is_ok()
+            .is_ok_and(|sent| sent.is_some())
             {
                 svc.stats_window.sent_search_key_reqs += 1;
                 job.sent_to_search.insert(dest.clone());
@@ -1076,6 +1101,7 @@ async fn progress_keyword_job(
             if send_kad2_packet(
                 svc,
                 sock,
+                cfg,
                 p,
                 crypto,
                 KADEMLIA2_PUBLISH_KEY_REQ,
@@ -1083,7 +1109,7 @@ async fn progress_keyword_job(
                 None,
             )
             .await
-            .is_ok()
+            .is_ok_and(|sent| sent.is_some())
             {
                 svc.stats_window.sent_publish_key_reqs += 1;
                 job.sent_to_publish.insert(dest.clone());
@@ -1179,19 +1205,23 @@ async fn maybe_send_hello_to_peer(
 
     let out = hello_plain.clone();
 
-    if let Err(err) = sock.send_to(&dest, &out).await {
-        tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
-    } else {
-        track_outgoing_request(svc, &dest, KADEMLIA2_HELLO_REQ, now, None);
-        svc.stats_window.sent_hellos += 1;
-        svc.routing.mark_hello_sent_by_dest(&dest, now);
-        tracing::debug!(
-            to = %crate::i2p::b64::short(&dest),
-            kad_version = peer.kad_version,
-            encrypted = false,
-            receiver_key = receiver_verify_key != 0,
-            "sent HELLO_REQ"
-        );
+    match shaper_send(svc, sock, cfg, &dest, &out, KADEMLIA2_HELLO_REQ).await {
+        Err(err) => {
+            tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
+        }
+        Ok(false) => {}
+        Ok(true) => {
+            track_outgoing_request(svc, &dest, KADEMLIA2_HELLO_REQ, now, None);
+            svc.stats_window.sent_hellos += 1;
+            svc.routing.mark_hello_sent_by_dest(&dest, now);
+            tracing::debug!(
+                to = %crate::i2p::b64::short(&dest),
+                kad_version = peer.kad_version,
+                encrypted = false,
+                receiver_key = receiver_verify_key != 0,
+                "sent HELLO_REQ"
+            );
+        }
     }
 
     if cfg.hello_dual_obfuscated && peer.kad_version >= 6 && receiver_verify_key != 0 {
@@ -1204,18 +1234,22 @@ async fn maybe_send_hello_to_peer(
             receiver_verify_key,
             sender_verify_key,
         ) {
-            if let Err(err) = sock.send_to(&dest, &hello).await {
-                tracing::debug!(
-                    error = %err,
-                    to = %dest,
-                    "failed sending KAD2 HELLO_REQ (dual obfuscated)"
-                );
-            } else {
-                svc.stats_window.sent_hellos += 1;
-                tracing::debug!(
-                    to = %crate::i2p::b64::short(&dest),
-                    "sent HELLO_REQ (dual obfuscated)"
-                );
+            match shaper_send(svc, sock, cfg, &dest, &hello, KADEMLIA2_HELLO_REQ).await {
+                Err(err) => {
+                    tracing::debug!(
+                        error = %err,
+                        to = %dest,
+                        "failed sending KAD2 HELLO_REQ (dual obfuscated)"
+                    );
+                }
+                Ok(false) => {}
+                Ok(true) => {
+                    svc.stats_window.sent_hellos += 1;
+                    tracing::debug!(
+                        to = %crate::i2p::b64::short(&dest),
+                        "sent HELLO_REQ (dual obfuscated)"
+                    );
+                }
             }
         }
     }
@@ -1501,9 +1535,142 @@ fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now
     true
 }
 
+fn shaper_roll_window(svc: &mut KadService, now: Instant) {
+    if now.saturating_duration_since(svc.shaper_window_started) >= Duration::from_secs(1) {
+        svc.shaper_window_started = now;
+        svc.shaper_global_sent_in_window = 0;
+        svc.shaper_peer_sent_in_window.clear();
+        shaper_cleanup_stale_peers(svc, now);
+    }
+}
+
+fn shaper_cleanup_stale_peers(svc: &mut KadService, now: Instant) {
+    svc.shaper_last_peer_send
+        .retain(|_, seen_at| now.saturating_duration_since(*seen_at) <= SHAPER_PEER_STATE_TTL);
+    if svc.shaper_last_peer_send.len() <= SHAPER_PEER_STATE_MAX {
+        return;
+    }
+
+    let mut by_age = svc
+        .shaper_last_peer_send
+        .iter()
+        .map(|(peer, seen_at)| (peer.clone(), *seen_at))
+        .collect::<Vec<_>>();
+    by_age.sort_by_key(|(_, seen_at)| std::cmp::Reverse(*seen_at));
+    let keep = by_age
+        .into_iter()
+        .take(SHAPER_PEER_STATE_MAX)
+        .map(|(peer, _)| peer)
+        .collect::<HashSet<_>>();
+    svc.shaper_last_peer_send
+        .retain(|peer, _| keep.contains(peer));
+}
+
+fn shaper_jitter_ms(svc: &mut KadService, max_ms: u64) -> u64 {
+    if max_ms == 0 {
+        return 0;
+    }
+    // Deterministic per-process jitter without external RNG dependency.
+    svc.shaper_jitter_seed = svc
+        .shaper_jitter_seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1);
+    svc.shaper_jitter_seed % (max_ms + 1)
+}
+
+fn shaper_schedule_send(
+    svc: &mut KadService,
+    cfg: &KadServiceConfig,
+    dest_b64: &str,
+    now: Instant,
+) -> Option<Instant> {
+    shaper_roll_window(svc, now);
+
+    if cfg.outbound_shaper_global_max_per_sec > 0
+        && svc.shaper_global_sent_in_window >= cfg.outbound_shaper_global_max_per_sec
+    {
+        svc.stats_window.outbound_shaper_drop_global_cap = svc
+            .stats_window
+            .outbound_shaper_drop_global_cap
+            .saturating_add(1);
+        return None;
+    }
+
+    let peer_sent = svc
+        .shaper_peer_sent_in_window
+        .get(dest_b64)
+        .copied()
+        .unwrap_or(0);
+    if cfg.outbound_shaper_peer_max_per_sec > 0 && peer_sent >= cfg.outbound_shaper_peer_max_per_sec
+    {
+        svc.stats_window.outbound_shaper_drop_peer_cap = svc
+            .stats_window
+            .outbound_shaper_drop_peer_cap
+            .saturating_add(1);
+        return None;
+    }
+
+    let base_delay = Duration::from_millis(cfg.outbound_shaper_base_delay_ms);
+    let jitter_delay = Duration::from_millis(shaper_jitter_ms(svc, cfg.outbound_shaper_jitter_ms));
+    let global_min_interval = Duration::from_millis(cfg.outbound_shaper_global_min_interval_ms);
+    let peer_min_interval = Duration::from_millis(cfg.outbound_shaper_peer_min_interval_ms);
+
+    let mut target = now + base_delay + jitter_delay;
+    if let Some(last) = svc.shaper_last_global_send {
+        target = std::cmp::max(target, last + global_min_interval);
+    }
+    if let Some(last) = svc.shaper_last_peer_send.get(dest_b64).copied() {
+        target = std::cmp::max(target, last + peer_min_interval);
+    }
+    Some(target)
+}
+
+fn shaper_mark_sent(svc: &mut KadService, dest_b64: &str, sent_at: Instant) {
+    shaper_roll_window(svc, sent_at);
+    svc.shaper_global_sent_in_window = svc.shaper_global_sent_in_window.saturating_add(1);
+    let peer_counter = svc
+        .shaper_peer_sent_in_window
+        .entry(dest_b64.to_string())
+        .or_insert(0);
+    *peer_counter = peer_counter.saturating_add(1);
+    svc.shaper_last_global_send = Some(sent_at);
+    svc.shaper_last_peer_send
+        .insert(dest_b64.to_string(), sent_at);
+}
+
+async fn shaper_send(
+    svc: &mut KadService,
+    sock: &mut SamKadSocket,
+    cfg: &KadServiceConfig,
+    dest_b64: &str,
+    payload: &[u8],
+    opcode: u8,
+) -> Result<bool> {
+    let now = Instant::now();
+    let Some(send_at) = shaper_schedule_send(svc, cfg, dest_b64, now) else {
+        tracing::debug!(
+            to = %crate::i2p::b64::short(dest_b64),
+            opcode = kad_opcode_name(opcode),
+            "outbound packet dropped by shaper cap"
+        );
+        return Ok(false);
+    };
+
+    if send_at > now {
+        svc.stats_window.outbound_shaper_delayed =
+            svc.stats_window.outbound_shaper_delayed.saturating_add(1);
+        return Ok(false);
+    }
+    sock.send_to(dest_b64, payload).await?;
+    shaper_mark_sent(svc, dest_b64, Instant::now());
+    Ok(true)
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn send_kad2_packet(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
+    cfg: &KadServiceConfig,
     node: &ImuleNode,
     crypto: KadServiceCrypto,
     opcode: u8,
@@ -1533,7 +1700,9 @@ async fn send_kad2_packet(
         plain
     };
 
-    sock.send_to(&dest, &out).await?;
+    if !shaper_send(svc, sock, cfg, &dest, &out, opcode).await? {
+        return Ok(None);
+    }
     Ok(track_outgoing_request(
         svc,
         &dest,
@@ -1695,14 +1864,26 @@ async fn send_kad2_req(
     // KadID (used to discard packets not intended for this node). If we put our own KadID here,
     // peers will silently ignore the request and we'll never get `KADEMLIA2_RES`.
     let req_payload = encode_kad2_req(requested_contacts, target, target_kad_id, crypto.my_kad_id);
-    send_kad2_packet(svc, sock, peer, crypto, KADEMLIA2_REQ, &req_payload, None).await?;
-
-    svc.stats_window.sent_reqs += 1;
-    svc.pending_reqs.insert(
-        dest.clone(),
-        Instant::now() + Duration::from_secs(cfg.req_timeout_secs.max(5)),
-    );
-    svc.routing.mark_queried_by_dest(&dest, Instant::now());
+    if send_kad2_packet(
+        svc,
+        sock,
+        cfg,
+        peer,
+        crypto,
+        KADEMLIA2_REQ,
+        &req_payload,
+        None,
+    )
+    .await?
+    .is_some()
+    {
+        svc.stats_window.sent_reqs += 1;
+        svc.pending_reqs.insert(
+            dest.clone(),
+            Instant::now() + Duration::from_secs(cfg.req_timeout_secs.max(5)),
+        );
+        svc.routing.mark_queried_by_dest(&dest, Instant::now());
+    }
     Ok(())
 }
 
@@ -1736,13 +1917,17 @@ async fn send_hello_batch(
 
         let out = hello_plain.clone();
 
-        if let Err(err) = sock.send_to(&dest, &out).await {
-            tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
-        } else {
-            track_outgoing_request(svc, &dest, KADEMLIA2_HELLO_REQ, now, None);
-            tracing::trace!(to = %dest, "sent KAD2 HELLO_REQ (service)");
-            svc.stats_window.sent_hellos += 1;
-            svc.routing.mark_hello_sent_by_dest(&dest, now);
+        match shaper_send(svc, sock, cfg, &dest, &out, KADEMLIA2_HELLO_REQ).await {
+            Err(err) => {
+                tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
+            }
+            Ok(false) => {}
+            Ok(true) => {
+                track_outgoing_request(svc, &dest, KADEMLIA2_HELLO_REQ, now, None);
+                tracing::trace!(to = %dest, "sent KAD2 HELLO_REQ (service)");
+                svc.stats_window.sent_hellos += 1;
+                svc.routing.mark_hello_sent_by_dest(&dest, now);
+            }
         }
 
         if cfg.hello_dual_obfuscated
@@ -1760,15 +1945,19 @@ async fn send_hello_batch(
                 receiver_verify_key,
                 sender_verify_key,
             ) {
-                if let Err(err) = sock.send_to(&dest, &hello).await {
-                    tracing::debug!(
-                        error = %err,
-                        to = %dest,
-                        "failed sending KAD2 HELLO_REQ (dual obfuscated)"
-                    );
-                } else {
-                    tracing::trace!(to = %dest, "sent KAD2 HELLO_REQ (dual obfuscated)");
-                    svc.stats_window.sent_hellos += 1;
+                match shaper_send(svc, sock, cfg, &dest, &hello, KADEMLIA2_HELLO_REQ).await {
+                    Err(err) => {
+                        tracing::debug!(
+                            error = %err,
+                            to = %dest,
+                            "failed sending KAD2 HELLO_REQ (dual obfuscated)"
+                        );
+                    }
+                    Ok(false) => {}
+                    Ok(true) => {
+                        tracing::trace!(to = %dest, "sent KAD2 HELLO_REQ (dual obfuscated)");
+                        svc.stats_window.sent_hellos += 1;
+                    }
                 }
             }
         }
@@ -1798,10 +1987,11 @@ async fn debug_probe_peer(
 
     let hello_payload = encode_kad2_hello_req(1, crypto.my_kad_id, &crypto.my_dest);
     let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_payload);
-    sock.send_to(dest_b64, &hello_plain).await?;
-    track_outgoing_request(svc, dest_b64, KADEMLIA2_HELLO_REQ, now, None);
-    svc.stats_window.sent_hellos += 1;
-    svc.routing.mark_hello_sent_by_dest(dest_b64, now);
+    if shaper_send(svc, sock, cfg, dest_b64, &hello_plain, KADEMLIA2_HELLO_REQ).await? {
+        track_outgoing_request(svc, dest_b64, KADEMLIA2_HELLO_REQ, now, None);
+        svc.stats_window.sent_hellos += 1;
+        svc.routing.mark_hello_sent_by_dest(dest_b64, now);
+    }
 
     if cfg.hello_dual_obfuscated
         && peer.kad_version >= 6
@@ -1818,22 +2008,27 @@ async fn debug_probe_peer(
             receiver_verify_key,
             sender_verify_key,
         ) {
-            if let Err(err) = sock.send_to(dest_b64, &hello).await {
-                tracing::debug!(
-                    error = %err,
-                    to = %crate::i2p::b64::short(dest_b64),
-                    "debug probe failed to send HELLO_REQ (dual obfuscated)"
-                );
-            } else {
-                svc.stats_window.sent_hellos += 1;
+            match shaper_send(svc, sock, cfg, dest_b64, &hello, KADEMLIA2_HELLO_REQ).await {
+                Err(err) => {
+                    tracing::debug!(
+                        error = %err,
+                        to = %crate::i2p::b64::short(dest_b64),
+                        "debug probe failed to send HELLO_REQ (dual obfuscated)"
+                    );
+                }
+                Ok(false) => {}
+                Ok(true) => {
+                    svc.stats_window.sent_hellos += 1;
+                }
             }
         }
     }
 
     let search_payload = encode_kad2_search_key_req(keyword, 0);
-    if let Err(err) = send_kad2_packet(
+    match send_kad2_packet(
         svc,
         sock,
+        cfg,
         &peer,
         crypto,
         KADEMLIA2_SEARCH_KEY_REQ,
@@ -1842,20 +2037,25 @@ async fn debug_probe_peer(
     )
     .await
     {
-        tracing::debug!(
-            error = %err,
-            to = %crate::i2p::b64::short(dest_b64),
-            "debug probe failed to send SEARCH_KEY_REQ"
-        );
-    } else {
-        svc.stats_window.sent_search_key_reqs += 1;
+        Err(err) => {
+            tracing::debug!(
+                error = %err,
+                to = %crate::i2p::b64::short(dest_b64),
+                "debug probe failed to send SEARCH_KEY_REQ"
+            );
+        }
+        Ok(Some(_)) => {
+            svc.stats_window.sent_search_key_reqs += 1;
+        }
+        Ok(None) => {}
     }
 
     let publish_payload =
         encode_kad2_publish_key_req(keyword, &[(file, filename, file_size, file_type)]);
-    if let Err(err) = send_kad2_packet(
+    match send_kad2_packet(
         svc,
         sock,
+        cfg,
         &peer,
         crypto,
         KADEMLIA2_PUBLISH_KEY_REQ,
@@ -1864,13 +2064,17 @@ async fn debug_probe_peer(
     )
     .await
     {
-        tracing::debug!(
-            error = %err,
-            to = %crate::i2p::b64::short(dest_b64),
-            "debug probe failed to send PUBLISH_KEY_REQ"
-        );
-    } else {
-        svc.stats_window.sent_publish_key_reqs += 1;
+        Err(err) => {
+            tracing::debug!(
+                error = %err,
+                to = %crate::i2p::b64::short(dest_b64),
+                "debug probe failed to send PUBLISH_KEY_REQ"
+            );
+        }
+        Ok(Some(_)) => {
+            svc.stats_window.sent_publish_key_reqs += 1;
+        }
+        Ok(None) => {}
     }
 
     // Force source-path probing against a known peer to isolate source opcode handling.
@@ -1883,9 +2087,10 @@ async fn debug_probe_peer(
             "source_search:{}",
             crate::logging::redact_hex(&file.to_hex_lower())
         );
-        if let Err(err) = send_kad2_packet(
+        match send_kad2_packet(
             svc,
             sock,
+            cfg,
             &peer,
             crypto,
             KADEMLIA2_SEARCH_SOURCE_REQ,
@@ -1894,15 +2099,19 @@ async fn debug_probe_peer(
         )
         .await
         {
-            tracing::debug!(
-                error = %err,
-                to = %crate::i2p::b64::short(dest_b64),
-                "debug probe failed to send SEARCH_SOURCE_REQ"
-            );
-        } else {
-            sent_search_source = true;
-            svc.stats_window.sent_search_source_reqs += 1;
-            mark_source_search_sent(svc, file, now);
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    to = %crate::i2p::b64::short(dest_b64),
+                    "debug probe failed to send SEARCH_SOURCE_REQ"
+                );
+            }
+            Ok(Some(_)) => {
+                sent_search_source = true;
+                svc.stats_window.sent_search_source_reqs += 1;
+                mark_source_search_sent(svc, file, now);
+            }
+            Ok(None) => {}
         }
     }
 
@@ -1917,9 +2126,10 @@ async fn debug_probe_peer(
             "source_publish:{}",
             crate::logging::redact_hex(&file.to_hex_lower())
         );
-        if let Err(err) = send_kad2_packet(
+        match send_kad2_packet(
             svc,
             sock,
+            cfg,
             &peer,
             crypto,
             KADEMLIA2_PUBLISH_SOURCE_REQ,
@@ -1928,15 +2138,19 @@ async fn debug_probe_peer(
         )
         .await
         {
-            tracing::debug!(
-                error = %err,
-                to = %crate::i2p::b64::short(dest_b64),
-                "debug probe failed to send PUBLISH_SOURCE_REQ"
-            );
-        } else {
-            sent_publish_source = true;
-            svc.stats_window.sent_publish_source_reqs += 1;
-            mark_source_publish_sent(svc, file, now);
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    to = %crate::i2p::b64::short(dest_b64),
+                    "debug probe failed to send PUBLISH_SOURCE_REQ"
+                );
+            }
+            Ok(Some(_)) => {
+                sent_publish_source = true;
+                svc.stats_window.sent_publish_source_reqs += 1;
+                mark_source_publish_sent(svc, file, now);
+            }
+            Ok(None) => {}
         }
     }
 
@@ -2006,18 +2220,26 @@ async fn send_bootstrap_batch(
             plain.clone()
         };
 
-        if let Err(err) = sock.send_to(&dest, &out).await {
-            tracing::debug!(error = %err, to = %dest, "failed sending KAD2 BOOTSTRAP_REQ (service)");
-        } else {
-            track_outgoing_request(svc, &dest, KADEMLIA2_BOOTSTRAP_REQ, now, None);
-            svc.stats_window.sent_bootstrap_reqs += 1;
-            tracing::info!(
-                to = %crate::i2p::b64::short(&dest),
-                kad_version = p.kad_version,
-                encrypted = p.kad_version >= 6,
-                "sent periodic KAD2 BOOTSTRAP_REQ (refresh)"
-            );
-            svc.routing.mark_bootstrap_sent_by_dest(&dest, now);
+        match shaper_send(svc, sock, cfg, &dest, &out, KADEMLIA2_BOOTSTRAP_REQ).await {
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    to = %dest,
+                    "failed sending KAD2 BOOTSTRAP_REQ (service)"
+                );
+            }
+            Ok(false) => {}
+            Ok(true) => {
+                track_outgoing_request(svc, &dest, KADEMLIA2_BOOTSTRAP_REQ, now, None);
+                svc.stats_window.sent_bootstrap_reqs += 1;
+                tracing::info!(
+                    to = %crate::i2p::b64::short(&dest),
+                    kad_version = p.kad_version,
+                    encrypted = p.kad_version >= 6,
+                    "sent periodic KAD2 BOOTSTRAP_REQ (refresh)"
+                );
+                svc.routing.mark_bootstrap_sent_by_dest(&dest, now);
+            }
         }
     }
 

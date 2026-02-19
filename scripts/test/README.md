@@ -33,6 +33,7 @@ Or with flags:
 Captured TSV columns include:
 - `pending_overdue`, `pending_max_overdue_ms`
 - `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
+- `outbound_shaper_delayed`, `outbound_shaper_drop_global_cap`, `outbound_shaper_drop_peer_cap`
 - key throughput/error counters (`sent_reqs`, `recv_ress`, `timeouts`, batch send/fail counters)
 
 Notes:
