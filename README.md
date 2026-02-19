@@ -124,7 +124,12 @@ Runtime state lives under `data/` (gitignored):
 - `docs/dev.md`: developer setup notes
 - `docs/architecture.md`: backend/API/UI architecture and auth model
 - `docs/API_DESIGN.md`: API design (implemented + future direction)
+- `docs/DOWNLOAD_DESIGN.md`: iMule-compatible download subsystem strategy and phased plan
 - `docs/UI_DESIGN.md`: UI design and page model
+- `docs/BEHAVIOURAL_CONTRACT.md`: non-negotiable anonymity behavior invariants
+- `docs/REVIEWERS_CHECKLIST.md`: mandatory review gates for networking/protocol PRs
+- `docs/IMULE_COMPABILITY_TIMING.md`: compatibility policy (contract-first, iMule envelope)
+- `docs/KAD_WIRE_REFACTOR_PLAN.md`: deferred phased plan for KAD/wire alignment refactor
 - `docs/ui_api_contract_map.md`: UI page -> endpoint/field contract map
 - `docs/api_curl.md`: curl examples for API testing
 - `docs/TODO.md`: normalized backlog by subsystem

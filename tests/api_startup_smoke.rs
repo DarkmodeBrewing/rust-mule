@@ -1,6 +1,7 @@
 use rust_mule::{
     api::{self, ApiServeDeps},
     config::{ApiAuthMode, Config},
+    download::{DownloadServiceConfig, start_service},
     kad::service::KadServiceCommand,
 };
 use std::{
@@ -86,6 +87,10 @@ async fn startup_auth_and_session_smoke_flow() {
     let (_status_tx, status_rx) = tokio::sync::watch::channel(None);
     let (status_events_tx, _status_events_rx) = tokio::sync::broadcast::channel(16);
     let (kad_cmd_tx, _kad_cmd_rx) = mpsc::channel::<KadServiceCommand>(1);
+    let (download_handle, _download_status_rx, download_join) =
+        start_service(DownloadServiceConfig::from_data_dir(&test_dir))
+            .await
+            .expect("start download service");
 
     let deps = ApiServeDeps {
         app_config: cfg.clone(),
@@ -95,6 +100,7 @@ async fn startup_auth_and_session_smoke_flow() {
         status_rx,
         status_events_tx,
         kad_cmd_tx,
+        download_handle: download_handle.clone(),
     };
     let mut serve_handle = tokio::spawn(async move { api::serve(&api_cfg, deps).await });
 
@@ -157,6 +163,8 @@ async fn startup_auth_and_session_smoke_flow() {
 
     serve_handle.abort();
     let _ = serve_handle.await;
+    let _ = download_handle.shutdown().await;
+    let _ = download_join.await;
     let _ = tokio::fs::remove_file(token_path).await;
     let _ = tokio::fs::remove_file(config_path).await;
     let _ = tokio::fs::remove_dir(&test_dir).await;

@@ -11,6 +11,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::{
     config::{ApiAuthMode, ApiConfig, Config},
+    download::DownloadServiceHandle,
     kad::service::{KadServiceCommand, KadServiceStatus},
 };
 
@@ -61,6 +62,7 @@ pub struct ApiState {
     pub(crate) status_rx: watch::Receiver<Option<KadServiceStatus>>,
     pub(crate) status_events_tx: broadcast::Sender<KadServiceStatus>,
     pub(crate) kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
+    pub(crate) download_handle: DownloadServiceHandle,
     pub(crate) config: Arc<tokio::sync::Mutex<Config>>,
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
     pub(crate) enable_debug_endpoints: bool,
@@ -81,6 +83,7 @@ pub struct ApiServeDeps {
     pub status_rx: watch::Receiver<Option<KadServiceStatus>>,
     pub status_events_tx: broadcast::Sender<KadServiceStatus>,
     pub kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
+    pub download_handle: DownloadServiceHandle,
 }
 
 pub fn new_channels() -> (
@@ -137,6 +140,7 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         status_rx: deps.status_rx,
         status_events_tx: deps.status_events_tx,
         kad_cmd_tx: deps.kad_cmd_tx,
+        download_handle: deps.download_handle,
         config: Arc::new(tokio::sync::Mutex::new(deps.app_config)),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: cfg.enable_debug_endpoints,

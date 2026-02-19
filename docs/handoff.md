@@ -8,144 +8,840 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
-- Status: Fixed settings-shell logout button label mismatch in UI smoke on `feature/pages-cache-fix`:
-  - CI failure:
-    - `getByRole('button', { name: 'Logout Session' })` not found.
+- Status: Addressed PR review findings for download store/service correctness on `feature/download-strategy-imule`:
+  - Fixed recovered part path derivation in `scan_recoverable_downloads`:
+    - `001.part.met` now maps to `001.part` (not `001.part.part`).
+  - Fixed part number parsing/allocation for IDs beyond 999:
+    - `parse_part_number` now accepts any all-digit stem that parses to `u16`.
+    - `allocate_next_part_number` now correctly accounts for files like `1000.part`.
+  - Fixed delete atomicity in `delete_download`:
+    - file deletions occur first, then in-memory map entry is removed only on success.
+    - on filesystem error, runtime entry remains so delete can be retried in-process.
+- Decisions:
+  - Preserve existing on-disk naming format (`{part:03}` minimum width) while making parsing robust for wider numeric stems.
+  - Prefer state consistency over eager map mutation during deletion.
+- Next steps:
+  - Merge after PR review confirms these follow-up fixes.
+- Change log:
+  - `src/download/store.rs`: corrected `.part` path reconstruction; relaxed part-number parser; added regression tests.
+  - `src/download/service.rs`: made delete state mutation happen after successful file cleanup; added regression test.
+  - Validation run after patch:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (89 tests)
+
+- Status: Soak run `/tmp/rustmule-run-20260218_160244` validated as healthy on `feature/download-strategy-imule`:
+  - `soak-band/results.tsv` shows all scenarios `completed/completed`:
+    - `integrity`, `single_e2e`, `concurrency`, `long_churn`
+  - Scenario tarballs each contain `download-soak-finished ... result=completed`
+  - `data/download/` contains active transfer artifacts (`.part`, `.part.met`, `.bak`) across many part IDs
+  - Integrity rounds report `violations=0 dup_parts=0`
+  - No panic/fatal errors observed in run logs (only non-blocking nodes2 bootstrap lookup warning)
+- Decisions:
+  - Treat this run as branch-level validation pass for current download/churn/resume behavior.
+- Next steps:
+  - Open PR from `feature/download-strategy-imule` to `main`.
+  - In PR summary include this branch close-out checklist:
+    1. Record successful soak evidence and paths.
+    2. Confirm no outstanding code or docs changes on branch.
+    3. Merge into `main` after review.
+- Change log: Added explicit close-out checklist and successful soak evidence for `/tmp/rustmule-run-20260218_160244`.
+
+- Status: Added local source-cache upsert on publish path in `feature/download-strategy-imule`:
+  - In `KadServiceCommand::PublishSource` handling, we now cache local source entry
+    (`file -> my_kad_id/my_dest`) before sending network publish requests.
+  - This allows inbound `SEARCH_SOURCE_REQ` to return the local source immediately,
+    instead of waiting for external network re-ingestion.
+  - Added unit test:
+    - `kad::service::tests::cache_local_published_source_inserts_local_entry_once`
+- Decisions:
+  - Preserve network publish behavior; add local cache as compatibility/convergence aid.
+- Next steps:
+  - Re-run `kad_publish_search_probe.sh` and verify B observes at least one source for published fixture hashes.
+- Change log: local publishes now populate `sources_by_file` cache immediately.
+  - Validation run after patch:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (87 tests)
+
+- Status: Extended publish/search probe with periodic republish on `feature/download-strategy-imule`:
+  - `scripts/test/kad_publish_search_probe.sh` now supports:
+    - `--republish-every N` (poll intervals; `0` disables)
+  - This allows repeated `publish_source` on node A while node B continues `search_sources` polling.
+- Decisions:
+  - Keep republish disabled by default for minimal baseline behavior, opt-in for sparse/slow networks.
+- Next steps:
+  - Re-run probe with `--republish-every 12 --poll-secs 5` (republish every 60s) and longer timeout if needed.
+- Change log: A->B probe now supports periodic republish to improve source visibility convergence.
+  - Validation run after patch:
+    - `bash -n scripts/test/kad_publish_search_probe.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
+- Status: Added automated A->B publish/search visibility probe on `feature/download-strategy-imule`:
+  - New script: `scripts/test/kad_publish_search_probe.sh`
+    - publishes file source on node A (`/api/v1/kad/publish_source`)
+    - repeatedly queues search on node B (`/api/v1/kad/search_sources`)
+    - polls B `/api/v1/kad/sources/:file_id_hex`
+    - logs A/B status counters each interval:
+      - A: `recv_publish_source_reqs`, `sent_publish_source_ress`, `recv_search_source_reqs`, `source_store_entries_total`
+      - B: `sent_search_source_reqs`, `recv_search_ress`, `source_store_entries_total`
+    - exits success when B sees at least one source; times out otherwise.
+  - Added usage entry in `scripts/test/README.md`.
+- Decisions:
+  - Use explicit counter telemetry in probe output so failures are attributable to publish path vs search path vs discovery cache.
+- Next steps:
+  - Run probe for each fixture hash before resume soak and only proceed when probe exits `0`.
+- Change log: Manual publish/search polling is now scripted and repeatable.
+  - Validation run after patch:
+    - `bash -n scripts/test/kad_publish_search_probe.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
+- Status: Fixed fixture validation bug in soak runner on `feature/download-strategy-imule`:
+  - Root cause of failed run `/tmp/rustmule-run-20260218_114700`:
+    - `download_soak_bg.sh` logged `fixtures not loaded or empty` and repeatedly `fixtures_only enabled but no valid fixture available`.
+    - The `jq` fixture validator expression incorrectly filtered out valid entries, resulting in `FIXTURE_COUNT=0`.
+  - Fix:
+    - replaced validator with explicit `valid_fixture` predicate using safe field checks:
+      - `file_name` string
+      - `file_hash_md4_hex` string
+      - `file_size` number > 0
+    - applied in both fixture counting and fixture record selection paths.
+- Decisions:
+  - Keep strict fixture schema validation but ensure parser is robust to valid JSON fixtures.
+- Next steps:
+  - Re-run resume soak with the same fixture file and `FIXTURES_ONLY=1`; fixture load should now report non-zero count.
+- Change log: Soak runner now correctly accepts valid fixture JSON entries.
+  - Validation run after patch:
+    - `bash -n scripts/test/download_soak_bg.sh` passed
+    - `jq ... /tmp/download_fixtures.json` returned `2` valid fixtures
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
+- Status: Extended fixture generation with optional source publish on `feature/download-strategy-imule`:
+  - `scripts/test/gen_download_fixture.sh` now supports:
+    - `--publish`
+    - `--base-url <url>`
+    - `--token` / `--token-file`
+    - `--publish-script <path>`
+  - When `--publish` is set, each generated fixture is sent to `scripts/docs/kad_publish_source.sh` using the generated MD4 hash and file size.
+- Decisions:
+  - Keep publish optional to preserve offline/local-only fixture generation mode.
+- Next steps:
+  - Run one command to generate and publish fixture hashes on source node, then use that fixture file for resume soak on downloader node.
+- Change log: Fixture prep can now generate + publish in a single command.
+  - Validation run after patch:
+    - `bash -n scripts/test/gen_download_fixture.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
+- Status: Added built-in fixture generation tooling on `feature/download-strategy-imule`:
+  - New Rust utility: `src/bin/download_fixture_gen.rs`
+    - outputs fixture JSON from one or more files using repo-native MD4 (`rust_mule::kad::md4`)
+  - New wrapper script: `scripts/test/gen_download_fixture.sh`
+    - usage: `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 ...`
+  - Updated `scripts/test/README.md` with generation command.
+- Decisions:
+  - Avoid OpenSSL/legacy-provider variability by using project-native MD4 implementation for fixture generation.
+- Next steps:
+  - Generate real peer-backed fixture file and run resume soak with:
+    - `DOWNLOAD_FIXTURES_FILE=<fixtures.json> FIXTURES_ONLY=1 bash scripts/test/download_resume_soak.sh`
+- Change log: Fixture generation is now one command and does not depend on external MD4 support.
+  - Validation run after patch:
+    - `bash -n scripts/test/gen_download_fixture.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
+- Status: Added fixture-driven download creation for soak/resume validation on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_bg.sh` now supports:
+    - `DOWNLOAD_FIXTURES_FILE` (JSON array with `file_name`, `file_size`, `file_hash_md4_hex`)
+    - `FIXTURES_ONLY=1` (fails instead of falling back to random hashes)
+  - Create actions in all scenarios (`single_e2e`, `long_churn`, `integrity`, `concurrency`) now prefer fixtures when provided.
+  - Fixture behavior is propagated through:
+    - `scripts/test/download_soak_band.sh`
+    - `scripts/test/download_soak_stack_bg.sh`
+    - resume workflow (via inherited env into stack start)
+  - Added `scripts/test/download_fixtures.example.json`.
+- Decisions:
+  - Keep fixture mode opt-in for backward compatibility, but recommend `FIXTURES_ONLY=1` for real transfer/resume assertions.
+- Next steps:
+  - Run resume soak with peer-backed fixtures:
+    - `DOWNLOAD_FIXTURES_FILE=<real-fixtures.json> FIXTURES_ONLY=1 bash scripts/test/download_resume_soak.sh`
+  - Confirm active-transfer gate passes and post-restart completion is observed.
+- Change log: Soak/resume tests can now target real downloadable hashes instead of random synthetic IDs.
+  - Validation run after patch:
+    - `bash -n scripts/test/download_soak_bg.sh scripts/test/download_soak_band.sh scripts/test/download_soak_stack_bg.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
+- Status: Strengthened resume-soak acceptance criteria on `feature/download-strategy-imule`:
+  - Resume automation now enforces true in-flight resume validation instead of control-plane-only pass/fail.
+  - Added pre-crash active-transfer gate: requires at least one download with `downloaded_bytes > 0` and `inflight_ranges > 0`.
+  - Added post-restart monotonicity gate: fails if any pre-existing download regresses in `downloaded_bytes`.
+  - Added post-restart completion gate: requires at least one completed download within configurable timeout.
+- Decisions:
+  - Treat resume success as data-plane continuity, not only process restart + scenario completion.
+  - Keep thresholds configurable for slow environments via script env overrides.
+- Next steps:
+  - Run `scripts/test/download_resume_soak.sh` and verify the new gates pass under load.
+  - If active-transfer gate times out, increase scenario duration/load or tune discovery/source readiness before crash point.
+- Change log: `scripts/test/download_resume_soak.sh` now validates active transfer before crash, monotonic post-restart bytes, and post-restart completion.
+  - Validation run after patch:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed
+
+- Status: Fixed resume-soak crash step for wrapper-pid mismatch on `feature/download-strategy-imule`:
+  - User-observed failure:
+    - after `crashed app pid=<pid>`, one run-dir `./rust-mule` process remained and restart never proceeded.
+  - Root issue:
+    - `control/app.pid` can reference a launcher/wrapper pid while actual rust-mule child keeps running.
+  - Fix:
+    - crash step now force-kills all run-dir-owned `rust-mule` pids discovered via `/proc` (`cwd`/`cmdline`), then waits for zero run-dir rust-mule processes.
+- Decisions:
+  - For forced crash simulation, process discovery by run-dir ownership is more reliable than trusting a single control pid file.
+- Next steps:
+  - Re-run resume soak and verify crash->restart proceeds when wrapper/child pid divergence exists.
+- Change log: Resume crash now targets all run-dir rust-mule processes, eliminating wrapper-pid false negatives.
+
+- Status: Fixed resume-soak restart false-positive by strengthening run-dir process detection on `feature/download-strategy-imule`:
+  - User-observed failure:
+    - restart exited immediately with `SingleInstance(AlreadyRunning)` after crash step.
+  - Root issue:
+    - run-dir process check matched only absolute binary path; missed `./rust-mule` processes started from run-dir cwd.
+  - Fix:
+    - switched run-dir process detection to `/proc`-based `cwd` + `cmdline` matching.
+    - restart now refuses to proceed if any run-dir rust-mule process remains and prints PID diagnostics.
+- Decisions:
+  - Treat `/proc` ownership checks as authoritative for single-instance lock safety in resume automation.
+- Next steps:
+  - Re-run resume soak and verify crash->restart proceeds without lock conflict.
+- Change log: Resume soak now correctly detects lingering `./rust-mule` run-dir processes before restart.
+
+- Status: Hardened resume-soak crash detection on `feature/download-strategy-imule`:
+  - User-observed failure:
+    - after `kill -9`, script timed out waiting for `health=000` for 300s.
+  - Root issue:
+    - health-code shutdown check is brittle when API port can remain served by non-target process.
+  - Fix:
+    - resume script now validates crash by process identity:
+      - killed app PID exits
+      - no remaining run-dir `rust-mule` process
+    - keeps health check as informational post-crash signal
+    - adds restart immediate-exit guard with `rust-mule.resume.out` tail on failure.
+- Decisions:
+  - Use process-level ownership checks as primary crash/restart truth in resume automation.
+- Next steps:
+  - Re-run `download_resume_soak.sh` and confirm post-crash flow proceeds to restart/progress checks without `health=000` false timeout.
+- Change log: Resume soak no longer blocks on strict `health=000` condition.
+
+- Status: Added automated resume-soak orchestration script on `feature/download-strategy-imule`:
+  - New script: `scripts/test/download_resume_soak.sh`
+  - Flow:
+    - starts stack soak
+    - waits for target scenario (`concurrency` default)
+    - captures pre-crash `/api/v1/downloads` snapshot
+    - hard-kills app (`SIGKILL`) and restarts in same run dir
+    - captures post-restart snapshot and verifies scenario progress resumes
+    - waits for terminal stack state, collects bundle, writes report.
+  - Documented usage/overrides in `scripts/test/README.md`.
+- Decisions:
+  - Build resume validation as orchestration around existing stack runner instead of adding duplicate per-scenario harnesses.
+- Next steps:
+  - Run one automated resume-soak and validate `resume_report.txt` + stack bundle outcomes.
+- Change log: Repo now has a one-command crash/restart resume-soak automation path.
+
+- Status: Added TODO note for tag-driven CI/CD build/release flow on `feature/download-strategy-imule`.
+- Decisions:
+  - Track Git-tag-triggered build/publish verification as an explicit backlog item.
+- Next steps:
+  - Confirm release workflow behavior from tag push through artifact publication and document gaps.
+- Change log: `docs/TODO.md` now includes tag-driven build/release automation verification.
+
+- Status: Added cross-cutting naming/comment refactor TODO notes on `feature/download-strategy-imule`:
+  - `docs/TODO.md` now tracks:
+    - `Imule*` -> neutral `Mule*`/neutral identifier rename pass
+    - code-comment wording normalization to compatibility-focused language
+  - `docs/TASKS.md` scope now includes the same naming/comment normalization task.
+- Decisions:
+  - Keep explicit iMule/aMule/eMule wording for protocol reference documentation/tests where needed, but avoid it in production identifier names and code comments.
+- Next steps:
+  - Plan a repo-wide mechanical rename + comment wording sweep in bounded slices to minimize merge-risk.
+- Change log: TODO/TASKS now explicitly capture naming and comment normalization policy.
+
+- Status: Merged latest `main` into `feature/download-strategy-imule` to sync CI/docs/UI smoke and Pages workflow updates.
+- Decisions:
+  - Kept branch-local soak/download handoff history as primary during `docs/handoff.md` conflict resolution.
+- Next steps:
+  - Continue soak stabilization on top of synced branch baseline.
+- Change log: Branch now includes latest `main` changes as merge base.
+
+- Status: Fixed stack soak runner dependency on mutable repo script paths on `feature/download-strategy-imule`:
+  - Failure analyzed from `/tmp/rust-mule-download-stack-20260217_170055.tar.gz`:
+    - `concurrency` polling stayed `status=unknown state=unknown`
+    - terminal error in stack output:
+      - `env: '/home/coder/projects/rust-mule/scripts/test/download_soak_concurrency_bg.sh': No such file or directory`
+      - `ERROR: band-run failed exit=127`
   - Root cause:
-    - UI shell label is `Logout` across pages, not `Logout Session`.
+    - long-running stack run invoked wrappers directly from working-tree `scripts/test`; if those files change/disappear (e.g. branch switch) mid-run, scenario status/collect commands fail.
   - Fix:
-    - updated smoke assertion to `getByRole('button', { name: 'Logout' })`.
+    - `scripts/test/download_soak_stack_bg.sh` now stages `download_soak_*` scripts into `$RUN_DIR/soak-scripts` at startup and executes the band runner from that staged immutable copy.
 - Decisions:
-  - Keep smoke selectors aligned to current visible labels in shared shell controls.
+  - Treat soak script set as run artifact; do not depend on mutable working tree during long background runs.
 - Next steps:
-  - Re-run `ui-smoke` and confirm settings-shell control assertions pass.
-- Change log: Smoke logout assertion now matches real shell label.
+  - Re-run stack soak and confirm all four scenarios write results rows and artifacts even if repo branch changes during execution.
+- Change log: Stack soak now uses per-run staged scripts and is resilient to working-tree churn.
 
-- Status: Fixed search-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
-  - CI failure:
-    - `getByRole('button', { name: 'Search Keyword' })` not found on `/ui/search`.
-  - Root cause:
-    - search submit label is rendered via Alpine `x-text` (`Searching...`/`Search Keyword`), so role-name lookup can race reactive text.
-  - Fix:
-    - changed assertion to target search submit control structurally: `form button[type="submit"]`.
+- Status: Fixed stack runner shell-recursion regression on `feature/download-strategy-imule`:
+  - Root cause of `bash: warning: shell level (1000) too high` was accidental command text inserted at the top of `scripts/test/download_soak_stack_bg.sh` before the shebang.
+  - Removed the stray lines so script starts directly with `#!/usr/bin/env bash`.
+  - Hardened background self-invocation to use `SELF_PATH` (absolute script path) instead of `$0`.
 - Decisions:
-  - Use structural selectors for Alpine-dynamic button labels in smoke tests.
+  - Keep script entrypoint strict and avoid ambiguous `$0` resolution in detached shells.
 - Next steps:
-  - Re-run `ui-smoke` and verify search-page controls test passes reliably in CI.
-- Change log: Search smoke no longer depends on Alpine timing for submit button text.
+  - Re-run short stack soak to verify `start` no longer recurses and produces fresh run dirs/tarballs.
+- Change log: Stack runner no longer recurses into nested bash startup loops.
 
-- Status: Fixed settings-page smoke assertion for dynamic submit-label rendering on `feature/pages-cache-fix`:
-  - CI failure:
-    - `getByRole('button', { name: 'Save Settings' })` not found on `/ui/settings`.
-  - Root cause:
-    - submit label is rendered through Alpine `x-text`; accessible name can be absent before reactive text is applied.
-  - Fix:
-    - changed assertion to target the submit control structurally: `form button[type="submit"]`.
+- Status: Hardened in-band download runner interruption handling on `feature/download-strategy-imule`:
+  - Triage of `/tmp/rust-mule-download-stack-20260217_130154.tar.gz` showed no scenario crash; `long_churn` was actively progressing but the band process received external termination (`Terminated` / `runner interrupted`) before writing final row.
+  - `scripts/test/download_soak_band.sh` now traps `SIGINT`/`SIGTERM` and:
+    - stops active scenario wrapper
+    - performs best-effort `collect`
+    - appends an `interrupted` row to `results.tsv`
+  - `scripts/test/README.md` updated with interruption behavior.
 - Decisions:
-  - Use stable structural selectors for controls whose labels are dynamically set at runtime.
+  - Treat external runner termination as first-class outcome in results, not silent truncation.
 - Next steps:
-  - Re-run `ui-smoke` and verify settings-page controls test passes reliably in CI.
-- Change log: Settings smoke no longer depends on Alpine timing for submit button text.
+  - Re-run stack soak; if interrupted, confirm `results.tsv` contains `interrupted` row and partial tarball is preserved.
+- Change log: Band soak now records interruption outcomes explicitly.
 
-- Status: Fixed Node Stats UI smoke chart selectors on `feature/pages-cache-fix`:
-  - CI failure:
-    - `locator('#hitsChart')` not found in `/ui/node_stats`.
-  - Root cause:
-    - Node stats charts are rendered with Alpine refs (`x-ref`) and ARIA labels, not element IDs.
-  - Fix:
-    - updated `ui/tests/e2e/smoke.spec.mjs` to assert chart visibility via accessible labels:
-      - `Line chart showing search hits over time`
-      - `Line chart showing request and response rate over time`
-      - `Bar chart showing live and idle peer state mix over time`
+- Status: Tuned download soak readiness probing on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_bg.sh` readiness now probes a configurable endpoint instead of hardcoding `/api/v1/status`.
+  - New readiness env knobs:
+    - `READY_TIMEOUT_SECS` (default `300`)
+    - `READY_PATH` (default `/api/v1/downloads`)
+    - `READY_HTTP_CODES` (default `200`, comma-separated)
+  - Background `start` now forwards readiness env vars to detached run.
+  - Also fixed latent integrity scenario crash risk by binding `round="$1"` in `scenario_integrity_round`.
+  - `scripts/test/README.md` updated with readiness override knobs.
 - Decisions:
-  - Prefer ARIA-label based locators for canvas-based chart controls to avoid brittle DOM/id coupling.
+  - For download-soak scenarios, readiness should key on download API availability, not KAD status endpoint warmup.
+  - Keep readiness behavior configurable for environment-specific tuning.
 - Next steps:
-  - Re-run `ui-smoke` in CI and confirm node stats test is stable.
-- Change log: Node stats smoke test no longer expects non-existent chart IDs.
+  - Re-run stack soak and verify integrity no longer fails on repeated startup `503` from `/api/v1/status`.
+- Change log: Download soak readiness is now download-endpoint based and less brittle during startup.
 
-- Status: Fixed Playwright strict heading ambiguity on settings page in `feature/pages-cache-fix`:
-  - CI failure:
-    - `getByRole('heading', { name: 'Settings' })` matched both `h1 Settings` and `h2 Application Settings`.
-  - Fix:
-    - updated selector to `getByRole('heading', { level: 1, name: 'Settings' })`.
+- Status: Fixed download soak long-churn round crash on `feature/download-strategy-imule`:
+  - Triage of `/tmp/rust-mule-download-stack-20260217_104554.tar.gz` showed:
+    - `concurrency` completed
+    - `long_churn` stuck as `status=stale_pid runner_state=running`
+    - no long_churn tarball/result row in band output
+  - Root cause from `/tmp/rust-mule-download-soak/long_churn/logs/runner.out`:
+    - `download_soak_bg.sh: line 230: round: unbound variable`
+  - Fix: assign `round="$1"` at start of `scenario_long_churn_round`.
 - Decisions:
-  - Prefer explicit heading level in smoke selectors when pages include repeated heading text as prefixes.
+  - Keep `set -u`; patch all scenario entrypoints to bind function args explicitly.
 - Next steps:
-  - Re-run `ui-smoke` and verify the settings-page assertion no longer fails strict-mode resolution.
-- Change log: Settings smoke assertion now targets a unique heading.
+  - Re-run stack soak and verify long_churn now emits round ticks, terminal state, and collected tarball.
+  - Separately evaluate repeated integrity readiness `503` behavior (startup/warmup timing).
+- Change log: Long-churn scenario no longer crashes on unbound `round`.
 
-- Status: Synced UI smoke tests with current UI labels/IDs on `feature/pages-cache-fix`:
-  - Updated `ui/tests/e2e/smoke.spec.mjs` expectations to match current UI:
-    - heading `Search Overview` (was `Overview`)
-    - search page heading `Keyword Search` (was `Searches`)
-    - search field id `#keyword-id-hex` (was `#keywordIdHex`)
-    - search action button `Search Keyword` (was `Start Search`)
-    - node stats heading `Node Stats` (was `Nodes / Routing`)
-    - logs action button `Snapshot` (was `Refresh Snapshot`)
+- Status: Synced documentation to new contract/checklist/timing policy and created deferred KAD/wire refactor task plan on `feature/download-strategy-imule`:
+  - Added `docs/KAD_WIRE_REFACTOR_PLAN.md` with phased tasks (baseline, shaper, bypass removal, retry envelope, validation).
+  - Updated `README.md` and `docs/README.md` to include:
+    - `docs/BEHAVIOURAL_CONTRACT.md`
+    - `docs/REVIEWERS_CHECKLIST.md`
+    - `docs/IMULE_COMPABILITY_TIMING.md`
+    - `docs/KAD_WIRE_REFACTOR_PLAN.md`
+  - Updated `docs/TODO.md` and `docs/TASKS.md` with explicit KAD/wire alignment tasks and “document now, refactor next” sequencing.
 - Decisions:
-  - Keep smoke assertions aligned to user-facing labels in current HTML, not historic wording.
+  - Defer code-heavy KAD/wire timing refactor until soak baseline remains stable.
+  - Treat behavior contract as authoritative, with iMule compatibility inside timing envelopes.
 - Next steps:
-  - Re-run CI `ui-smoke` job to confirm selectors are now stable.
-- Change log: UI smoke selectors now match current UI shell and form controls.
+  - Complete phase 0 baseline/guardrails from `docs/KAD_WIRE_REFACTOR_PLAN.md`.
+  - Continue current soak stabilization; start shaper refactor only after baseline is green.
+- Change log: Documentation and backlog are now aligned to contract-first timing policy and phased KAD/wire refactor plan.
 
-- Status: Fixed GitHub Pages Node setup cache path failure on `feature/pages-cache-fix`:
-  - Workflow error:
-    - `Error: Some specified paths were not resolved, unable to cache dependencies.`
-  - Root cause:
-    - `.github/workflows/pages.yml` configured `setup-node` npm cache with `cache-dependency-path: package-lock.json`, but repository does not commit a lockfile.
-  - Fix:
-    - removed lockfile-based npm cache settings from `setup-node`; keep only Node version setup.
+- Status: Fixed download soak concurrency round crash on `feature/download-strategy-imule`:
+  - Triage of `/tmp/rust-mule-download-stack-20260217_095242.tar.gz` showed `concurrency` aborting at round 1 with:
+    - `download_soak_bg.sh: line 308: round: unbound variable`
+  - Root cause: `scenario_concurrency_round` declared `round` but did not assign from function arg under `set -u`.
+  - Fix: assign `round="$1"` at function start.
 - Decisions:
-  - Prefer deterministic workflow success over npm cache optimization when lockfiles are intentionally absent.
+  - Keep strict `set -u`; treat unbound vars as script bugs and patch at source.
 - Next steps:
-  - Re-run Pages workflow and confirm successful setup/install/build/deploy stages.
-- Change log: Pages workflow no longer fails during Node setup due to unresolved cache dependency path.
+  - Re-run stack/band soak and verify `concurrency` and `long_churn` progress with regular round ticks and terminal states.
+- Change log: Concurrency scenario no longer crashes due to unbound `round` variable.
 
-- Status: Patched VitePress/GitHub Pages build resolution issue on `feature/docs-vitepress-build-fix`:
-  - CI error observed:
-    - `Rollup failed to resolve import "vue/server-renderer" from docs/API_DESIGN.md`
-  - Root cause:
-    - VitePress rendered `docs/` markdown while deps were installed under `site/node_modules`; resolver for `docs/*.md` could not find Vue runtime modules.
-  - Fix:
-    - added repo-root `package.json` with docs scripts:
-      - `docs:dev`
-      - `docs:build`
-      - `docs:preview`
-    - moved Pages workflow install/build to repo root (`npm install`, `npm run docs:build`).
-    - removed now-unused `site/package.json`.
-    - added root `/node_modules` ignore.
+- Status: Added bounded API curl timeouts in download soak runner on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_bg.sh` now uses shared timeout env knobs on all API calls (GET/POST/DELETE + readiness status probe):
+    - `API_CONNECT_TIMEOUT_SECS` (default `3`)
+    - `API_MAX_TIME_SECS` (default `8`)
+  - `start` now forwards timeout env vars into detached `run` process so overrides are preserved.
+  - `scripts/test/README.md` updated with new optional overrides for in-band runner usage.
 - Decisions:
-  - Keep `site/` for VitePress config/theme assets, but install Node deps at repo root so `docs/` source files resolve runtime imports reliably.
+  - Prevent indefinite round hangs by time-bounding all API curl calls in the scenario runner.
+  - Keep defaults conservative and operator-overridable for slower environments.
 - Next steps:
-  - Validate Pages workflow on PR/merge and confirm successful deployment for `rust-mule.darkmode.tools`.
-- Change log: VitePress build now runs from root context with correct dependency resolution for markdown under `docs/`.
+  - Re-run stack/band soak and confirm scenarios keep progressing past round 1 without long `runner_state=running` stalls.
+  - If timeouts are too aggressive under load, tune via env or bump defaults.
+- Change log: Download soak API calls are now timeout-bounded and configurable.
 
-- Status: Added MIT license file on `feature/docs-site-vitepress`:
-  - Added root `LICENSE` with standard MIT text.
+- Status: Hardened stack `stop` teardown to avoid orphaned processes on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_stack_bg.sh` now:
+    - stops all per-scenario download soak runners before killing stack runner
+    - kills stack runner process group (TERM/KILL) instead of only top PID
+    - scans `/proc` and terminates remaining processes tied to current run dir (`cwd`/`cmdline` match)
+  - this addresses observed behavior where `stop` left `rust-mule` and soak helper processes alive.
 - Decisions:
-  - Use MIT as requested by project owner.
+  - Prefer process-group and run-dir scoping for deterministic teardown.
 - Next steps:
-  - Merge docs-site branch once Pages workflow/domain and license update are approved.
-- Change log: Repository now includes explicit MIT licensing text.
+  - Re-run stack runner and verify `stop` leaves no matching processes (`pgrep -af rustmule-run-` returns none).
+- Change log: Stack stop now performs full tree + run-dir cleanup.
 
-- Status: Added GitHub Pages docs-site scaffolding on `feature/docs-site-vitepress`:
-  - Added VitePress project in `site/`:
-    - `site/package.json`
-    - `site/.vitepress/config.mts`
-  - Added docs site entrypoint and domain file:
-    - `docs/index.md`
-    - `docs/public/CNAME` (`rust-mule.darkmode.tools`)
-  - Added deployment workflow:
-    - `.github/workflows/pages.yml` builds VitePress on `main` and deploys to GitHub Pages.
-  - Updated docs references and ignores:
-    - `README.md`, `docs/README.md`, `.gitignore`.
+- Status: Fixed download band wait/result logic for stale PID races on `feature/download-strategy-imule`:
+  - Analysis from `/tmp/rust-mule-download-stack-20260216_140814.tar.gz` showed scenarios being advanced when `status=stale_pid` but `runner_state=running`.
+  - `scripts/test/download_soak_band.sh` now:
+    - treats terminal states strictly via `runner_state in {completed, failed, stopped}`
+    - keeps waiting while `runner_state=running` (even if `status=stale_pid`)
+    - maps final `results.tsv` outcome from terminal state (`completed|failed|stopped|running_after_wait|unknown`).
 - Decisions:
-  - Use `site/` as the dedicated website config folder; keep markdown source canonical in `docs/`.
-  - Build/deploy static docs through GitHub Pages workflow instead of manual publish.
+  - Trust explicit runner state over transient status pid interpretation.
 - Next steps:
-  - Merge this branch and enable/verify Pages in repository settings (GitHub Actions source).
-  - Verify DNS/CNAME resolution for `rust-mule.darkmode.tools`.
-- Change log: Repo now includes an automated VitePress -> GitHub Pages pipeline for project documentation.
+  - Re-run stack/band soak and verify concurrency/long_churn no longer short-circuit after first poll.
+- Change log: Band runner no longer treats `stale_pid + running` as finished.
+
+- Status: Fixed stack runner build shell context on `feature/download-strategy-imule`:
+  - Root cause: build command was executed via nested `bash -lc`, which lost the PATH bootstrap and still could not find `cargo`.
+  - `scripts/test/download_soak_stack_bg.sh` now executes build command in current shell context (`eval "$BUILD_CMD"` in repo dir), preserving PATH/toolchain setup.
+- Decisions:
+  - Avoid nested login-shell build execution in stack runner.
+- Next steps:
+  - Re-run `download_soak_stack_bg.sh start` and confirm build begins and run directory stages.
+- Change log: Stack runner build step now honors PATH bootstrap reliably.
+
+- Status: Fixed download stack runner false-running behavior on `feature/download-strategy-imule`:
+  - Root cause observed in logs: background shell could not find `cargo` (`cargo: command not found`), causing early exit before build/stage.
+  - `scripts/test/download_soak_stack_bg.sh` now:
+    - bootstraps PATH with `~/.cargo/bin` when needed
+    - handles build failures explicitly (`runner.state=failed`, cleanup, pid removal)
+    - validates runner process remains alive right after `start` and reports immediate-exit failure.
+  - `scripts/test/README.md` troubleshooting updated (`stack.out` path and cargo PATH note).
+- Decisions:
+  - Prefer explicit failure state over stale/running ambiguity when background bootstrap fails.
+- Next steps:
+  - Re-run `download_soak_stack_bg.sh start`; verify build and run-dir staging occur and status transitions correctly.
+- Change log: Stack runner now fails fast/cleanly on missing cargo or early runner death.
+
+- Status: Added full background download soak pipeline runner on `feature/download-strategy-imule`:
+  - New script: `scripts/test/download_soak_stack_bg.sh` with `start|run|status|stop|collect`.
+  - It now performs end-to-end automation:
+    - builds latest sources (`BUILD_CMD`, default `cargo build --release`)
+    - stages isolated run dir (`/tmp/rustmule-run-<timestamp>`)
+    - writes run-specific `config.toml` (section-aware updates for `[sam]`, `[general]`, `[api]`)
+    - starts rust-mule from staged dir and waits for health + token
+    - runs `download_soak_band.sh` with forwarded soak parameters
+    - supports post-run tarball collection.
+  - `scripts/test/README.md` updated with full pipeline usage and env overrides.
+- Decisions:
+  - Keep app lifecycle isolated per run directory for reproducible soak artifacts.
+  - Keep orchestration shell-native and reuse existing `download_soak_band.sh` logic.
+- Next steps:
+  - Execute `download_soak_stack_bg.sh start`, monitor `status`, and collect the resulting stack tarball for triage.
+- Change log: Added one-command background build+run+download-soak pipeline.
+
+- Status: Hardened download band-runner preflight and state handling on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_band.sh` now preflights API reachability (`GET /api/v1/health == 200`) and aborts early with a clear message if rust-mule is not running.
+  - `scripts/test/download_soak_bg.sh` `stop` no longer overwrites terminal `failed/completed` state with `stopped`.
+  - `scripts/test/README.md` now documents API-running precondition for band runs.
+- Decisions:
+  - Prefer fast-fail precondition checks over delayed per-scenario readiness timeouts when API is down.
+  - Preserve terminal runner state for accurate post-run interpretation.
+- Next steps:
+  - Re-run `download_soak_band.sh` with rust-mule running and token present, then triage collected tarballs.
+- Change log: Band runs now fail fast when API is offline and keep accurate scenario terminal states.
+
+- Status: Fixed in-band download soak status parsing bug on `feature/download-strategy-imule`:
+  - `scripts/test/download_soak_band.sh` now parses `status=running pid=...` lines correctly.
+  - Previous behavior treated `running pid` as non-running and advanced scenarios immediately.
+- Decisions:
+  - Parse only the first token value for `status`/`runner_state` lines.
+- Next steps:
+  - Re-run `download_soak_band.sh` and confirm each scenario blocks for intended duration unless stopped/fails.
+- Change log: Band runner no longer short-circuits after first poll.
+
+- Status: Added in-band download soak orchestrator on `feature/download-strategy-imule`:
+  - New script: `scripts/test/download_soak_band.sh`
+    - runs download soak scenarios sequentially:
+      1. `integrity` (default 3600s)
+      2. `single_e2e` (default 3600s)
+      3. `concurrency` (default 7200s)
+      4. `long_churn` (default 7200s)
+    - polls runner status, forces stop on timeout, and collects tarball for each scenario
+    - copies collected tarballs + writes `results.tsv` and `status.tsv` under `OUT_DIR`
+  - `scripts/test/README.md` updated with one-command in-band run instructions and overrides.
+- Decisions:
+  - Keep orchestrator shell-native and reuse existing per-scenario wrappers rather than duplicating scenario logic.
+  - Preserve scenario isolation by running each with its own existing scenario run root and collect step.
+- Next steps:
+  - Run `download_soak_band.sh` after current source soak and share generated `OUT_DIR` + tarballs for triage.
+  - If needed, add a companion triage script for `results.tsv` + per-scenario tar summaries.
+- Change log: Added a one-command sequential download soak runner with automatic stop/collect.
+
+- Status: Added download soak scaffolding and execution plan on `feature/download-strategy-imule`:
+  - New generic runner: `scripts/test/download_soak_bg.sh`
+    - background lifecycle: `start/run/status/stop/collect`
+    - scenario switch via `SCENARIO=single_e2e|long_churn|integrity|concurrency`
+    - writes per-scenario logs/bundles under `/tmp/rust-mule-download-soak/<scenario>`.
+  - New scenario wrappers:
+    - `scripts/test/download_soak_single_e2e_bg.sh`
+    - `scripts/test/download_soak_long_churn_bg.sh`
+    - `scripts/test/download_soak_integrity_bg.sh`
+    - `scripts/test/download_soak_concurrency_bg.sh`
+  - Updated `scripts/test/README.md` with post-source-soak run order, commands, and pass signals.
+- Decisions:
+  - Keep download soak scope API/control-plane focused for now (queue lifecycle + invariants + pressure), matching currently implemented download functionality.
+  - Use scenario wrappers for simpler operator usage and isolated per-scenario run roots.
+- Next steps:
+  - After current source soak completes, run the four download soak scenarios in documented order.
+  - Collect tarballs and triage runner/list logs for invariant violations and queue-pressure regressions.
+- Change log: Added runnable download soak scripts and a concrete operator runbook.
+
+- Status: Updated soak identity/session handling on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh` now:
+    - generates unique per-run SAM session names for A/B using `RUN_TAG`
+    - supports `SOAK_RUN_TAG` override for deterministic debug runs
+    - defaults to `SOAK_FRESH_IDENTITY=1`, removing copied `data/sam.keys` so each run gets fresh I2P destinations
+  - `scripts/test/README.md` updated with new identity/session controls.
+- Decisions:
+  - Keep fresh identity default enabled to avoid duplicate-destination registration when previous sessions linger.
+  - Keep opt-out (`SOAK_FRESH_IDENTITY=0`) for controlled continuity tests.
+- Next steps:
+  - Restart soak with defaults and confirm no duplicate destination registration warnings from I2P router logs.
+  - Continue soak comparison with `MISS_RECHECK_ATTEMPTS=0` once stable baseline resumes.
+- Change log: Soak runs now isolate SAM identities and session names by default.
+
+- Status: Cleaned soak status PID reporting on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh`:
+    - `stop_nodes` now removes `logs/a.pid` and `logs/b.pid` after stop.
+    - `status` now reports node PID liveness (`alive=1|0`) when pid files exist.
+  - `scripts/test/README.md` updated to document stale-PID cleanup behavior.
+- Decisions:
+  - Prefer clearing pid files at stop to avoid false confidence in stale process IDs.
+- Next steps:
+  - Run quick `start -> status -> stop -> status` check and confirm node pid lines disappear after stop.
+  - Proceed with baseline/tuned soak comparison runs.
+- Change log: Soak status output no longer keeps stale node PID files after stop.
+
+- Status: Hardened soak `stop` reliability and failure cleanup on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh`:
+    - added `kill_pid_gracefully` (TERM + KILL fallback with result logging)
+    - upgraded `stop_nodes` to use graceful escalation, not single-shot `kill`
+    - added `stop_run_root_nodes` fallback scan over `/proc` to terminate soak-owned processes tied to current `RUN_ROOT`
+    - tightened ownership matching to cwd/cmdline rooted in current `RUN_ROOT` (avoids killing unrelated local processes)
+    - startup/readiness failure now sets `runner.state=failed` and runs cleanup immediately.
+  - `scripts/test/README.md` updated with the stronger stop/cleanup behavior.
+- Decisions:
+  - Prioritize deterministic cleanup of soak-owned processes over PID-file-only teardown.
+  - Keep process kill scope constrained to the active `RUN_ROOT`.
+- Next steps:
+  - Re-run `start -> stop -> status` smoke to verify no listeners remain on `A_URL`/`B_URL` after stop.
+  - Resume baseline vs miss-recheck comparison soak once stop behavior is confirmed.
+- Change log: Soak stop path now aggressively reaps RUN_ROOT-owned processes and failed starts no longer leave stale running state.
+
+- Status: Added optional miss recheck pass in timed background soak harness on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh` now supports:
+    - `MISS_RECHECK_ATTEMPTS` (default `1`)
+    - `MISS_RECHECK_DELAY` seconds (default `20`)
+  - After an initial source miss (`GET /api/v1/kad/sources/:file_id_hex`), the runner performs bounded delayed rechecks before persisting round outcome.
+  - `rounds.tsv` format is unchanged (6 columns), so `scripts/test/soak_triage.sh` compatibility is preserved.
+  - `scripts/test/README.md` updated with new env knobs and behavior description.
+- Decisions:
+  - Keep miss-recheck logic optional and env-controlled to preserve old baseline behavior (`MISS_RECHECK_ATTEMPTS=0` disables rechecks).
+  - Keep `rounds.tsv` schema stable for existing triage tooling.
+- Next steps:
+  - Re-run A/B soak with two profiles:
+    - baseline (`MISS_RECHECK_ATTEMPTS=0`)
+    - tuned (`MISS_RECHECK_ATTEMPTS=1 MISS_RECHECK_DELAY=20`)
+  - Compare hit-rate and hit-gap deltas using unchanged triage scripts.
+- Change log: Soak runner now supports delayed miss recheck to reduce false misses from eventual consistency windows.
+
+- Status: Hardened timed background soak harness failure handling on `feature/download-strategy-imule`:
+  - `scripts/test/source_probe_soak_bg.sh` now:
+    - fails fast if `A_URL`/`B_URL` ports are already in use (prevents attaching to foreign processes)
+    - synchronizes API port config from `A_URL` and `B_URL`
+    - verifies spawned node PIDs are running from expected per-run directories
+    - aborts readiness early on repeated `403` responses (token mismatch/wrong process)
+    - separates detached stdout/stderr into `logs/runner.out` to avoid duplicate `runner.log` lines.
+    - uses stricter multi-probe port detection (`ss` + `lsof` + TCP connect probes) before launch to catch occupied API ports reliably.
+    - `stop` now also scans `A_URL`/`B_URL` listen ports and terminates matching `rust-mule` listener PIDs if PID files are stale/missing.
+  - `scripts/test/README.md` updated with the new safety behavior.
+- Decisions:
+  - Prefer explicit preflight failure over implicit retries when ports are occupied.
+  - Treat repeated readiness `403` as a hard test-environment mismatch signal.
+  - Keep stop fallback conservative: only kill listeners whose process cmdline contains `rust-mule`.
+- Next steps:
+  - Re-run soak with the hardened script; verify `rounds.tsv` and `status.ndjson` are populated before long-run analysis.
+  - If needed, add optional auto-port allocation mode in a later slice.
+- Change log: Soak runner now guards against port collisions and false-readiness loops, and logs are no longer duplicated.
+
+- Status: Implemented source-probe telemetry hardening + request correlation IDs in KAD service and added timed background soak scaffold on `feature/download-strategy-imule`:
+  - `src/kad/service.rs`:
+    - outbound tracked requests now carry `request_id` and optional `trace_tag`
+    - added response->expected-opcode mapping for strict response/request matching
+    - added unmatched-response diagnostics (`last_unmatched_response`) with expected opcodes and tracked counts
+    - source search/publish sends now emit `source_probe_request_sent` with request correlation ID
+    - source search/publish response matching now emits `source_probe_response_matched` / `source_probe_response_unmatched` with request correlation diagnostics.
+  - `src/kad/service/inbound.rs`:
+    - unrequested response drops now log expected opcode families and tracked request counts
+    - explicit decode-failure events for source probe response parsing failures.
+  - `scripts/test/source_probe_soak_bg.sh`:
+    - new detached soak runner with timer (`start <duration_secs>`, `status`, `stop`, `collect`)
+    - PID/state files and log outputs under `/tmp/rust-mule-soak-bg` (override via `RUN_ROOT`).
+  - `scripts/test/README.md`:
+    - usage examples for timed background soak runs and environment overrides.
+- Decisions:
+  - Keep correlation ID scope focused on KAD source probe request/response lifecycle (no API schema change in this slice).
+  - Keep soak harness shell-native with `nohup` + PID file controls for long-running sessions.
+- Next steps:
+  - Run the new timed soak harness against freshly built `../../mule-a` / `../../mule-b` and analyze `rounds.tsv` + `status.ndjson`.
+  - If needed, expose recent source-probe correlation counters in `/api/v1/status` for easier dashboarding.
+- Change log: Added source-probe request/response correlation logging and introduced a timer-based background soak runner script.
+
+- Status: Completed transfer execution groundwork (peer-owned inflight + packet ingest + timeout retry) on `feature/download-strategy-imule`:
+  - Added `src/download/protocol.rs`:
+    - ED2K transfer opcode constants (`OP_REQUESTPARTS`, `OP_SENDINGPART`, `OP_COMPRESSEDPART`)
+    - payload encode/decode helpers and typed protocol errors
+    - unit tests for requestparts roundtrip and sendingpart validation.
+  - Finished peer-aware transfer flow in `src/download/service.rs`:
+    - fixed service loop to use a single `tokio::select!` over command receive + timeout tick
+    - `ReserveBlocks` now assigns peer-owned inflight leases with expiration deadline
+    - `MarkBlockReceived` / `MarkBlockFailed` now validate lease ownership by peer
+    - added `PeerDisconnected` reclaim path to requeue leased blocks for that peer
+    - added timeout processing to requeue expired leases with retry/error tracking
+    - added `IngestInboundPacket` handling for `OP_SENDINGPART` and `OP_COMPRESSEDPART` that maps inbound payloads to block completion.
+  - Extended persisted transfer state in `src/download/store.rs`:
+    - `ByteRange`, `missing_ranges`, `inflight_ranges`, `retry_count`, `last_error` (with serde defaults).
+  - Updated download API DTO mapping in `src/api/handlers/downloads.rs` to expose progress + transfer counters/error.
+  - Added service tests:
+    - `peer_disconnected_reclaims_only_that_peers_leases`
+    - `ingest_sendingpart_marks_reserved_block_received`.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 86 tests).
+- Decisions:
+  - Keep lease tracking in-memory (`ManagedDownload.leases`) and persist only range/error projections in `.part.met`.
+  - Keep packet ingest scope minimal in this slice: decode + hash/range validation + state transition; deferred real payload write/verification pipeline.
+- Next steps:
+  - Wire TCP peer session handler to emit `IngestInboundPacket` and `PeerDisconnected` events from live network traffic.
+  - Add block payload write path into `.part` files and integrity checks before `completing -> completed`.
+  - Tune lease timeout/retry policy from soak-test observations and expose counters in API/UI if needed.
+- Change log: Download actor now supports peer-bound inflight reservations with timeout/disconnect recovery and first inbound transfer packet ingestion path.
+
+- Status: Added download transfer-state skeleton (phase 2 groundwork) on `feature/download-strategy-imule`:
+  - Extended persisted metadata (`src/download/store.rs`):
+    - new `ByteRange` model
+    - `PartMet` now persists:
+      - `missing_ranges`
+      - `inflight_ranges`
+      - `retry_count`
+      - `last_error`
+    - backward-compatible serde defaults retained.
+  - Extended download actor (`src/download/service.rs`):
+    - new transfer-facing commands:
+      - `ReserveBlocks`
+      - `MarkBlockReceived`
+      - `MarkBlockFailed`
+    - block reservation now moves ranges from `missing` -> `inflight`
+    - failed blocks are re-queued into `missing` with retry/error tracking
+    - received blocks clear inflight and update progress/completion state
+    - restart safety: inflight ranges are reclaimed into missing on startup recovery.
+  - Extended `DownloadSummary` and API-visible fields:
+    - `progress_pct`
+    - `missing_ranges`
+    - `inflight_ranges`
+    - `retry_count`
+    - `last_error`
+  - Updated download list/action responses (`src/api/handlers/downloads.rs`) to expose these fields.
+  - Added tests:
+    - reserve/fail/retry/receive state progression
+    - restart inflight reclamation into missing
+    - existing API mutation/list tests continue passing with expanded schema.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 82 tests).
+- Decisions:
+  - Keep range semantics inclusive (`start..=end`) in persisted metadata.
+  - Treat in-flight reservations as non-authoritative across restart: reclaim to missing for correctness.
+- Next steps:
+  - Integrate wire-level TCP block flow into these commands (`OP_REQUESTPARTS` / `OP_SENDINGPART` path).
+  - Add per-peer in-flight ownership and timeout scheduler for autonomous retry.
+  - Persist part-hash verification state and transition `completing -> completed`.
+- Change log: Download subsystem now tracks block-level missing/inflight/retry state with restart-safe recovery.
+
+- Status: Implemented mutating download API endpoints on `feature/download-strategy-imule`:
+  - Added new endpoints under `/api/v1`:
+    - `POST /downloads`
+    - `POST /downloads/:part_number/pause`
+    - `POST /downloads/:part_number/resume`
+    - `POST /downloads/:part_number/cancel`
+    - `DELETE /downloads/:part_number`
+  - Existing `GET /downloads` remains as queue/status snapshot endpoint.
+  - New handler module: `src/api/handlers/downloads.rs`:
+    - request/response DTOs for create/action/delete/list
+    - typed download error -> HTTP mapping:
+      - invalid input -> `400`
+      - not found -> `404`
+      - invalid transition -> `409`
+      - channel closed -> `503`
+      - storage/join failures -> `500`.
+  - Router and handler exports updated:
+    - `src/api/router.rs`
+    - `src/api/handlers/mod.rs`
+  - API state wiring unchanged in behavior but now fully exercises download mutating commands.
+  - Added endpoint tests:
+    - `api::tests::download_mutation_endpoints_update_service_state`
+      - create -> pause -> resume -> cancel -> delete
+      - conflict and not-found status checks
+      - list consistency checks.
+  - Updated API docs:
+    - `docs/API_DESIGN.md` (downloads now marked implemented for lifecycle queue management)
+    - `docs/api_curl.md` (added curl examples for list/create/pause/resume/cancel/delete).
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 80 tests).
+- Decisions:
+  - Keep download API mutators command-driven via the actor to preserve explicit state transitions and typed error semantics.
+  - Keep transfer wire pipeline out of this slice; API currently manages queue lifecycle only.
+- Next steps:
+  - Add first transfer-facing commands/structures (pending block requests, timeout bookkeeping).
+  - Persist and expose gap/range progress in `PartMet` to support restart-safe block transfer.
+  - Add UI controls for create/pause/resume/cancel/delete wired to the new endpoints.
+- Change log: Download queue can now be fully controlled through API endpoints, with tests and docs updated.
+
+- Status: Implemented download phase 1.5/2 groundwork on `feature/download-strategy-imule`:
+  - Expanded download actor/service (`src/download/service.rs`):
+    - state/lifecycle commands:
+      - `CreateDownload`
+      - `Pause`
+      - `Resume`
+      - `Cancel`
+      - `Delete`
+      - `List`
+    - deterministic part slot allocation is now used (`%03d.part.met` / `%03d.part`).
+    - persisted state transitions for lifecycle operations.
+    - startup recovery now seeds in-memory queue and state from persisted metadata.
+  - Added/expanded store primitives (`src/download/store.rs`):
+    - helpers for numbered part paths and next free part number allocation.
+    - `PartState` expanded to include `completed/cancelled/error` states.
+  - Expanded typed errors (`src/download/errors.rs`) with:
+    - invalid input, not found, invalid transition variants for command-level failures.
+  - Added read-only API endpoint:
+    - `GET /api/v1/downloads`
+    - wired via new handler `src/api/handlers/downloads.rs` and router update.
+    - response includes `queue_len`, `recovered_on_start`, and current download entries.
+  - API wiring updates:
+    - `ApiState`/`ApiServeDeps` now carry `DownloadServiceHandle`.
+    - app bootstrap passes download handle into API server deps.
+  - Tests added/updated:
+    - download lifecycle flow (create -> pause -> resume -> cancel -> delete -> list)
+    - restart recovery preserves persisted state
+    - allocator picks lowest free slot
+    - API contract test now verifies `/api/v1/downloads`
+    - startup integration test updated for new API deps.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 79 tests).
+- Decisions:
+  - Keep phase 2 focused on control-plane correctness (state machine + persistence + API visibility) before chunk wire-transfer ingestion.
+  - Keep `/api/v1/downloads` read-only for now; mutating endpoints will follow once queue semantics stabilize.
+- Next steps:
+  - Add mutating download API endpoints (create/pause/resume/cancel/delete) bound to current service commands.
+  - Add first transfer-facing abstractions for pending block requests and timeout bookkeeping.
+  - Introduce `.part` gap/range progress tracking in persisted metadata for block-level recovery.
+- Change log: Download service is now a functional persisted queue with lifecycle operations and API observability.
+
+- Status: Implemented download subsystem phase 1 persistence/recovery primitives on `feature/download-strategy-imule`:
+  - Added `src/download/store.rs`:
+    - `PartMet` model and `PartState` enum
+    - `save_part_met(...)` with `.part.met.bak` rollover and atomic tmp->rename write
+    - `load_part_met_with_fallback(...)` (primary then backup)
+    - `scan_recoverable_downloads(...)` startup recovery scan over `data/download/*.part.met`
+    - iMule-compatible version marker default (`PART_MET_VERSION = 0xE0`) for metadata model.
+  - Extended `src/download/errors.rs` with typed store/persistence error variants:
+    - read/write/rename/copy/parse/serialize directory and file failures.
+  - Updated `src/download/service.rs`:
+    - startup now recovers existing part metadata and sets `queue_len`
+    - status now includes `recovered_on_start`
+    - added `RecoveredCount` command and handle method.
+  - Updated `src/download/mod.rs` exports for store model/types.
+  - Added tests:
+    - store roundtrip save/load
+    - backup fallback when primary met is corrupt
+    - recovery scan over multiple `.part.met` entries
+    - service startup recovery count from existing metadata.
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 76 tests).
+- Decisions:
+  - Keep phase 1 metadata persistence Rust-native (JSON payload) while preserving iMule file naming and lifecycle semantics (`.part.met`, `.bak`, startup recovery).
+  - Defer wire-level transfer and full binary part.met compatibility to later phases after queue/state model is stable.
+- Next steps:
+  - Add first queue state model in service (`queued/running/paused/completed/error`) backed by persisted `PartMet`.
+  - Add commands to create/pause/resume/cancel downloads and persist state transitions.
+  - Introduce initial API endpoints for listing recovered/active download entries.
+- Change log: Download subsystem now has backup-safe part metadata persistence and startup recovery integrated into runtime.
+
+- Status: Implemented download subsystem phase 0 scaffold on `feature/download-strategy-imule`:
+  - Added new module tree:
+    - `src/download/mod.rs`
+    - `src/download/types.rs`
+    - `src/download/errors.rs`
+    - `src/download/service.rs`
+  - Added typed download errors:
+    - `DownloadError`
+    - `DownloadStoreError`
+  - Added actor-style service shell:
+    - `DownloadServiceConfig::from_data_dir(...)`
+    - `start_service(...)` returning handle/status/join task
+    - command loop with `Ping` and `Shutdown`
+    - startup ensures `data/download/` and `data/incoming/` exist.
+  - Integrated into app bootstrap:
+    - `src/lib.rs` exports `download` module.
+    - `src/app.rs` starts download service at runtime and adds `AppError::Download`.
+  - Added tests:
+    - `start_service_creates_download_and_incoming_dirs`
+    - `service_ping_and_shutdown_flow`
+  - Ran `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features` (all passing; 72 tests).
+- Decisions:
+  - Keep phase 0 strictly minimal: directory/bootstrap + command actor + typed errors, no transfer logic yet.
+  - Keep service always-on at startup to prepare API integration in next phase.
+- Next steps:
+  - Phase 1: implement `.part`/`.part.met` persistence primitives and startup recovery scanning.
+  - Add first download queue state model (`queued/running/paused/completed/error`) and service commands around it.
+  - Add persistence-focused tests with corrupted/backup metadata cases.
+- Change log: Download subsystem now exists as a first-class module with runtime wiring and passing tests.
+
+- Status: Added iMule-derived download subsystem strategy on `feature/download-strategy-imule`:
+  - New document: `docs/DOWNLOAD_DESIGN.md`
+    - deep-dive findings from iMule source for download flow and persistence:
+      - chunk/block transfer behavior (`OP_REQUESTPARTS`/`OP_SENDINGPART`/compressed parts)
+      - `.part` + `.part.met` lifecycle and gap tracking
+      - `known.met` and `known2_64.met` responsibilities
+    - proposed Rust-native module boundaries under `src/download/*`
+    - phased implementation plan (scaffold -> persistence -> transfer -> finalize -> API/UI)
+    - test plan and compatibility rules.
+  - Updated docs index and planning files:
+    - `docs/README.md` includes `DOWNLOAD_DESIGN.md`
+    - `docs/TODO.md` now has a `Downloads` backlog section
+    - `docs/TASKS.md` reprioritized with download phase 0/1 first
+    - `README.md` documentation map includes `docs/DOWNLOAD_DESIGN.md`
+- Decisions:
+  - Implement downloads Rust-native as an actor-style subsystem, preserving iMule wire/on-disk semantics where needed for compatibility.
+  - Use `data/download/` for active `.part` state and `data/incoming/` for finalized files.
+  - Deliver MD4-first baseline before enabling full AICH (`known2_64.met`) integration.
+- Next steps:
+  - Implement phase 0 scaffolding (`src/download/*`, typed errors, command/event loop shell).
+  - Implement phase 1 `.part`/`.part.met` persistence and startup recovery tests.
+  - Add minimal API surface to create/list/pause/resume/cancel downloads once phase 1 lands.
+- Change log: Download strategy is now documented and promoted to top project priority in planning docs.
 
 - Status: Added UI smoke testing to CI on `main` push/PR via Playwright + mocked backend:
   - Updated `.github/workflows/ci.yml`:

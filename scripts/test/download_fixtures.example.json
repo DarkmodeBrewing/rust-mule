@@ -1,0 +1,12 @@
+[
+  {
+    "file_name": "fixture-file-1.bin",
+    "file_size": 1048576,
+    "file_hash_md4_hex": "0123456789abcdeffedcba9876543210"
+  },
+  {
+    "file_name": "fixture-file-2.bin",
+    "file_size": 2097152,
+    "file_hash_md4_hex": "00112233445566778899aabbccddeeff"
+  }
+]
