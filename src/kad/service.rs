@@ -149,6 +149,8 @@ const KEYWORD_JOB_ACTION_BATCH: usize = 5;
 const TRACKED_OUT_REQUEST_TTL: Duration = Duration::from_secs(180);
 const TRACKED_IN_CLEANUP_EVERY: Duration = Duration::from_secs(12 * 60);
 const TRACKED_IN_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
+const SHAPER_PEER_STATE_TTL: Duration = Duration::from_secs(60 * 60);
+const SHAPER_PEER_STATE_MAX: usize = 8192;
 
 #[derive(Debug, Clone)]
 struct TrackedOutRequest {
@@ -1538,7 +1540,30 @@ fn shaper_roll_window(svc: &mut KadService, now: Instant) {
         svc.shaper_window_started = now;
         svc.shaper_global_sent_in_window = 0;
         svc.shaper_peer_sent_in_window.clear();
+        shaper_cleanup_stale_peers(svc, now);
     }
+}
+
+fn shaper_cleanup_stale_peers(svc: &mut KadService, now: Instant) {
+    svc.shaper_last_peer_send
+        .retain(|_, seen_at| now.saturating_duration_since(*seen_at) <= SHAPER_PEER_STATE_TTL);
+    if svc.shaper_last_peer_send.len() <= SHAPER_PEER_STATE_MAX {
+        return;
+    }
+
+    let mut by_age = svc
+        .shaper_last_peer_send
+        .iter()
+        .map(|(peer, seen_at)| (peer.clone(), *seen_at))
+        .collect::<Vec<_>>();
+    by_age.sort_by_key(|(_, seen_at)| std::cmp::Reverse(*seen_at));
+    let keep = by_age
+        .into_iter()
+        .take(SHAPER_PEER_STATE_MAX)
+        .map(|(peer, _)| peer)
+        .collect::<HashSet<_>>();
+    svc.shaper_last_peer_send
+        .retain(|peer, _| keep.contains(peer));
 }
 
 fn shaper_jitter_ms(svc: &mut KadService, max_ms: u64) -> u64 {
@@ -1634,7 +1659,7 @@ async fn shaper_send(
     if send_at > now {
         svc.stats_window.outbound_shaper_delayed =
             svc.stats_window.outbound_shaper_delayed.saturating_add(1);
-        tokio::time::sleep_until(send_at).await;
+        return Ok(false);
     }
     sock.send_to(dest_b64, payload).await?;
     shaper_mark_sent(svc, dest_b64, Instant::now());

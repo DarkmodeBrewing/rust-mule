@@ -8,6 +8,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status: Addressed PR review comments on `feature/kad-phase1-shaper` shaper state growth + loop blocking.
+  - Added bounded cleanup for peer-shaper state (`shaper_last_peer_send`):
+    - TTL-based eviction (`SHAPER_PEER_STATE_TTL = 1h`)
+    - hard cap (`SHAPER_PEER_STATE_MAX = 8192`) retaining most-recent peers
+  - Removed blocking sleeps in shaper path:
+    - `shaper_send` no longer calls `sleep_until`
+    - when packet is scheduled for future send, it increments `outbound_shaper_delayed` and returns `false` (caller treats as not sent)
+- Decisions:
+  - Prefer non-blocking service loop behavior over in-loop delayed sends to prevent receive/tick/command head-of-line blocking.
+  - Keep delayed-send visibility via existing `outbound_shaper_delayed` counter.
+- Next steps:
+  - Re-run baseline compare on this revision to quantify impact of non-blocking delayed behavior.
+- Change log:
+  - `src/kad/service.rs`: added stale peer cleanup/cap + non-blocking shaper send behavior.
+  - `src/kad/service/tests.rs`: added `shaper_cleanup_evicts_stale_peer_state`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (94 tests)
+
 - Status: Tuned Phase 1 shaper defaults downward on `feature/kad-phase1-shaper` based on baseline deltas.
   - Updated defaults in `KadServiceConfig`:
     - `outbound_shaper_base_delay_ms`: `20 -> 5`

@@ -411,3 +411,20 @@ fn shaper_applies_peer_min_interval_delay() {
     let next = shaper_schedule_send(&mut svc, &cfg, "peer-a", now).expect("second schedule");
     assert!(next >= now + Duration::from_millis(100));
 }
+
+#[test]
+fn shaper_cleanup_evicts_stale_peer_state() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let now = Instant::now();
+    let stale = now - SHAPER_PEER_STATE_TTL - Duration::from_secs(1);
+
+    svc.shaper_last_peer_send
+        .insert("old-peer".to_string(), stale);
+    svc.shaper_last_peer_send
+        .insert("new-peer".to_string(), now - Duration::from_secs(10));
+
+    shaper_cleanup_stale_peers(&mut svc, now);
+    assert!(!svc.shaper_last_peer_send.contains_key("old-peer"));
+    assert!(svc.shaper_last_peer_send.contains_key("new-peer"));
+}
