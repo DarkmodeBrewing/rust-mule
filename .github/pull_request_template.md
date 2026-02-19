@@ -9,6 +9,7 @@
 - [ ] `cargo fmt --all --check`
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] `cargo test --all-targets --all-features`
+- [ ] Merge policy acknowledged: no direct merge/commit to `main`; merge only through reviewed PR.
 
 ## KAD/Wire Gate (Only if touching `src/kad/**` or wire behavior)
 
