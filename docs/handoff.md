@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status: Tuned Phase 1 shaper defaults downward on `feature/kad-phase1-shaper` based on baseline deltas.
+  - Updated defaults in `KadServiceConfig`:
+    - `outbound_shaper_base_delay_ms`: `20 -> 5`
+    - `outbound_shaper_jitter_ms`: `25 -> 10`
+    - `outbound_shaper_peer_min_interval_ms`: `50 -> 20`
+  - Global pacing/cap values unchanged.
+- Decisions:
+  - Keep cap limits as-is (`global_max_per_sec=40`, `peer_max_per_sec=8`) since baseline showed delay engagement but no cap drops.
+- Next steps:
+  - Re-run before/after Phase 0 baseline compare and verify `recv_ress`/`tracked_out_matched` regression narrows while shaper still engages.
+- Change log:
+  - Updated `src/kad/service/types.rs` shaper default values.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (93 tests)
+
 - Status: Extended KAD Phase 0 baseline capture script on `feature/kad-phase1-shaper` to include outbound shaper counters.
   - `scripts/test/kad_phase0_baseline.sh` now records:
     - `outbound_shaper_delayed`

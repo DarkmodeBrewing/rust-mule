@@ -126,10 +126,10 @@ impl Default for KadServiceConfig {
             store_keyword_max_total_hits: 200_000,
             store_keyword_evict_age_secs: 14 * 24 * 60 * 60,
 
-            outbound_shaper_base_delay_ms: 20,
-            outbound_shaper_jitter_ms: 25,
+            outbound_shaper_base_delay_ms: 5,
+            outbound_shaper_jitter_ms: 10,
             outbound_shaper_global_min_interval_ms: 5,
-            outbound_shaper_peer_min_interval_ms: 50,
+            outbound_shaper_peer_min_interval_ms: 20,
             outbound_shaper_global_max_per_sec: 40,
             outbound_shaper_peer_max_per_sec: 8,
         }
