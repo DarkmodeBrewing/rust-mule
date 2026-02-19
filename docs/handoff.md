@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added explicit CodeQL workflow configuration for Rust on `feature/codeql-workflow-rust`:
+  - New workflow: `.github/workflows/codeql.yml`
+  - Triggers on:
+    - push to `main`
+    - pull requests targeting `main`
+    - weekly schedule
+  - Uses CodeQL action v3 with `language: rust` and `security-and-quality` queries.
+- Decisions:
+  - Use a committed (versioned) CodeQL workflow to keep scan configuration consistent across branches and PRs.
+- Next steps:
+  - In GitHub settings, disable CodeQL Default setup to avoid dual-configuration ambiguity.
+  - Let the new workflow run on PR/main and confirm code scanning comparisons no longer warn about missing config.
+- Change log:
+  - Added `.github/workflows/codeql.yml`.
+
 - Status: Added repository merge policy documentation on `main`:
   - `README.md` now states:
     - no direct commits/merges to `main`
