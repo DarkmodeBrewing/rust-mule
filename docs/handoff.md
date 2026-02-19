@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Addressed PR review findings for download store/service correctness on `feature/download-strategy-imule`:
+  - Fixed recovered part path derivation in `scan_recoverable_downloads`:
+    - `001.part.met` now maps to `001.part` (not `001.part.part`).
+  - Fixed part number parsing/allocation for IDs beyond 999:
+    - `parse_part_number` now accepts any all-digit stem that parses to `u16`.
+    - `allocate_next_part_number` now correctly accounts for files like `1000.part`.
+  - Fixed delete atomicity in `delete_download`:
+    - file deletions occur first, then in-memory map entry is removed only on success.
+    - on filesystem error, runtime entry remains so delete can be retried in-process.
+- Decisions:
+  - Preserve existing on-disk naming format (`{part:03}` minimum width) while making parsing robust for wider numeric stems.
+  - Prefer state consistency over eager map mutation during deletion.
+- Next steps:
+  - Merge after PR review confirms these follow-up fixes.
+- Change log:
+  - `src/download/store.rs`: corrected `.part` path reconstruction; relaxed part-number parser; added regression tests.
+  - `src/download/service.rs`: made delete state mutation happen after successful file cleanup; added regression test.
+  - Validation run after patch:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (89 tests)
+
 - Status: Soak run `/tmp/rustmule-run-20260218_160244` validated as healthy on `feature/download-strategy-imule`:
   - `soak-band/results.tsv` shows all scenarios `completed/completed`:
     - `integrity`, `single_e2e`, `concurrency`, `long_churn`

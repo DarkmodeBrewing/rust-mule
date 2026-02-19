@@ -1048,19 +1048,22 @@ async fn delete_download(
     downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
     part_number: u16,
 ) -> Result<()> {
-    let d = downloads
-        .remove(&part_number)
-        .ok_or(DownloadError::NotFound(part_number))?;
-    if d.met_path.exists() {
-        tokio::fs::remove_file(&d.met_path)
-            .await
-            .map_err(|source| DownloadStoreError::WriteFile {
-                path: d.met_path.clone(),
+    let (met_path, part_path) = {
+        let d = downloads
+            .get(&part_number)
+            .ok_or(DownloadError::NotFound(part_number))?;
+        (d.met_path.clone(), d.part_path.clone())
+    };
+    if met_path.exists() {
+        tokio::fs::remove_file(&met_path).await.map_err(|source| {
+            DownloadStoreError::WriteFile {
+                path: met_path.clone(),
                 source,
-            })?;
+            }
+        })?;
     }
     let bak = {
-        let mut p = d.met_path.as_os_str().to_os_string();
+        let mut p = met_path.as_os_str().to_os_string();
         p.push(".bak");
         PathBuf::from(p)
     };
@@ -1069,14 +1072,15 @@ async fn delete_download(
             .await
             .map_err(|source| DownloadStoreError::WriteFile { path: bak, source })?;
     }
-    if d.part_path.exists() {
-        tokio::fs::remove_file(&d.part_path)
-            .await
-            .map_err(|source| DownloadStoreError::WriteFile {
-                path: d.part_path.clone(),
+    if part_path.exists() {
+        tokio::fs::remove_file(&part_path).await.map_err(|source| {
+            DownloadStoreError::WriteFile {
+                path: part_path.clone(),
                 source,
-            })?;
+            }
+        })?;
     }
+    let _ = downloads.remove(&part_number);
     Ok(())
 }
 
@@ -1514,6 +1518,56 @@ mod tests {
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn delete_download_keeps_state_when_disk_delete_fails() {
+        let root = temp_dir("delete-fail");
+        tokio::fs::create_dir_all(&root).await.expect("mkdir");
+
+        let met_path = root.join("001.part.met");
+        tokio::fs::create_dir_all(&met_path)
+            .await
+            .expect("mkdir met path");
+        let part_path = root.join("001.part");
+        tokio::fs::write(&part_path, b"test")
+            .await
+            .expect("write part");
+
+        let met = PartMet {
+            version: crate::download::store::PART_MET_VERSION,
+            part_number: 1,
+            file_name: "x.bin".to_string(),
+            file_size: 4,
+            file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
+            state: PartState::Queued,
+            downloaded_bytes: 0,
+            missing_ranges: vec![ByteRange { start: 0, end: 3 }],
+            inflight_ranges: Vec::new(),
+            retry_count: 0,
+            last_error: None,
+            created_unix_secs: 1,
+            updated_unix_secs: 1,
+        };
+
+        let mut downloads = std::collections::BTreeMap::new();
+        downloads.insert(
+            1,
+            ManagedDownload {
+                met_path: met_path.clone(),
+                part_path: part_path.clone(),
+                met,
+                leases: Vec::new(),
+            },
+        );
+
+        let err = delete_download(&mut downloads, 1)
+            .await
+            .expect_err("delete should fail");
+        assert!(matches!(err, DownloadError::Store(_)));
+        assert!(downloads.contains_key(&1));
+
         let _ = std::fs::remove_dir_all(&root);
     }
 

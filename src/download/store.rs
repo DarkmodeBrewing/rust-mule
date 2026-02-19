@@ -177,7 +177,7 @@ pub async fn scan_recoverable_downloads(download_dir: &Path) -> Result<Vec<Recov
         match load_part_met_with_fallback(&path).await {
             Ok((met, source)) => {
                 out.push(RecoveredDownload {
-                    part_path: path.with_extension("part"),
+                    part_path: part_path_from_met_path(&path),
                     met_path: path,
                     met,
                     source,
@@ -204,10 +204,21 @@ fn parse_part_number(path: &Path) -> Option<u16> {
     let stem = name
         .strip_suffix(".part.met")
         .or_else(|| name.strip_suffix(".part"))?;
-    if stem.len() != 3 || !stem.chars().all(|c| c.is_ascii_digit()) {
+    if !stem.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
     stem.parse::<u16>().ok()
+}
+
+fn part_path_from_met_path(path: &Path) -> PathBuf {
+    let mut p = path.to_path_buf();
+    if let Some(name) = path.file_name().and_then(|n| n.to_str())
+        && let Some(stem) = name.strip_suffix(".part.met")
+    {
+        p.set_file_name(format!("{stem}.part"));
+        return p;
+    }
+    p
 }
 
 fn backup_path(path: &Path) -> PathBuf {
@@ -326,6 +337,14 @@ mod tests {
         assert_eq!(recovered.len(), 2);
         assert_eq!(recovered[0].met.part_number, 1);
         assert_eq!(recovered[1].met.part_number, 2);
+        assert_eq!(
+            recovered[0]
+                .part_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("name"),
+            "001.part"
+        );
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -343,6 +362,21 @@ mod tests {
 
         let n = allocate_next_part_number(&root).await.expect("alloc");
         assert_eq!(n, 2);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn allocate_next_part_number_handles_four_digit_parts() {
+        let root = temp_dir("alloc-4digit");
+        tokio::fs::create_dir_all(&root).await.expect("mkdir");
+        for part in 1..=1000u16 {
+            tokio::fs::write(root.join(format!("{part}.part")), b"")
+                .await
+                .expect("write part");
+        }
+
+        let n = allocate_next_part_number(&root).await.expect("alloc");
+        assert_eq!(n, 1001);
         let _ = std::fs::remove_dir_all(root);
     }
 }
