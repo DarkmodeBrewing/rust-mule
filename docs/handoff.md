@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed `kad_phase0_compare.sh` output formatting on `feature/kad-phase0-baseline`:
+  - header is now always first
+  - metric rows are sorted and consistently tab-separated
+  - numeric formatting is normalized to fixed precision fields
+- Decisions:
+  - Keep plain TSV output for easy piping into `column -t` / CI artifacts.
+- Next steps:
+  - Re-run compare command and verify table readability.
+- Change log:
+  - Updated `scripts/test/kad_phase0_compare.sh` output rendering/sort behavior.
+
 - Status: Added KAD Phase 0 baseline compare helper on `feature/kad-phase0-baseline`:
   - New script: `scripts/test/kad_phase0_compare.sh`
     - compares two baseline TSV files (`--before`, `--after`)

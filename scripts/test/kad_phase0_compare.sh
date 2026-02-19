@@ -104,13 +104,14 @@ awk -F '\t' '
       if (ba != 0) {
         pct = sprintf("%.2f%%", (d * 100.0) / ba);
       }
-      print m, sprintf("%.6f", ba), sprintf("%.6f", aa), sprintf("%.6f", d), pct,
-        sprintf("%.6f", (m in before_min) ? before_min[m] : 0),
-        sprintf("%.6f", (m in before_max) ? before_max[m] : 0),
-        sprintf("%.6f", (m in after_min) ? after_min[m] : 0),
-        sprintf("%.6f", (m in after_max) ? after_max[m] : 0),
+      printf "%s\t%.6f\t%.6f\t%.6f\t%s\t%.6f\t%.6f\t%.6f\t%.6f\t%d\t%d\n",
+        m, ba, aa, d, pct,
+        ((m in before_min) ? before_min[m] : 0),
+        ((m in before_max) ? before_max[m] : 0),
+        ((m in after_min) ? after_min[m] : 0),
+        ((m in after_max) ? after_max[m] : 0),
         ((m in before_n) ? before_n[m] : 0),
         ((m in after_n) ? after_n[m] : 0);
     }
   }
-' "$tmp_before" "$tmp_after" | sort
+' "$tmp_before" "$tmp_after" | awk 'NR == 1 { print; next } { print | "sort" }'
