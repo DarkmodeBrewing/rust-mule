@@ -126,7 +126,15 @@ pub(super) async fn handle_inbound_impl(
             payload.push(3);
 
             let res = KadPacket::encode(KADEMLIA_HELLO_RES_DEPRECATED, &payload);
-            let _ = sock.send_to(&from_dest_b64, &res).await;
+            let _ = shaper_send(
+                svc,
+                sock,
+                cfg,
+                &from_dest_b64,
+                &res,
+                KADEMLIA_HELLO_RES_DEPRECATED,
+            )
+            .await;
         }
 
         KADEMLIA2_BOOTSTRAP_REQ => {
@@ -153,7 +161,15 @@ pub(super) async fn handle_inbound_impl(
             } else {
                 res_plain
             };
-            let _ = sock.send_to(&from_dest_b64, &out).await;
+            let _ = shaper_send(
+                svc,
+                sock,
+                cfg,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_BOOTSTRAP_RES,
+            )
+            .await;
         }
 
         KADEMLIA2_BOOTSTRAP_RES => {
@@ -300,7 +316,10 @@ pub(super) async fn handle_inbound_impl(
                 res_plain
             };
 
-            if sock.send_to(&from_dest_b64, &out).await.is_ok() {
+            if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_HELLO_RES)
+                .await
+                .is_ok_and(|sent| sent)
+            {
                 track_outgoing_request(svc, &from_dest_b64, KADEMLIA2_HELLO_RES, now, None);
             }
         }
@@ -367,12 +386,23 @@ pub(super) async fn handle_inbound_impl(
                     decrypted.sender_verify_key,
                     sender_verify_key,
                 )?;
-                let _ = sock.send_to(&from_dest_b64, &ack).await;
-                svc.stats_window.sent_hello_acks += 1;
-                tracing::debug!(
-                    to = %crate::i2p::b64::short(&from_dest_b64),
-                    "sent HELLO_RES_ACK"
-                );
+                if shaper_send(
+                    svc,
+                    sock,
+                    cfg,
+                    &from_dest_b64,
+                    &ack,
+                    KADEMLIA2_HELLO_RES_ACK,
+                )
+                .await
+                .is_ok_and(|sent| sent)
+                {
+                    svc.stats_window.sent_hello_acks += 1;
+                    tracing::debug!(
+                        to = %crate::i2p::b64::short(&from_dest_b64),
+                        "sent HELLO_RES_ACK"
+                    );
+                }
             } else if wants_ack {
                 svc.stats_window.hello_ack_skipped_no_sender_key += 1;
                 tracing::debug!(
@@ -469,7 +499,7 @@ pub(super) async fn handle_inbound_impl(
             } else {
                 res_plain
             };
-            let _ = sock.send_to(&from_dest_b64, &out).await;
+            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_RES).await;
         }
 
         KADEMLIA_REQ_DEPRECATED => {
@@ -492,7 +522,15 @@ pub(super) async fn handle_inbound_impl(
                 .collect::<Vec<_>>();
             let res_payload = encode_kad1_res(req.target, &kad1_contacts);
             let res_plain = KadPacket::encode(KADEMLIA_RES_DEPRECATED, &res_payload);
-            let _ = sock.send_to(&from_dest_b64, &res_plain).await;
+            let _ = shaper_send(
+                svc,
+                sock,
+                cfg,
+                &from_dest_b64,
+                &res_plain,
+                KADEMLIA_RES_DEPRECATED,
+            )
+            .await;
         }
 
         KADEMLIA2_RES => {
@@ -621,7 +659,7 @@ pub(super) async fn handle_inbound_impl(
             } else {
                 pong_plain
             };
-            let _ = sock.send_to(&from_dest_b64, &out).await;
+            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PONG).await;
         }
 
         KADEMLIA2_PONG => {
@@ -675,8 +713,12 @@ pub(super) async fn handle_inbound_impl(
                         } else {
                             res_plain
                         };
-                        let _ = sock.send_to(&from_dest_b64, &out).await;
-                        svc.stats_window.sent_publish_key_ress += 1;
+                        if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PUBLISH_RES)
+                            .await
+                            .is_ok_and(|sent| sent)
+                        {
+                            svc.stats_window.sent_publish_key_ress += 1;
+                        }
                         return Ok(());
                     }
                 };
@@ -771,8 +813,12 @@ pub(super) async fn handle_inbound_impl(
             } else {
                 res_plain
             };
-            let _ = sock.send_to(&from_dest_b64, &out).await;
-            svc.stats_window.sent_publish_key_ress += 1;
+            if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PUBLISH_RES)
+                .await
+                .is_ok_and(|sent| sent)
+            {
+                svc.stats_window.sent_publish_key_ress += 1;
+            }
         }
 
         KADEMLIA2_PUBLISH_SOURCE_REQ => {
@@ -852,8 +898,12 @@ pub(super) async fn handle_inbound_impl(
                 res_plain
             };
 
-            let _ = sock.send_to(&from_dest_b64, &out).await;
-            svc.stats_window.sent_publish_source_ress += 1;
+            if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PUBLISH_RES)
+                .await
+                .is_ok_and(|sent| sent)
+            {
+                svc.stats_window.sent_publish_source_ress += 1;
+            }
         }
 
         KADEMLIA2_SEARCH_KEY_REQ => {
@@ -910,7 +960,7 @@ pub(super) async fn handle_inbound_impl(
                 plain
             };
 
-            let _ = sock.send_to(&from_dest_b64, &out).await;
+            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_SEARCH_RES).await;
         }
 
         KADEMLIA2_SEARCH_SOURCE_REQ => {
@@ -984,7 +1034,7 @@ pub(super) async fn handle_inbound_impl(
                 plain
             };
 
-            let _ = sock.send_to(&from_dest_b64, &out).await;
+            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_SEARCH_RES).await;
         }
 
         KADEMLIA2_SEARCH_RES => {

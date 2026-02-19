@@ -358,3 +358,56 @@ fn build_status_reports_pending_overdue_metrics() {
     assert_eq!(st.pending_overdue, 1);
     assert!(st.pending_max_overdue_ms >= 700);
 }
+
+#[test]
+fn shaper_enforces_peer_and_global_caps() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let mut cfg = KadServiceConfig {
+        outbound_shaper_base_delay_ms: 0,
+        outbound_shaper_jitter_ms: 0,
+        outbound_shaper_global_min_interval_ms: 0,
+        outbound_shaper_peer_min_interval_ms: 0,
+        outbound_shaper_global_max_per_sec: 10,
+        outbound_shaper_peer_max_per_sec: 1,
+        ..Default::default()
+    };
+
+    let now = Instant::now();
+    let first = shaper_schedule_send(&mut svc, &cfg, "peer-a", now);
+    assert!(first.is_some());
+    shaper_mark_sent(&mut svc, "peer-a", now);
+
+    let second = shaper_schedule_send(&mut svc, &cfg, "peer-a", now);
+    assert!(second.is_none());
+    assert_eq!(svc.stats_window.outbound_shaper_drop_peer_cap, 1);
+
+    cfg.outbound_shaper_peer_max_per_sec = 10;
+    cfg.outbound_shaper_global_max_per_sec = 1;
+    let third = shaper_schedule_send(&mut svc, &cfg, "peer-b", now);
+    assert!(third.is_none());
+    assert_eq!(svc.stats_window.outbound_shaper_drop_global_cap, 1);
+}
+
+#[test]
+fn shaper_applies_peer_min_interval_delay() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let cfg = KadServiceConfig {
+        outbound_shaper_base_delay_ms: 0,
+        outbound_shaper_jitter_ms: 0,
+        outbound_shaper_global_min_interval_ms: 0,
+        outbound_shaper_peer_min_interval_ms: 100,
+        outbound_shaper_global_max_per_sec: 10,
+        outbound_shaper_peer_max_per_sec: 10,
+        ..Default::default()
+    };
+
+    let now = Instant::now();
+    let scheduled = shaper_schedule_send(&mut svc, &cfg, "peer-a", now).expect("first schedule");
+    shaper_mark_sent(&mut svc, "peer-a", now);
+    assert!(scheduled >= now);
+
+    let next = shaper_schedule_send(&mut svc, &cfg, "peer-a", now).expect("second schedule");
+    assert!(next >= now + Duration::from_millis(100));
+}

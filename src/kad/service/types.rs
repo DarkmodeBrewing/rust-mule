@@ -67,6 +67,14 @@ pub struct KadServiceConfig {
     pub store_keyword_max_keywords: usize,
     pub store_keyword_max_total_hits: usize,
     pub store_keyword_evict_age_secs: u64,
+
+    // Outbound traffic shaping (Phase 1)
+    pub outbound_shaper_base_delay_ms: u64,
+    pub outbound_shaper_jitter_ms: u64,
+    pub outbound_shaper_global_min_interval_ms: u64,
+    pub outbound_shaper_peer_min_interval_ms: u64,
+    pub outbound_shaper_global_max_per_sec: u32,
+    pub outbound_shaper_peer_max_per_sec: u32,
 }
 
 impl Default for KadServiceConfig {
@@ -117,6 +125,13 @@ impl Default for KadServiceConfig {
             store_keyword_max_keywords: 1024,
             store_keyword_max_total_hits: 200_000,
             store_keyword_evict_age_secs: 14 * 24 * 60 * 60,
+
+            outbound_shaper_base_delay_ms: 20,
+            outbound_shaper_jitter_ms: 25,
+            outbound_shaper_global_min_interval_ms: 5,
+            outbound_shaper_peer_min_interval_ms: 50,
+            outbound_shaper_global_max_per_sec: 40,
+            outbound_shaper_peer_max_per_sec: 8,
         }
     }
 }
@@ -212,6 +227,9 @@ pub struct KadServiceStatus {
     pub tracked_out_matched: u64,
     pub tracked_out_unmatched: u64,
     pub tracked_out_expired: u64,
+    pub outbound_shaper_delayed: u64,
+    pub outbound_shaper_drop_global_cap: u64,
+    pub outbound_shaper_drop_peer_cap: u64,
 }
 
 #[derive(Debug)]
@@ -455,4 +473,7 @@ pub(super) struct KadServiceStats {
     pub(super) tracked_out_matched: u64,
     pub(super) tracked_out_unmatched: u64,
     pub(super) tracked_out_expired: u64,
+    pub(super) outbound_shaper_delayed: u64,
+    pub(super) outbound_shaper_drop_global_cap: u64,
+    pub(super) outbound_shaper_drop_peer_cap: u64,
 }

@@ -116,6 +116,9 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         tracked_out_matched: w.tracked_out_matched,
         tracked_out_unmatched: w.tracked_out_unmatched,
         tracked_out_expired: w.tracked_out_expired,
+        outbound_shaper_delayed: w.outbound_shaper_delayed,
+        outbound_shaper_drop_global_cap: w.outbound_shaper_drop_global_cap,
+        outbound_shaper_drop_peer_cap: w.outbound_shaper_drop_peer_cap,
     }
 }
 
@@ -240,6 +243,9 @@ pub(super) fn publish_status_impl(
         tracked_out_matched = st.tracked_out_matched,
         tracked_out_unmatched = st.tracked_out_unmatched,
         tracked_out_expired = st.tracked_out_expired,
+        outbound_shaper_delayed = st.outbound_shaper_delayed,
+        outbound_shaper_drop_global_cap = st.outbound_shaper_drop_global_cap,
+        outbound_shaper_drop_peer_cap = st.outbound_shaper_drop_peer_cap,
         verified_pct,
         buckets_empty = summary.buckets_empty,
         bucket_fill_min = summary.bucket_fill_min,

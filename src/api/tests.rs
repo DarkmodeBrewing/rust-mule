@@ -153,6 +153,9 @@ fn sample_status() -> KadServiceStatus {
         tracked_out_matched: 0,
         tracked_out_unmatched: 0,
         tracked_out_expired: 0,
+        outbound_shaper_delayed: 0,
+        outbound_shaper_drop_global_cap: 0,
+        outbound_shaper_drop_peer_cap: 0,
     }
 }
 

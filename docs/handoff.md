@@ -6,6 +6,35 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
+## Status (2026-02-19)
+
+- Status: Implemented KAD Phase 1 outbound shaper baseline on `feature/kad-phase1-shaper`.
+  - Added central shaper send path for KAD outbound traffic (requests and inbound replies).
+  - Added shaper metrics to `/api/v1/status` window:
+    - `outbound_shaper_delayed`
+    - `outbound_shaper_drop_global_cap`
+    - `outbound_shaper_drop_peer_cap`
+  - Updated send accounting to increment request counters only when a packet is actually sent (not dropped by shaper caps).
+- Decisions:
+  - Applied shaper in one central helper (`shaper_send`) and routed service + inbound handlers through it.
+  - Kept shaper settings internal for now (wired via `KadServiceConfig` defaults in `app.rs`, not yet exposed in `config.toml`).
+- Next steps:
+  - Run Phase 0 baseline script pair + compare against this branch to quantify cap/delay effects.
+  - Tune shaper defaults against observed KAD stability/latency under soak.
+  - Decide whether to expose shaper knobs in runtime config and docs.
+- Change log:
+  - `src/kad/service.rs`: shaper state, scheduling/cap helpers, centralized send path, request-counter gating.
+  - `src/kad/service/inbound.rs`: response sends now routed via shaper helper.
+  - `src/kad/service/types.rs`: shaper config + status/stat fields.
+  - `src/kad/service/status.rs`: status export for shaper counters.
+  - `src/kad/service/tests.rs`: added shaper unit tests.
+  - `src/api/tests.rs`: updated status fixture for new counters.
+  - `src/app.rs`: populate new shaper config fields from service defaults.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (93 tests)
+
 ## Status (2026-02-14)
 
 - Status: Updated CodeQL export script output path defaults on `feature/add-codeql-export-script`:
