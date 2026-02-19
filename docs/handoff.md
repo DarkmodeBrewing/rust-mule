@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Soak run `/tmp/rustmule-run-20260218_160244` validated as healthy on `feature/download-strategy-imule`:
+  - `soak-band/results.tsv` shows all scenarios `completed/completed`:
+    - `integrity`, `single_e2e`, `concurrency`, `long_churn`
+  - Scenario tarballs each contain `download-soak-finished ... result=completed`
+  - `data/download/` contains active transfer artifacts (`.part`, `.part.met`, `.bak`) across many part IDs
+  - Integrity rounds report `violations=0 dup_parts=0`
+  - No panic/fatal errors observed in run logs (only non-blocking nodes2 bootstrap lookup warning)
+- Decisions:
+  - Treat this run as branch-level validation pass for current download/churn/resume behavior.
+- Next steps:
+  - Open PR from `feature/download-strategy-imule` to `main`.
+  - In PR summary include this branch close-out checklist:
+    1. Record successful soak evidence and paths.
+    2. Confirm no outstanding code or docs changes on branch.
+    3. Merge into `main` after review.
+- Change log: Added explicit close-out checklist and successful soak evidence for `/tmp/rustmule-run-20260218_160244`.
+
 - Status: Added local source-cache upsert on publish path in `feature/download-strategy-imule`:
   - In `KadServiceCommand::PublishSource` handling, we now cache local source entry
     (`file -> my_kad_id/my_dest`) before sending network publish requests.
