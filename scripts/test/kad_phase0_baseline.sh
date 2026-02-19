@@ -48,11 +48,20 @@ echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_o
 
 start_ts="$(date +%s)"
 deadline="$((start_ts + DURATION_SECS))"
+samples=0
+skip_503=0
+skip_other=0
 
 while [[ "$(date +%s)" -lt "$deadline" ]]; do
   now_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  payload="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/v1/status" || true)"
-  if [[ -n "$payload" ]]; then
+  response="$(
+    curl -sS -H "Authorization: Bearer $TOKEN" \
+      -w $'\n%{http_code}' \
+      "$BASE_URL/api/v1/status" 2>/dev/null || true
+  )"
+  http_code="${response##*$'\n'}"
+  payload="${response%$'\n'*}"
+  if [[ "$http_code" == "200" && -n "$payload" ]]; then
     row="$(
       jq -r --arg ts "$now_iso" '[
         $ts,
@@ -78,8 +87,13 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
       ] | @tsv' <<<"$payload"
     )"
     echo "$row" >>"$OUT_FILE"
+    samples=$((samples + 1))
+  elif [[ "$http_code" == "503" ]]; then
+    skip_503=$((skip_503 + 1))
+  else
+    skip_other=$((skip_other + 1))
   fi
   sleep "$INTERVAL_SECS"
 done
 
-echo "wrote baseline samples: $OUT_FILE"
+echo "wrote baseline samples: $OUT_FILE (samples=$samples, skipped_503=$skip_503, skipped_other=$skip_other)"

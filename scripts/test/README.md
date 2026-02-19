@@ -34,6 +34,10 @@ Captured TSV columns include:
 - `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
 - key throughput/error counters (`sent_reqs`, `recv_ress`, `timeouts`, batch send/fail counters)
 
+Notes:
+- `503` from `/api/v1/status` is treated as warmup/not-ready and skipped (not a script failure).
+- script summary reports `samples`, `skipped_503`, and `skipped_other`.
+
 ## Timed Background Soak
 
 Use `source_probe_soak_bg.sh` when you want the soak to keep running after terminal/session changes.

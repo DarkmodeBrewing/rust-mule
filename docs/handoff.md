@@ -8,6 +8,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened KAD Phase 0 baseline script handling for startup-not-ready status endpoint on `feature/kad-phase0-baseline`:
+  - `scripts/test/kad_phase0_baseline.sh` now treats HTTP `503` from `/api/v1/status` as warmup and skips sampling without noisy curl failures.
+  - Script now prints end-of-run summary with `samples`, `skipped_503`, and `skipped_other`.
+  - `scripts/test/README.md` updated with this behavior.
+- Decisions:
+  - Keep baseline collection robust under startup/transient status unavailability; do not fail run on `503`.
+- Next steps:
+  - Re-run baseline capture command and verify summary shows growing `samples` once status becomes available.
+- Change log:
+  - Updated `scripts/test/kad_phase0_baseline.sh` sampling/HTTP handling and summary output.
+  - Updated `scripts/test/README.md` notes.
+
 - Status: Implemented KAD Phase 0 baseline instrumentation + reviewer gates on `feature/kad-phase0-baseline`:
   - Added status counters for timing/ordering baseline comparison:
     - `pending_overdue`, `pending_max_overdue_ms`
