@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added KAD Phase 0 baseline compare helper on `feature/kad-phase0-baseline`:
+  - New script: `scripts/test/kad_phase0_compare.sh`
+    - compares two baseline TSV files (`--before`, `--after`)
+    - emits per-metric summary with:
+      - `before_avg`, `after_avg`, `delta`, `pct_change`
+      - before/after min/max and sample counts
+  - Updated `scripts/test/README.md` with compare usage.
+- Decisions:
+  - Keep comparison simple and script-only (tsv in, tsv summary out) for easy CI/local usage.
+- Next steps:
+  - Run compare after each KAD/wire change baseline pair and attach output to PR notes.
+- Change log:
+  - Added `scripts/test/kad_phase0_compare.sh`.
+  - Updated `scripts/test/README.md`.
+
 - Status: Added API backlog note for user-friendly HTTP error responses on `feature/kad-phase0-baseline`:
   - `docs/TODO.md` now tracks adding consistent human-friendly messages for non-2xx HTTP status responses.
 - Decisions:
