@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status: Extended KAD Phase 0 baseline capture script on `feature/kad-phase1-shaper` to include outbound shaper counters.
+  - `scripts/test/kad_phase0_baseline.sh` now records:
+    - `outbound_shaper_delayed`
+    - `outbound_shaper_drop_global_cap`
+    - `outbound_shaper_drop_peer_cap`
+  - `scripts/test/README.md` updated to document these additional columns.
+- Decisions:
+  - Keep comparer unchanged; it already computes metrics from TSV headers dynamically.
+- Next steps:
+  - Re-run before/after baseline pair so compare output includes shaper engagement/cap deltas.
+- Change log:
+  - Updated `scripts/test/kad_phase0_baseline.sh`.
+  - Updated `scripts/test/README.md`.
+  - Validation:
+    - `bash -n scripts/test/kad_phase0_baseline.sh` passed
+    - `bash -n scripts/test/kad_phase0_compare.sh` passed
+
 - Status: Implemented KAD Phase 1 outbound shaper baseline on `feature/kad-phase1-shaper`.
   - Added central shaper send path for KAD outbound traffic (requests and inbound replies).
   - Added shaper metrics to `/api/v1/status` window:
