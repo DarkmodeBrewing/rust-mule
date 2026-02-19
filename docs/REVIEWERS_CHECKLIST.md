@@ -129,6 +129,16 @@ Before approving, the reviewer MUST be able to say:
 
 If this cannot be stated confidently, the PR MUST NOT be merged.
 
+## KAD/Wire Baseline Evidence Gate
+
+For PRs touching `src/kad/**` or KAD wire behavior:
+
+☐ PR includes before/after baseline capture artifact paths from `scripts/test/kad_phase0_baseline.sh`.  
+☐ PR description summarizes deltas for:
+- `pending_overdue`, `pending_max_overdue_ms`
+- `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
+☐ Any significant drift is explained and tied to explicit contract-compatible intent.
+
 ---
 
 End of checklist.

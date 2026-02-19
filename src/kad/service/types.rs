@@ -128,6 +128,9 @@ pub struct KadServiceStatus {
     pub live: usize,
     pub live_10m: usize,
     pub pending: usize,
+    pub pending_overdue: usize,
+    pub pending_max_overdue_ms: u64,
+    pub tracked_out_requests: usize,
 
     // UI compatibility aliases:
     // - recv_req maps to sent_reqs (requests issued by this node)
@@ -206,6 +209,9 @@ pub struct KadServiceStatus {
     pub source_probe_search_results_total: u64,
     pub source_probe_publish_latency_ms_total: u64,
     pub source_probe_search_latency_ms_total: u64,
+    pub tracked_out_matched: u64,
+    pub tracked_out_unmatched: u64,
+    pub tracked_out_expired: u64,
 }
 
 #[derive(Debug)]
@@ -446,4 +452,7 @@ pub(super) struct KadServiceStats {
     pub(super) source_probe_search_results_total: u64,
     pub(super) source_probe_publish_latency_ms_total: u64,
     pub(super) source_probe_search_latency_ms_total: u64,
+    pub(super) tracked_out_matched: u64,
+    pub(super) tracked_out_unmatched: u64,
+    pub(super) tracked_out_expired: u64,
 }

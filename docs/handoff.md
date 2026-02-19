@@ -8,6 +8,88 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Fixed `kad_phase0_compare.sh` output formatting on `feature/kad-phase0-baseline`:
+  - header is now always first
+  - metric rows are sorted and consistently tab-separated
+  - numeric formatting is normalized to fixed precision fields
+- Decisions:
+  - Keep plain TSV output for easy piping into `column -t` / CI artifacts.
+- Next steps:
+  - Re-run compare command and verify table readability.
+- Change log:
+  - Updated `scripts/test/kad_phase0_compare.sh` output rendering/sort behavior.
+
+- Status: Added KAD Phase 0 baseline compare helper on `feature/kad-phase0-baseline`:
+  - New script: `scripts/test/kad_phase0_compare.sh`
+    - compares two baseline TSV files (`--before`, `--after`)
+    - emits per-metric summary with:
+      - `before_avg`, `after_avg`, `delta`, `pct_change`
+      - before/after min/max and sample counts
+  - Updated `scripts/test/README.md` with compare usage.
+- Decisions:
+  - Keep comparison simple and script-only (tsv in, tsv summary out) for easy CI/local usage.
+- Next steps:
+  - Run compare after each KAD/wire change baseline pair and attach output to PR notes.
+- Change log:
+  - Added `scripts/test/kad_phase0_compare.sh`.
+  - Updated `scripts/test/README.md`.
+
+- Status: Added API backlog note for user-friendly HTTP error responses on `feature/kad-phase0-baseline`:
+  - `docs/TODO.md` now tracks adding consistent human-friendly messages for non-2xx HTTP status responses.
+- Decisions:
+  - Treat this as an explicit API UX/error-contract task, separate from typed error envelope consistency.
+- Next steps:
+  - Define and implement a unified API error response shape that includes `status`, machine `code`, and human-friendly `message`.
+- Change log:
+  - Updated `docs/TODO.md` API section with human-friendly HTTP error message task.
+
+- Status: Hardened KAD Phase 0 baseline script handling for startup-not-ready status endpoint on `feature/kad-phase0-baseline`:
+  - `scripts/test/kad_phase0_baseline.sh` now treats HTTP `503` from `/api/v1/status` as warmup and skips sampling without noisy curl failures.
+  - Script now prints end-of-run summary with `samples`, `skipped_503`, and `skipped_other`.
+  - `scripts/test/README.md` updated with this behavior.
+- Decisions:
+  - Keep baseline collection robust under startup/transient status unavailability; do not fail run on `503`.
+- Next steps:
+  - Re-run baseline capture command and verify summary shows growing `samples` once status becomes available.
+- Change log:
+  - Updated `scripts/test/kad_phase0_baseline.sh` sampling/HTTP handling and summary output.
+  - Updated `scripts/test/README.md` notes.
+
+- Status: Implemented KAD Phase 0 baseline instrumentation + reviewer gates on `feature/kad-phase0-baseline`:
+  - Added status counters for timing/ordering baseline comparison:
+    - `pending_overdue`, `pending_max_overdue_ms`
+    - `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
+  - Instrumented tracked outbound request lifecycle:
+    - matched responses increment `tracked_out_matched`
+    - unmatched responses increment `tracked_out_unmatched`
+    - tracked-request TTL cleanup increments `tracked_out_expired`
+  - Added baseline capture script:
+    - `scripts/test/kad_phase0_baseline.sh` (polls `/api/v1/status` and writes TSV)
+  - Added KAD reviewer gates:
+    - `.github/pull_request_template.md` KAD/wire baseline evidence section
+    - `docs/REVIEWERS_CHECKLIST.md` baseline evidence gate
+  - Updated docs:
+    - `docs/KAD_WIRE_REFACTOR_PLAN.md` Phase 0 checkboxes (counters + reviewer gate done)
+    - `scripts/test/README.md` baseline script usage
+    - `docs/api_curl.md` Phase 0 counter jq example
+- Decisions:
+  - Phase 0 keeps behavior unchanged and only adds observability + review guardrails.
+  - Baseline counters are exposed through existing `/api/v1/status` to avoid new endpoints.
+- Next steps:
+  - Run and archive before/after baseline captures with `scripts/test/kad_phase0_baseline.sh`.
+  - Then start Phase 1 outbound shaper design/implementation using collected baseline deltas.
+- Change log:
+  - `src/kad/service/types.rs`: added Phase 0 status/stat counters.
+  - `src/kad/service/status.rs`: exported/logged new counters.
+  - `src/kad/service.rs`: tracked out-request match/unmatch/expiry instrumentation.
+  - `src/kad/service/tests.rs`: added regression tests for tracked/pending counters.
+  - `src/api/tests.rs`: updated status fixture for new fields.
+  - `scripts/test/kad_phase0_baseline.sh`: new baseline capture script.
+  - Validation:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (91 tests)
+
 - Status: Addressed PR review findings for download store/service correctness on `feature/download-strategy-imule`:
   - Fixed recovered part path derivation in `scan_recoverable_downloads`:
     - `001.part.met` now maps to `001.part` (not `001.part.part`).

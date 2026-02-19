@@ -1369,8 +1369,11 @@ fn track_outgoing_request(
 }
 
 fn cleanup_tracked_out_requests(svc: &mut KadService, now: Instant) {
+    let before = svc.tracked_out_requests.len();
     svc.tracked_out_requests
         .retain(|t| now.saturating_duration_since(t.inserted) <= TRACKED_OUT_REQUEST_TTL);
+    let removed = before.saturating_sub(svc.tracked_out_requests.len());
+    svc.stats_window.tracked_out_expired += removed as u64;
 }
 
 fn consume_tracked_out_request(
@@ -1414,9 +1417,11 @@ fn consume_tracked_out_request(
                 "inbound source response did not match tracked outbound request"
             );
         }
+        svc.stats_window.tracked_out_unmatched += 1;
         return false;
     };
     let tracked = svc.tracked_out_requests.remove(pos);
+    svc.stats_window.tracked_out_matched += 1;
     svc.last_unmatched_response = None;
     if response_opcode == KADEMLIA2_SEARCH_RES || response_opcode == KADEMLIA2_PUBLISH_RES {
         tracing::info!(

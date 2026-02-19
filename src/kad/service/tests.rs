@@ -309,3 +309,52 @@ fn cache_local_published_source_inserts_local_entry_once() {
     assert_eq!(by_file.len(), 1);
     assert_eq!(by_file.get(&crypto.my_kad_id), Some(&crypto.my_dest));
 }
+
+#[test]
+fn tracked_out_cleanup_and_match_counters_are_reported() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let started = Instant::now();
+    let now = started + Duration::from_secs(5);
+    let old = now - TRACKED_OUT_REQUEST_TTL - Duration::from_secs(1);
+
+    track_outgoing_request(&mut svc, "peer-old", KADEMLIA2_SEARCH_KEY_REQ, old, None);
+    track_outgoing_request(&mut svc, "peer-a", KADEMLIA2_SEARCH_KEY_REQ, now, None);
+    assert!(consume_tracked_out_request(
+        &mut svc,
+        "peer-a",
+        KADEMLIA2_SEARCH_RES,
+        0,
+        now
+    ));
+    assert!(!consume_tracked_out_request(
+        &mut svc,
+        "peer-b",
+        KADEMLIA2_SEARCH_RES,
+        0,
+        now
+    ));
+
+    let st = status::build_status_impl(&mut svc, started);
+    assert_eq!(st.tracked_out_matched, 1);
+    assert_eq!(st.tracked_out_unmatched, 1);
+    assert_eq!(st.tracked_out_expired, 1);
+    assert_eq!(st.tracked_out_requests, 0);
+}
+
+#[test]
+fn build_status_reports_pending_overdue_metrics() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let started = Instant::now();
+    let now = Instant::now();
+    svc.pending_reqs
+        .insert("peer-late".to_string(), now - Duration::from_millis(750));
+    svc.pending_reqs
+        .insert("peer-future".to_string(), now + Duration::from_secs(5));
+
+    let st = status::build_status_impl(&mut svc, started);
+    assert_eq!(st.pending, 2);
+    assert_eq!(st.pending_overdue, 1);
+    assert!(st.pending_max_overdue_ms >= 700);
+}
