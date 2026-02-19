@@ -17,7 +17,7 @@ set -euo pipefail
 #   PER_PAGE=100                     (default: 100; max 100)
 #
 # Output:
-#   codeql-alerts-OWNER-REPO-YYYYmmdd-HHMMSS.csv
+#   /tmp/codeql-alerts-OWNER-REPO_YYYYmmdd-HHMMSS.csv
 # -------------------------------
 
 OWNER="${1:-}"
@@ -94,7 +94,7 @@ cleanup() {
 trap cleanup EXIT
 
 timestamp="$(date +"%Y%m%d-%H%M%S")"
-OUT_CSV="codeql-alerts-${OWNER}-${REPO}-${timestamp}.csv"
+OUT_CSV="/tmp/codeql-alerts-${OWNER}-${REPO}_${timestamp}.csv"
 
 # CSV header
 echo '"number","state","created_at","updated_at","dismissed_at","dismissed_reason","dismissed_comment","rule_id","rule_severity","rule_description","tool_name","tool_guid","ref","commit_sha","path","start_line","end_line","html_url"' > "${OUT_CSV}"

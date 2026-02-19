@@ -8,6 +8,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Updated CodeQL export script output path defaults on `feature/add-codeql-export-script`:
+  - `scripts/export-gh-stats/export-codeql-alerts.sh` now writes CSV by default to:
+    - `/tmp/codeql-alerts-OWNER-REPO_<timestamp>.csv`
+  - Updated script header comment to match new output location/pattern.
+- Decisions:
+  - Use `/tmp` as default destination to avoid polluting repository working directories.
+- Next steps:
+  - If needed, add optional output path override flags/env in a follow-up.
+- Change log:
+  - Updated `scripts/export-gh-stats/export-codeql-alerts.sh` output path default.
+
 - Status: Hardened `scripts/export-gh-stats/export-codeql-alerts.sh` on `feature/add-codeql-export-script`:
   - loads `.env` from script directory (`scripts/export-gh-stats/.env`) instead of current working directory
   - removed `source` execution path and replaced with safe `KEY=VALUE` parser
