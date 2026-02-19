@@ -8,6 +8,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added API backlog note for user-friendly HTTP error responses on `feature/kad-phase0-baseline`:
+  - `docs/TODO.md` now tracks adding consistent human-friendly messages for non-2xx HTTP status responses.
+- Decisions:
+  - Treat this as an explicit API UX/error-contract task, separate from typed error envelope consistency.
+- Next steps:
+  - Define and implement a unified API error response shape that includes `status`, machine `code`, and human-friendly `message`.
+- Change log:
+  - Updated `docs/TODO.md` API section with human-friendly HTTP error message task.
+
 - Status: Hardened KAD Phase 0 baseline script handling for startup-not-ready status endpoint on `feature/kad-phase0-baseline`:
   - `scripts/test/kad_phase0_baseline.sh` now treats HTTP `503` from `/api/v1/status` as warmup and skips sampling without noisy curl failures.
   - Script now prints end-of-run summary with `samples`, `skipped_503`, and `skipped_other`.

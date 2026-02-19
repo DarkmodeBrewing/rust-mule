@@ -41,6 +41,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 
 - [ ] Consider tiered API command timeouts (shared baseline exists; tune by endpoint class if needed).
 - [ ] Evaluate optional typed API error response envelope consistency for all non-2xx responses.
+- [ ] Add human-friendly messages for HTTP error status responses (consistent, user-facing text alongside status code).
 
 ## UI
 
