@@ -93,6 +93,12 @@ cargo test --all-targets --all-features
 scripts/test/coverage.sh
 ```
 
+## Merge Policy
+
+- Direct commits/merges to `main` are not allowed.
+- All changes must go through a feature branch + pull request.
+- Merging to `main` happens only via GitHub PR merge after review and required checks pass.
+
 ## Two-Instance Local Test
 
 Use separate `data_dir`, `sam.session_name`, and API ports per instance.

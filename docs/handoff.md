@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Added repository merge policy documentation on `main`:
+  - `README.md` now states:
+    - no direct commits/merges to `main`
+    - all changes via feature branch + PR
+    - merge to `main` only through reviewed PR with required checks
+  - `.github/pull_request_template.md` now includes merge-policy acknowledgment checkbox.
+- Decisions:
+  - Treat this as a mandatory process rule from now on.
+- Next steps:
+  - Enforce branch protection in GitHub settings to match documented policy.
+- Change log:
+  - Updated `README.md` (`Merge Policy` section).
+  - Updated `.github/pull_request_template.md` validation checklist.
+
 - Status: Fixed `kad_phase0_compare.sh` output formatting on `feature/kad-phase0-baseline`:
   - header is now always first
   - metric rows are sorted and consistently tab-separated
