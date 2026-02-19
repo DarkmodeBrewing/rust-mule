@@ -21,6 +21,9 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [ ] Continue iMule wire/parity verification for discovery, routing, and source lifecycle edge cases.
 - [ ] Add clearer timeout/retry outcome buckets for request -> response conversion diagnostics.
 - [ ] Execute `docs/KAD_WIRE_REFACTOR_PLAN.md` phase 0 (baseline + timing/ordering guardrails).
+- [x] Define and expose Phase 0 timing/ordering baseline counters in `/api/v1/status`.
+- [x] Add KAD Phase 0 baseline capture script (`scripts/test/kad_phase0_baseline.sh`).
+- [x] Add KAD/wire PR reviewer evidence gate (template + reviewer checklist update).
 - [ ] Implement centralized outbound KAD shaper (delay + jitter + randomized ordering + hard caps).
 - [ ] Remove KAD outbound bypass/fast paths so all traffic uses the shaper.
 - [ ] Align timeout/retry scheduling to iMule-compatible envelopes with jitter (no exact periodicity).

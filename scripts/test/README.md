@@ -16,7 +16,23 @@ Scenario and soak test scripts.
 - `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
 - `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
 - `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
+- `kad_phase0_baseline.sh`: captures KAD Phase 0 timing/ordering baseline counters from `/api/v1/status` into TSV.
 - `soak_triage.sh`: triage summary for soak tarball outputs.
+
+## KAD Phase 0 Baseline Capture
+
+Use this before and after KAD/wire changes to compare observable timing/ordering counters.
+
+Run:
+- `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token DURATION_SECS=1800 INTERVAL_SECS=5 bash scripts/test/kad_phase0_baseline.sh`
+
+Or with flags:
+- `bash scripts/test/kad_phase0_baseline.sh --base-url http://127.0.0.1:17835 --token-file data/api.token --duration-secs 1800 --interval-secs 5 --out-file /tmp/kad-phase0.tsv`
+
+Captured TSV columns include:
+- `pending_overdue`, `pending_max_overdue_ms`
+- `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
+- key throughput/error counters (`sent_reqs`, `recv_ress`, `timeouts`, batch send/fail counters)
 
 ## Timed Background Soak
 

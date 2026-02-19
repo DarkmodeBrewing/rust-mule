@@ -80,6 +80,9 @@ fn sample_status() -> KadServiceStatus {
         live: 3,
         live_10m: 2,
         pending: 1,
+        pending_overdue: 0,
+        pending_max_overdue_ms: 0,
+        tracked_out_requests: 0,
         recv_req: 1,
         recv_res: 1,
         sent_reqs: 1,
@@ -147,6 +150,9 @@ fn sample_status() -> KadServiceStatus {
         source_probe_search_results_total: 1,
         source_probe_publish_latency_ms_total: 10,
         source_probe_search_latency_ms_total: 20,
+        tracked_out_matched: 0,
+        tracked_out_unmatched: 0,
+        tracked_out_expired: 0,
     }
 }
 

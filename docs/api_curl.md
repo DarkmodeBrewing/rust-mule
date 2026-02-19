@@ -68,6 +68,23 @@ curl -sS "$BASE_URL/api/v1/health" | jq .
 curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/status" | jq .
 ```
 
+KAD Phase 0 timing/ordering counters:
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/status" | jq '{
+  pending,
+  pending_overdue,
+  pending_max_overdue_ms,
+  tracked_out_requests,
+  tracked_out_matched,
+  tracked_out_unmatched,
+  tracked_out_expired,
+  sent_reqs,
+  recv_ress,
+  timeouts
+}'
+```
+
 ## Settings Snapshot
 
 ```bash

@@ -15,8 +15,15 @@ Policy:
 ## Phase 0: Baseline and Guardrails (Document/Measure First)
 
 - [ ] Capture baseline soak metrics for current KAD/search/publish behavior.
-- [ ] Define observable timing/ordering counters to compare before/after refactor.
-- [ ] Add PR template/checklist reference to reviewer gates for KAD/wire changes.
+- [x] Define observable timing/ordering counters to compare before/after refactor.
+  - Implemented status counters:
+    - `pending_overdue`, `pending_max_overdue_ms`
+    - `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
+  - Baseline capture script:
+    - `scripts/test/kad_phase0_baseline.sh`
+- [x] Add PR template/checklist reference to reviewer gates for KAD/wire changes.
+  - Added `.github/pull_request_template.md` KAD/wire gate section with required baseline evidence.
+  - Added reviewer checklist baseline evidence gate (`docs/REVIEWERS_CHECKLIST.md`).
 
 ## Phase 1: Central Outbound Shaper
 
@@ -49,4 +56,3 @@ Policy:
 - [ ] Re-run A/B soak comparisons (before/after) for search/publish success and timing drift.
 - [ ] Confirm no regression in interoperability envelope with iMule-like peers.
 - [ ] Update `docs/handoff.md`, `docs/TODO.md`, and `docs/TASKS.md` with results.
-

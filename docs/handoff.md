@@ -8,6 +8,41 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Implemented KAD Phase 0 baseline instrumentation + reviewer gates on `feature/kad-phase0-baseline`:
+  - Added status counters for timing/ordering baseline comparison:
+    - `pending_overdue`, `pending_max_overdue_ms`
+    - `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
+  - Instrumented tracked outbound request lifecycle:
+    - matched responses increment `tracked_out_matched`
+    - unmatched responses increment `tracked_out_unmatched`
+    - tracked-request TTL cleanup increments `tracked_out_expired`
+  - Added baseline capture script:
+    - `scripts/test/kad_phase0_baseline.sh` (polls `/api/v1/status` and writes TSV)
+  - Added KAD reviewer gates:
+    - `.github/pull_request_template.md` KAD/wire baseline evidence section
+    - `docs/REVIEWERS_CHECKLIST.md` baseline evidence gate
+  - Updated docs:
+    - `docs/KAD_WIRE_REFACTOR_PLAN.md` Phase 0 checkboxes (counters + reviewer gate done)
+    - `scripts/test/README.md` baseline script usage
+    - `docs/api_curl.md` Phase 0 counter jq example
+- Decisions:
+  - Phase 0 keeps behavior unchanged and only adds observability + review guardrails.
+  - Baseline counters are exposed through existing `/api/v1/status` to avoid new endpoints.
+- Next steps:
+  - Run and archive before/after baseline captures with `scripts/test/kad_phase0_baseline.sh`.
+  - Then start Phase 1 outbound shaper design/implementation using collected baseline deltas.
+- Change log:
+  - `src/kad/service/types.rs`: added Phase 0 status/stat counters.
+  - `src/kad/service/status.rs`: exported/logged new counters.
+  - `src/kad/service.rs`: tracked out-request match/unmatch/expiry instrumentation.
+  - `src/kad/service/tests.rs`: added regression tests for tracked/pending counters.
+  - `src/api/tests.rs`: updated status fixture for new fields.
+  - `scripts/test/kad_phase0_baseline.sh`: new baseline capture script.
+  - Validation:
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (91 tests)
+
 - Status: Addressed PR review findings for download store/service correctness on `feature/download-strategy-imule`:
   - Fixed recovered part path derivation in `scan_recoverable_downloads`:
     - `001.part.met` now maps to `001.part` (not `001.part.part`).

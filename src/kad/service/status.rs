@@ -8,6 +8,19 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         .routing
         .live_count_recent(now, Duration::from_secs(10 * 60));
     let pending = svc.pending_reqs.len();
+    let pending_overdue = svc
+        .pending_reqs
+        .values()
+        .filter(|deadline| **deadline <= now)
+        .count();
+    let pending_max_overdue_ms = svc
+        .pending_reqs
+        .values()
+        .filter(|deadline| **deadline <= now)
+        .map(|deadline| now.saturating_duration_since(*deadline).as_millis() as u64)
+        .max()
+        .unwrap_or(0);
+    let tracked_out_requests = svc.tracked_out_requests.len();
     let keyword_keywords_tracked = svc.keyword_hits_by_keyword.len();
     let keyword_hits_total = svc.keyword_hits_total;
     let store_keyword_keywords = svc.keyword_store_by_keyword.len();
@@ -23,6 +36,9 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         live,
         live_10m,
         pending,
+        pending_overdue,
+        pending_max_overdue_ms,
+        tracked_out_requests,
         recv_req: w.sent_reqs,
         recv_res: w.recv_ress,
         sent_reqs: w.sent_reqs,
@@ -97,6 +113,9 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         source_probe_search_results_total: w.source_probe_search_results_total,
         source_probe_publish_latency_ms_total: w.source_probe_publish_latency_ms_total,
         source_probe_search_latency_ms_total: w.source_probe_search_latency_ms_total,
+        tracked_out_matched: w.tracked_out_matched,
+        tracked_out_unmatched: w.tracked_out_unmatched,
+        tracked_out_expired: w.tracked_out_expired,
     }
 }
 
@@ -120,6 +139,9 @@ pub(super) fn publish_status_impl(
         live = st.live,
         live_10m = st.live_10m,
         pending = st.pending,
+        pending_overdue = st.pending_overdue,
+        pending_max_overdue_ms = st.pending_max_overdue_ms,
+        tracked_out_requests = st.tracked_out_requests,
         sent_reqs = st.sent_reqs,
         recv_ress = st.recv_ress,
         timeouts = st.timeouts,
@@ -147,6 +169,9 @@ pub(super) fn publish_status_impl(
         live = st.live,
         live_10m = st.live_10m,
         pending = st.pending,
+        pending_overdue = st.pending_overdue,
+        pending_max_overdue_ms = st.pending_max_overdue_ms,
+        tracked_out_requests = st.tracked_out_requests,
         sent_reqs = st.sent_reqs,
         recv_ress = st.recv_ress,
         res_contacts = st.res_contacts,
@@ -212,6 +237,9 @@ pub(super) fn publish_status_impl(
         source_probe_search_results_total = st.source_probe_search_results_total,
         source_probe_publish_latency_ms_total = st.source_probe_publish_latency_ms_total,
         source_probe_search_latency_ms_total = st.source_probe_search_latency_ms_total,
+        tracked_out_matched = st.tracked_out_matched,
+        tracked_out_unmatched = st.tracked_out_unmatched,
+        tracked_out_expired = st.tracked_out_expired,
         verified_pct,
         buckets_empty = summary.buckets_empty,
         bucket_fill_min = summary.bucket_fill_min,
