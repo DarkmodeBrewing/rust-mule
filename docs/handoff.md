@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-14)
 
+- Status: Hardened `scripts/export-gh-stats/export-codeql-alerts.sh` on `feature/add-codeql-export-script`:
+  - loads `.env` from script directory (`scripts/export-gh-stats/.env`) instead of current working directory
+  - removed `source` execution path and replaced with safe `KEY=VALUE` parser
+  - defaults and filters export to `TOOL_NAME=CodeQL`
+  - passes `tool_name` query parameter and filters by `.tool.name == TOOL_NAME` in output conversion
+  - handles zero-alert repos gracefully (header-only CSV + success exit)
+  - sanitized local `.env` placeholder content and expanded `.env.example`.
+- Decisions:
+  - Prefer least-surprise local config loading and non-executable env parsing for safety.
+  - Keep export scoped to CodeQL by default to match script intent and naming.
+- Next steps:
+  - Rotate/revoke previously used PAT if it was real.
+  - Consider adding a small script README with token scope requirements and sample invocation.
+- Change log:
+  - Updated `scripts/export-gh-stats/export-codeql-alerts.sh`.
+  - Updated `scripts/export-gh-stats/.env.example`.
+  - Updated `scripts/export-gh-stats/.env` placeholder values.
+  - Validation:
+    - `bash -n scripts/export-gh-stats/export-codeql-alerts.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (91 tests)
+
 - Status: Added explicit CodeQL workflow configuration for Rust on `feature/codeql-workflow-rust`:
   - New workflow: `.github/workflows/codeql.yml`
   - Triggers on:
