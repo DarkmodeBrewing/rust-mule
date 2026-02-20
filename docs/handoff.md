@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status: Isolated shaper state per outbound class and set explicit continuous runtime default in config on `feature/kad-phase2-class-shaper`.
+  - Shaper lane isolation fix:
+    - `shaper_global_sent_in_window` and `shaper_last_global_send` are now tracked per `OutboundClass`.
+    - peer lane keys are class-scoped (`class:dest`) for per-class peer counters/intervals.
+    - prevents response-lane traffic from suppressing query-lane sends.
+  - Added explicit KAD runtime config entry:
+    - `config.toml` now includes `kad.service_runtime_secs = 0` with comment (`0` = continuous run), to avoid periodic 360s restarts during baselines.
+  - Updated tests:
+    - adjusted class-lane bypass test to match lane isolation behavior.
+- Decisions:
+  - Maintain per-class shaping isolation as core Phase 2 invariant.
+  - Keep baseline guidance to run with continuous service runtime.
+- Next steps:
+  - Re-run strict before/after baseline compare with this commit and verify query metrics (`sent_reqs`, `recv_ress`, `pending`, `tracked_out_*`) are non-zero and stable.
+- Change log:
+  - Updated `src/kad/service.rs` shaper counters/timers to class-scoped state.
+  - Updated `src/kad/service/tests.rs` for class-scoped expectations.
+  - Updated `config.toml` (`kad.service_runtime_secs = 0`).
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (96 tests)
+
 - Status: Fixed Phase 2 query-lane suppression bug on `feature/kad-phase2-class-shaper`.
   - Root cause observed in baseline: `sent_reqs/recv_ress/pending/timeouts` were all `0` while `outbound_shaper_delayed` was high.
   - Cause: drop-on-delay lanes (`Query/Hello/Bootstrap`) combined with non-zero base/jitter caused near-constant “delayed => dropped” behavior.

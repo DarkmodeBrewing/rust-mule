@@ -376,7 +376,7 @@ fn shaper_enforces_peer_and_global_caps() {
     let now = Instant::now();
     let first = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now);
     assert!(first.is_some());
-    shaper_mark_sent(&mut svc, "peer-a", now);
+    shaper_mark_sent(&mut svc, OutboundClass::Query, "peer-a", now);
 
     let second = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now);
     assert!(second.is_none());
@@ -406,7 +406,7 @@ fn shaper_applies_peer_min_interval_delay() {
     let now = Instant::now();
     let scheduled = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
         .expect("first schedule");
-    shaper_mark_sent(&mut svc, "peer-a", now);
+    shaper_mark_sent(&mut svc, OutboundClass::Query, "peer-a", now);
     assert!(scheduled >= now);
 
     let next = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
@@ -427,10 +427,10 @@ fn shaper_response_lane_bypasses_query_delay_budget() {
     };
     let now = Instant::now();
 
-    shaper_mark_sent(&mut svc, "peer-a", now);
+    shaper_mark_sent(&mut svc, OutboundClass::Response, "peer-a", now);
     let q = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
         .expect("query schedule");
-    assert!(q > now);
+    assert_eq!(q, now);
 
     let r = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Response, "peer-a", now)
         .expect("response schedule");

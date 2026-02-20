@@ -152,7 +152,7 @@ const TRACKED_IN_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
 const SHAPER_PEER_STATE_TTL: Duration = Duration::from_secs(60 * 60);
 const SHAPER_PEER_STATE_MAX: usize = 8192;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) enum OutboundClass {
     Query,
     Hello,
@@ -218,9 +218,9 @@ pub struct KadService {
     tracked_in_requests: HashMap<u32, HashMap<u8, TrackedInCounter>>,
     tracked_in_last_cleanup: Instant,
     shaper_window_started: Instant,
-    shaper_global_sent_in_window: u32,
+    shaper_global_sent_in_window: HashMap<OutboundClass, u32>,
     shaper_peer_sent_in_window: HashMap<String, u32>,
-    shaper_last_global_send: Option<Instant>,
+    shaper_last_global_send: HashMap<OutboundClass, Instant>,
     shaper_last_peer_send: HashMap<String, Instant>,
     shaper_jitter_seed: u64,
     crawl_round: u64,
@@ -315,9 +315,9 @@ impl KadService {
             tracked_in_requests: HashMap::new(),
             tracked_in_last_cleanup: now,
             shaper_window_started: now,
-            shaper_global_sent_in_window: 0,
+            shaper_global_sent_in_window: HashMap::new(),
             shaper_peer_sent_in_window: HashMap::new(),
-            shaper_last_global_send: None,
+            shaper_last_global_send: HashMap::new(),
             shaper_last_peer_send: HashMap::new(),
             shaper_jitter_seed: now.elapsed().as_nanos() as u64 ^ 0x9e37_79b9_7f4a_7c15,
             crawl_round: 0,
@@ -1577,10 +1577,20 @@ fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now
 fn shaper_roll_window(svc: &mut KadService, now: Instant) {
     if now.saturating_duration_since(svc.shaper_window_started) >= Duration::from_secs(1) {
         svc.shaper_window_started = now;
-        svc.shaper_global_sent_in_window = 0;
+        svc.shaper_global_sent_in_window.clear();
         svc.shaper_peer_sent_in_window.clear();
         shaper_cleanup_stale_peers(svc, now);
     }
+}
+
+fn shaper_peer_key(class: OutboundClass, dest_b64: &str) -> String {
+    let cls = match class {
+        OutboundClass::Query => "q",
+        OutboundClass::Hello => "h",
+        OutboundClass::Bootstrap => "b",
+        OutboundClass::Response => "r",
+    };
+    format!("{cls}:{dest_b64}")
 }
 
 fn shaper_cleanup_stale_peers(svc: &mut KadService, now: Instant) {
@@ -1678,9 +1688,12 @@ fn shaper_schedule_send(
     shaper_roll_window(svc, now);
     let policy = shaper_policy(cfg, class);
 
-    if policy.global_max_per_sec > 0
-        && svc.shaper_global_sent_in_window >= policy.global_max_per_sec
-    {
+    let global_sent = svc
+        .shaper_global_sent_in_window
+        .get(&class)
+        .copied()
+        .unwrap_or(0);
+    if policy.global_max_per_sec > 0 && global_sent >= policy.global_max_per_sec {
         svc.stats_window.outbound_shaper_drop_global_cap = svc
             .stats_window
             .outbound_shaper_drop_global_cap
@@ -1688,9 +1701,10 @@ fn shaper_schedule_send(
         return None;
     }
 
+    let peer_key = shaper_peer_key(class, dest_b64);
     let peer_sent = svc
         .shaper_peer_sent_in_window
-        .get(dest_b64)
+        .get(&peer_key)
         .copied()
         .unwrap_or(0);
     if policy.peer_max_per_sec > 0 && peer_sent >= policy.peer_max_per_sec {
@@ -1711,26 +1725,27 @@ fn shaper_schedule_send(
         let jitter_delay = Duration::from_millis(shaper_jitter_ms(svc, policy.jitter_ms));
         now + base_delay + jitter_delay
     };
-    if let Some(last) = svc.shaper_last_global_send {
+    if let Some(last) = svc.shaper_last_global_send.get(&class).copied() {
         target = std::cmp::max(target, last + global_min_interval);
     }
-    if let Some(last) = svc.shaper_last_peer_send.get(dest_b64).copied() {
+    if let Some(last) = svc.shaper_last_peer_send.get(&peer_key).copied() {
         target = std::cmp::max(target, last + peer_min_interval);
     }
     Some(target)
 }
 
-fn shaper_mark_sent(svc: &mut KadService, dest_b64: &str, sent_at: Instant) {
+fn shaper_mark_sent(svc: &mut KadService, class: OutboundClass, dest_b64: &str, sent_at: Instant) {
     shaper_roll_window(svc, sent_at);
-    svc.shaper_global_sent_in_window = svc.shaper_global_sent_in_window.saturating_add(1);
+    let global_counter = svc.shaper_global_sent_in_window.entry(class).or_insert(0);
+    *global_counter = global_counter.saturating_add(1);
+    let peer_key = shaper_peer_key(class, dest_b64);
     let peer_counter = svc
         .shaper_peer_sent_in_window
-        .entry(dest_b64.to_string())
+        .entry(peer_key.clone())
         .or_insert(0);
     *peer_counter = peer_counter.saturating_add(1);
-    svc.shaper_last_global_send = Some(sent_at);
-    svc.shaper_last_peer_send
-        .insert(dest_b64.to_string(), sent_at);
+    svc.shaper_last_global_send.insert(class, sent_at);
+    svc.shaper_last_peer_send.insert(peer_key, sent_at);
 }
 
 async fn shaper_send(
@@ -1759,7 +1774,7 @@ async fn shaper_send(
         return Ok(false);
     }
     sock.send_to(dest_b64, payload).await?;
-    shaper_mark_sent(svc, dest_b64, Instant::now());
+    shaper_mark_sent(svc, class, dest_b64, Instant::now());
     Ok(true)
 }
 

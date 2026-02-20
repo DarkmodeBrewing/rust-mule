@@ -21,6 +21,8 @@ control_timeout_secs = 120
 bootstrap_nodes_path = "nodes.dat"
 # KAD preferences file name (stores stable KadID).
 preferences_kad_path = "preferencesKad.dat"
+# KAD service runtime in seconds (`0` = run continuously; recommended for baseline/soak runs).
+service_runtime_secs = 0
 # Advanced KAD configs, use with caution
 # service_alpha = 8
 # service_req_min_interval_secs = 5
