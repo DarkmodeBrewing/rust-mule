@@ -18,6 +18,7 @@ Scenario and soak test scripts.
 - `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
 - `kad_phase0_baseline.sh`: captures KAD Phase 0 timing/ordering baseline counters from `/api/v1/status` into TSV.
 - `kad_phase0_compare.sh`: compares two Phase 0 baseline TSV files and prints before/after delta summary.
+- `kad_phase0_ci_smoke.sh`: offline deterministic smoke check for baseline+compare scripts using synthetic TSV fixtures (CI-safe, no network/node runtime).
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
 ## KAD Phase 0 Baseline Capture

@@ -8,6 +8,18 @@ on:
   pull_request:
 
 jobs:
+  kad-scripts-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: KAD script syntax checks
+        run: |
+          bash -n scripts/test/kad_phase0_baseline.sh
+          bash -n scripts/test/kad_phase0_compare.sh
+          bash -n scripts/test/kad_phase0_ci_smoke.sh
+      - name: KAD baseline/compare offline smoke
+        run: bash scripts/test/kad_phase0_ci_smoke.sh
+
   quality:
     runs-on: ubuntu-latest
     steps:
