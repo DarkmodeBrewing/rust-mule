@@ -8,6 +8,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status: Added deterministic KAD script CI guard on `feature/kad-phase1-ci-guard` (no runtime network dependency).
+  - New offline smoke script:
+    - `scripts/test/kad_phase0_ci_smoke.sh`
+    - Uses synthetic before/after TSV fixtures to validate:
+      - compare output includes shaper metrics
+      - shaper cap-drop metrics stay parseable and zero in fixture expectation
+      - pending-overdue delta parsing works
+  - CI workflow updated:
+    - `.github/workflows/ci.yml` new job `kad-scripts-smoke`
+    - Runs bash syntax checks for KAD baseline/compare/smoke scripts
+    - Runs offline smoke script (deterministic, no rust-mule/I2P runtime)
+  - Test script docs updated:
+    - `scripts/test/README.md` includes `kad_phase0_ci_smoke.sh`
+- Decisions:
+  - Keep KAD network baselines/soaks out CI; enforce only deterministic offline guards in CI.
+- Next steps:
+  - Keep using local/staging soak scripts for real network behavior validation and attach artifacts in PRs.
+- Change log:
+  - Added `scripts/test/kad_phase0_ci_smoke.sh`.
+  - Updated `.github/workflows/ci.yml`.
+  - Updated `scripts/test/README.md`.
+  - Validation:
+    - `bash scripts/test/kad_phase0_ci_smoke.sh` passed
+    - `cargo fmt --all --check` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (94 tests)
+
 - Status: Addressed PR review comments on `feature/kad-phase1-shaper` shaper state growth + loop blocking.
   - Added bounded cleanup for peer-shaper state (`shaper_last_peer_send`):
     - TTL-based eviction (`SHAPER_PEER_STATE_TTL = 1h`)
