@@ -8,6 +8,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status: Fixed Phase 2 query-lane suppression bug on `feature/kad-phase2-class-shaper`.
+  - Root cause observed in baseline: `sent_reqs/recv_ress/pending/timeouts` were all `0` while `outbound_shaper_delayed` was high.
+  - Cause: drop-on-delay lanes (`Query/Hello/Bootstrap`) combined with non-zero base/jitter caused near-constant “delayed => dropped” behavior.
+  - Fix:
+    - For drop-on-delay classes, scheduler now starts at `now` and only delays on min-interval constraints.
+    - Base/jitter scheduling remains for non-drop classes only.
+  - Added regression coverage:
+    - `shaper_query_lane_does_not_require_base_delay`
+- Decisions:
+  - Keep non-blocking/no-sleep behavior; enforce pacing via caps + min-interval gating for drop-lanes.
+- Next steps:
+  - Re-run strict before/after phase-2 baseline compare; validate `sent_reqs/recv_ress` are non-zero and compare metrics are meaningful.
+- Change log:
+  - Updated `src/kad/service.rs` class scheduler target-time behavior.
+  - Updated `src/kad/service/tests.rs` with query-lane no-base-delay regression test.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (96 tests)
+
 - Status: Started KAD Phase 2 with class-aware outbound shaping on `feature/kad-phase2-class-shaper`.
   - Added explicit shaper classes:
     - `Query`

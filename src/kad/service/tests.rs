@@ -427,6 +427,7 @@ fn shaper_response_lane_bypasses_query_delay_budget() {
     };
     let now = Instant::now();
 
+    shaper_mark_sent(&mut svc, "peer-a", now);
     let q = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
         .expect("query schedule");
     assert!(q > now);
@@ -434,6 +435,23 @@ fn shaper_response_lane_bypasses_query_delay_budget() {
     let r = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Response, "peer-a", now)
         .expect("response schedule");
     assert_eq!(r, now);
+}
+
+#[test]
+fn shaper_query_lane_does_not_require_base_delay() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let cfg = KadServiceConfig {
+        outbound_shaper_base_delay_ms: 25,
+        outbound_shaper_jitter_ms: 25,
+        outbound_shaper_global_min_interval_ms: 0,
+        outbound_shaper_peer_min_interval_ms: 0,
+        ..Default::default()
+    };
+    let now = Instant::now();
+    let q = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
+        .expect("query schedule");
+    assert_eq!(q, now);
 }
 
 #[test]

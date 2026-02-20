@@ -1701,12 +1701,16 @@ fn shaper_schedule_send(
         return None;
     }
 
-    let base_delay = Duration::from_millis(policy.base_delay_ms);
-    let jitter_delay = Duration::from_millis(shaper_jitter_ms(svc, policy.jitter_ms));
     let global_min_interval = Duration::from_millis(policy.global_min_interval_ms);
     let peer_min_interval = Duration::from_millis(policy.peer_min_interval_ms);
 
-    let mut target = now + base_delay + jitter_delay;
+    let mut target = if policy.drop_when_delayed {
+        now
+    } else {
+        let base_delay = Duration::from_millis(policy.base_delay_ms);
+        let jitter_delay = Duration::from_millis(shaper_jitter_ms(svc, policy.jitter_ms));
+        now + base_delay + jitter_delay
+    };
     if let Some(last) = svc.shaper_last_global_send {
         target = std::cmp::max(target, last + global_min_interval);
     }
