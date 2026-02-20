@@ -152,6 +152,25 @@ const TRACKED_IN_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
 const SHAPER_PEER_STATE_TTL: Duration = Duration::from_secs(60 * 60);
 const SHAPER_PEER_STATE_MAX: usize = 8192;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum OutboundClass {
+    Query,
+    Hello,
+    Bootstrap,
+    Response,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ShaperClassPolicy {
+    base_delay_ms: u64,
+    jitter_ms: u64,
+    global_min_interval_ms: u64,
+    peer_min_interval_ms: u64,
+    global_max_per_sec: u32,
+    peer_max_per_sec: u32,
+    drop_when_delayed: bool,
+}
+
 #[derive(Debug, Clone)]
 struct TrackedOutRequest {
     request_id: u64,
@@ -1205,7 +1224,17 @@ async fn maybe_send_hello_to_peer(
 
     let out = hello_plain.clone();
 
-    match shaper_send(svc, sock, cfg, &dest, &out, KADEMLIA2_HELLO_REQ).await {
+    match shaper_send(
+        svc,
+        sock,
+        cfg,
+        OutboundClass::Hello,
+        &dest,
+        &out,
+        KADEMLIA2_HELLO_REQ,
+    )
+    .await
+    {
         Err(err) => {
             tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (preflight)");
         }
@@ -1234,7 +1263,17 @@ async fn maybe_send_hello_to_peer(
             receiver_verify_key,
             sender_verify_key,
         ) {
-            match shaper_send(svc, sock, cfg, &dest, &hello, KADEMLIA2_HELLO_REQ).await {
+            match shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Hello,
+                &dest,
+                &hello,
+                KADEMLIA2_HELLO_REQ,
+            )
+            .await
+            {
                 Err(err) => {
                     tracing::debug!(
                         error = %err,
@@ -1578,16 +1617,69 @@ fn shaper_jitter_ms(svc: &mut KadService, max_ms: u64) -> u64 {
     svc.shaper_jitter_seed % (max_ms + 1)
 }
 
+fn shaper_policy(cfg: &KadServiceConfig, class: OutboundClass) -> ShaperClassPolicy {
+    let query = ShaperClassPolicy {
+        base_delay_ms: cfg.outbound_shaper_base_delay_ms,
+        jitter_ms: cfg.outbound_shaper_jitter_ms,
+        global_min_interval_ms: cfg.outbound_shaper_global_min_interval_ms,
+        peer_min_interval_ms: cfg.outbound_shaper_peer_min_interval_ms,
+        global_max_per_sec: cfg.outbound_shaper_global_max_per_sec,
+        peer_max_per_sec: cfg.outbound_shaper_peer_max_per_sec,
+        drop_when_delayed: true,
+    };
+
+    match class {
+        OutboundClass::Query => query,
+        OutboundClass::Hello => ShaperClassPolicy {
+            base_delay_ms: query.base_delay_ms / 2,
+            jitter_ms: query.jitter_ms / 2,
+            global_min_interval_ms: query.global_min_interval_ms,
+            peer_min_interval_ms: query.peer_min_interval_ms / 2,
+            global_max_per_sec: query.global_max_per_sec.saturating_mul(2).max(32),
+            peer_max_per_sec: query.peer_max_per_sec.saturating_mul(2).max(8),
+            drop_when_delayed: true,
+        },
+        OutboundClass::Bootstrap => ShaperClassPolicy {
+            base_delay_ms: query.base_delay_ms / 2,
+            jitter_ms: query.jitter_ms / 2,
+            global_min_interval_ms: query.global_min_interval_ms / 2,
+            peer_min_interval_ms: query.peer_min_interval_ms / 2,
+            global_max_per_sec: query.global_max_per_sec.saturating_mul(2).max(32),
+            peer_max_per_sec: query.peer_max_per_sec.saturating_mul(2).max(8),
+            drop_when_delayed: true,
+        },
+        OutboundClass::Response => ShaperClassPolicy {
+            base_delay_ms: 0,
+            jitter_ms: 0,
+            global_min_interval_ms: 0,
+            peer_min_interval_ms: 0,
+            global_max_per_sec: query.global_max_per_sec.saturating_mul(4).max(128),
+            peer_max_per_sec: query.peer_max_per_sec.saturating_mul(4).max(24),
+            drop_when_delayed: false,
+        },
+    }
+}
+
+fn outbound_class_for_opcode(opcode: u8) -> OutboundClass {
+    match opcode {
+        KADEMLIA2_HELLO_REQ | KADEMLIA_HELLO_REQ_DEPRECATED => OutboundClass::Hello,
+        KADEMLIA2_BOOTSTRAP_REQ => OutboundClass::Bootstrap,
+        _ => OutboundClass::Query,
+    }
+}
+
 fn shaper_schedule_send(
     svc: &mut KadService,
     cfg: &KadServiceConfig,
+    class: OutboundClass,
     dest_b64: &str,
     now: Instant,
 ) -> Option<Instant> {
     shaper_roll_window(svc, now);
+    let policy = shaper_policy(cfg, class);
 
-    if cfg.outbound_shaper_global_max_per_sec > 0
-        && svc.shaper_global_sent_in_window >= cfg.outbound_shaper_global_max_per_sec
+    if policy.global_max_per_sec > 0
+        && svc.shaper_global_sent_in_window >= policy.global_max_per_sec
     {
         svc.stats_window.outbound_shaper_drop_global_cap = svc
             .stats_window
@@ -1601,8 +1693,7 @@ fn shaper_schedule_send(
         .get(dest_b64)
         .copied()
         .unwrap_or(0);
-    if cfg.outbound_shaper_peer_max_per_sec > 0 && peer_sent >= cfg.outbound_shaper_peer_max_per_sec
-    {
+    if policy.peer_max_per_sec > 0 && peer_sent >= policy.peer_max_per_sec {
         svc.stats_window.outbound_shaper_drop_peer_cap = svc
             .stats_window
             .outbound_shaper_drop_peer_cap
@@ -1610,10 +1701,10 @@ fn shaper_schedule_send(
         return None;
     }
 
-    let base_delay = Duration::from_millis(cfg.outbound_shaper_base_delay_ms);
-    let jitter_delay = Duration::from_millis(shaper_jitter_ms(svc, cfg.outbound_shaper_jitter_ms));
-    let global_min_interval = Duration::from_millis(cfg.outbound_shaper_global_min_interval_ms);
-    let peer_min_interval = Duration::from_millis(cfg.outbound_shaper_peer_min_interval_ms);
+    let base_delay = Duration::from_millis(policy.base_delay_ms);
+    let jitter_delay = Duration::from_millis(shaper_jitter_ms(svc, policy.jitter_ms));
+    let global_min_interval = Duration::from_millis(policy.global_min_interval_ms);
+    let peer_min_interval = Duration::from_millis(policy.peer_min_interval_ms);
 
     let mut target = now + base_delay + jitter_delay;
     if let Some(last) = svc.shaper_last_global_send {
@@ -1642,12 +1733,14 @@ async fn shaper_send(
     svc: &mut KadService,
     sock: &mut SamKadSocket,
     cfg: &KadServiceConfig,
+    class: OutboundClass,
     dest_b64: &str,
     payload: &[u8],
     opcode: u8,
 ) -> Result<bool> {
     let now = Instant::now();
-    let Some(send_at) = shaper_schedule_send(svc, cfg, dest_b64, now) else {
+    let policy = shaper_policy(cfg, class);
+    let Some(send_at) = shaper_schedule_send(svc, cfg, class, dest_b64, now) else {
         tracing::debug!(
             to = %crate::i2p::b64::short(dest_b64),
             opcode = kad_opcode_name(opcode),
@@ -1656,7 +1749,7 @@ async fn shaper_send(
         return Ok(false);
     };
 
-    if send_at > now {
+    if send_at > now && policy.drop_when_delayed {
         svc.stats_window.outbound_shaper_delayed =
             svc.stats_window.outbound_shaper_delayed.saturating_add(1);
         return Ok(false);
@@ -1700,7 +1793,8 @@ async fn send_kad2_packet(
         plain
     };
 
-    if !shaper_send(svc, sock, cfg, &dest, &out, opcode).await? {
+    let class = outbound_class_for_opcode(opcode);
+    if !shaper_send(svc, sock, cfg, class, &dest, &out, opcode).await? {
         return Ok(None);
     }
     Ok(track_outgoing_request(
@@ -1917,7 +2011,17 @@ async fn send_hello_batch(
 
         let out = hello_plain.clone();
 
-        match shaper_send(svc, sock, cfg, &dest, &out, KADEMLIA2_HELLO_REQ).await {
+        match shaper_send(
+            svc,
+            sock,
+            cfg,
+            OutboundClass::Hello,
+            &dest,
+            &out,
+            KADEMLIA2_HELLO_REQ,
+        )
+        .await
+        {
             Err(err) => {
                 tracing::debug!(error = %err, to = %dest, "failed sending KAD2 HELLO_REQ (service)");
             }
@@ -1945,7 +2049,17 @@ async fn send_hello_batch(
                 receiver_verify_key,
                 sender_verify_key,
             ) {
-                match shaper_send(svc, sock, cfg, &dest, &hello, KADEMLIA2_HELLO_REQ).await {
+                match shaper_send(
+                    svc,
+                    sock,
+                    cfg,
+                    OutboundClass::Hello,
+                    &dest,
+                    &hello,
+                    KADEMLIA2_HELLO_REQ,
+                )
+                .await
+                {
                     Err(err) => {
                         tracing::debug!(
                             error = %err,
@@ -1987,7 +2101,17 @@ async fn debug_probe_peer(
 
     let hello_payload = encode_kad2_hello_req(1, crypto.my_kad_id, &crypto.my_dest);
     let hello_plain = KadPacket::encode(KADEMLIA2_HELLO_REQ, &hello_payload);
-    if shaper_send(svc, sock, cfg, dest_b64, &hello_plain, KADEMLIA2_HELLO_REQ).await? {
+    if shaper_send(
+        svc,
+        sock,
+        cfg,
+        OutboundClass::Hello,
+        dest_b64,
+        &hello_plain,
+        KADEMLIA2_HELLO_REQ,
+    )
+    .await?
+    {
         track_outgoing_request(svc, dest_b64, KADEMLIA2_HELLO_REQ, now, None);
         svc.stats_window.sent_hellos += 1;
         svc.routing.mark_hello_sent_by_dest(dest_b64, now);
@@ -2008,7 +2132,17 @@ async fn debug_probe_peer(
             receiver_verify_key,
             sender_verify_key,
         ) {
-            match shaper_send(svc, sock, cfg, dest_b64, &hello, KADEMLIA2_HELLO_REQ).await {
+            match shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Hello,
+                dest_b64,
+                &hello,
+                KADEMLIA2_HELLO_REQ,
+            )
+            .await
+            {
                 Err(err) => {
                     tracing::debug!(
                         error = %err,
@@ -2220,7 +2354,17 @@ async fn send_bootstrap_batch(
             plain.clone()
         };
 
-        match shaper_send(svc, sock, cfg, &dest, &out, KADEMLIA2_BOOTSTRAP_REQ).await {
+        match shaper_send(
+            svc,
+            sock,
+            cfg,
+            OutboundClass::Bootstrap,
+            &dest,
+            &out,
+            KADEMLIA2_BOOTSTRAP_REQ,
+        )
+        .await
+        {
             Err(err) => {
                 tracing::debug!(
                     error = %err,

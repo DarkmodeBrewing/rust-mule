@@ -374,17 +374,17 @@ fn shaper_enforces_peer_and_global_caps() {
     };
 
     let now = Instant::now();
-    let first = shaper_schedule_send(&mut svc, &cfg, "peer-a", now);
+    let first = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now);
     assert!(first.is_some());
     shaper_mark_sent(&mut svc, "peer-a", now);
 
-    let second = shaper_schedule_send(&mut svc, &cfg, "peer-a", now);
+    let second = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now);
     assert!(second.is_none());
     assert_eq!(svc.stats_window.outbound_shaper_drop_peer_cap, 1);
 
     cfg.outbound_shaper_peer_max_per_sec = 10;
     cfg.outbound_shaper_global_max_per_sec = 1;
-    let third = shaper_schedule_send(&mut svc, &cfg, "peer-b", now);
+    let third = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-b", now);
     assert!(third.is_none());
     assert_eq!(svc.stats_window.outbound_shaper_drop_global_cap, 1);
 }
@@ -404,12 +404,36 @@ fn shaper_applies_peer_min_interval_delay() {
     };
 
     let now = Instant::now();
-    let scheduled = shaper_schedule_send(&mut svc, &cfg, "peer-a", now).expect("first schedule");
+    let scheduled = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
+        .expect("first schedule");
     shaper_mark_sent(&mut svc, "peer-a", now);
     assert!(scheduled >= now);
 
-    let next = shaper_schedule_send(&mut svc, &cfg, "peer-a", now).expect("second schedule");
+    let next = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
+        .expect("second schedule");
     assert!(next >= now + Duration::from_millis(100));
+}
+
+#[test]
+fn shaper_response_lane_bypasses_query_delay_budget() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let cfg = KadServiceConfig {
+        outbound_shaper_base_delay_ms: 5,
+        outbound_shaper_jitter_ms: 0,
+        outbound_shaper_global_min_interval_ms: 100,
+        outbound_shaper_peer_min_interval_ms: 100,
+        ..Default::default()
+    };
+    let now = Instant::now();
+
+    let q = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Query, "peer-a", now)
+        .expect("query schedule");
+    assert!(q > now);
+
+    let r = shaper_schedule_send(&mut svc, &cfg, OutboundClass::Response, "peer-a", now)
+        .expect("response schedule");
+    assert_eq!(r, now);
 }
 
 #[test]

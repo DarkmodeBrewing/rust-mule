@@ -8,6 +8,35 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status: Started KAD Phase 2 with class-aware outbound shaping on `feature/kad-phase2-class-shaper`.
+  - Added explicit shaper classes:
+    - `Query`
+    - `Hello`
+    - `Bootstrap`
+    - `Response`
+  - Added per-class policy derivation (`shaper_policy`) so response traffic and liveness traffic are treated differently than query traffic.
+  - Routed send paths by class:
+    - `send_kad2_packet` opcodes map into class-aware shaping
+    - service HELLO sends use `Hello` class
+    - service BOOTSTRAP sends use `Bootstrap` class
+    - inbound reply sends use `Response` class
+  - Added regression test:
+    - `shaper_response_lane_bypasses_query_delay_budget`
+- Decisions:
+  - Keep phase-2 behavior internal for now (no `config.toml` schema changes yet).
+  - Favor lower suppression pressure on response/liveness paths while preserving query-lane shaping.
+- Next steps:
+  - Run strict before/after baseline pair and compare deltas under phase-2 class-aware policy.
+  - If stable, expose class policy tuning in config/documentation.
+- Change log:
+  - Updated `src/kad/service.rs` (class enum/policy + call-site routing).
+  - Updated `src/kad/service/inbound.rs` (response-class sends).
+  - Updated `src/kad/service/tests.rs` (new class-aware shaper test).
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (95 tests)
+
 - Status: Added deterministic KAD script CI guard on `feature/kad-phase1-ci-guard` (no runtime network dependency).
   - New offline smoke script:
     - `scripts/test/kad_phase0_ci_smoke.sh`
