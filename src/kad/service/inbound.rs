@@ -130,6 +130,7 @@ pub(super) async fn handle_inbound_impl(
                 svc,
                 sock,
                 cfg,
+                OutboundClass::Response,
                 &from_dest_b64,
                 &res,
                 KADEMLIA_HELLO_RES_DEPRECATED,
@@ -165,6 +166,7 @@ pub(super) async fn handle_inbound_impl(
                 svc,
                 sock,
                 cfg,
+                OutboundClass::Response,
                 &from_dest_b64,
                 &out,
                 KADEMLIA2_BOOTSTRAP_RES,
@@ -316,9 +318,17 @@ pub(super) async fn handle_inbound_impl(
                 res_plain
             };
 
-            if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_HELLO_RES)
-                .await
-                .is_ok_and(|sent| sent)
+            if shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Response,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_HELLO_RES,
+            )
+            .await
+            .is_ok_and(|sent| sent)
             {
                 track_outgoing_request(svc, &from_dest_b64, KADEMLIA2_HELLO_RES, now, None);
             }
@@ -390,6 +400,7 @@ pub(super) async fn handle_inbound_impl(
                     svc,
                     sock,
                     cfg,
+                    OutboundClass::Response,
                     &from_dest_b64,
                     &ack,
                     KADEMLIA2_HELLO_RES_ACK,
@@ -499,7 +510,16 @@ pub(super) async fn handle_inbound_impl(
             } else {
                 res_plain
             };
-            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_RES).await;
+            let _ = shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Response,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_RES,
+            )
+            .await;
         }
 
         KADEMLIA_REQ_DEPRECATED => {
@@ -526,6 +546,7 @@ pub(super) async fn handle_inbound_impl(
                 svc,
                 sock,
                 cfg,
+                OutboundClass::Response,
                 &from_dest_b64,
                 &res_plain,
                 KADEMLIA_RES_DEPRECATED,
@@ -659,7 +680,16 @@ pub(super) async fn handle_inbound_impl(
             } else {
                 pong_plain
             };
-            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PONG).await;
+            let _ = shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Response,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_PONG,
+            )
+            .await;
         }
 
         KADEMLIA2_PONG => {
@@ -713,9 +743,17 @@ pub(super) async fn handle_inbound_impl(
                         } else {
                             res_plain
                         };
-                        if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PUBLISH_RES)
-                            .await
-                            .is_ok_and(|sent| sent)
+                        if shaper_send(
+                            svc,
+                            sock,
+                            cfg,
+                            OutboundClass::Response,
+                            &from_dest_b64,
+                            &out,
+                            KADEMLIA2_PUBLISH_RES,
+                        )
+                        .await
+                        .is_ok_and(|sent| sent)
                         {
                             svc.stats_window.sent_publish_key_ress += 1;
                         }
@@ -813,9 +851,17 @@ pub(super) async fn handle_inbound_impl(
             } else {
                 res_plain
             };
-            if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PUBLISH_RES)
-                .await
-                .is_ok_and(|sent| sent)
+            if shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Response,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_PUBLISH_RES,
+            )
+            .await
+            .is_ok_and(|sent| sent)
             {
                 svc.stats_window.sent_publish_key_ress += 1;
             }
@@ -898,9 +944,17 @@ pub(super) async fn handle_inbound_impl(
                 res_plain
             };
 
-            if shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_PUBLISH_RES)
-                .await
-                .is_ok_and(|sent| sent)
+            if shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Response,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_PUBLISH_RES,
+            )
+            .await
+            .is_ok_and(|sent| sent)
             {
                 svc.stats_window.sent_publish_source_ress += 1;
             }
@@ -960,7 +1014,16 @@ pub(super) async fn handle_inbound_impl(
                 plain
             };
 
-            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_SEARCH_RES).await;
+            let _ = shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Response,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_SEARCH_RES,
+            )
+            .await;
         }
 
         KADEMLIA2_SEARCH_SOURCE_REQ => {
@@ -1034,7 +1097,16 @@ pub(super) async fn handle_inbound_impl(
                 plain
             };
 
-            let _ = shaper_send(svc, sock, cfg, &from_dest_b64, &out, KADEMLIA2_SEARCH_RES).await;
+            let _ = shaper_send(
+                svc,
+                sock,
+                cfg,
+                OutboundClass::Response,
+                &from_dest_b64,
+                &out,
+                KADEMLIA2_SEARCH_RES,
+            )
+            .await;
         }
 
         KADEMLIA2_SEARCH_RES => {

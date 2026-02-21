@@ -8,8 +8,34 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
-- Status (2026-02-21): Added cumulative KAD status counters on `hotfix/kad-status-cumulative-totals`.
-  - `/api/v1/status` now includes lifetime totals (since service start) for:
+- Status (2026-02-21): Patched shaper policy to preserve “0 disables caps” semantics for derived class lanes.
+  - `shaper_policy` no longer forces minimum caps when base caps are `0`.
+  - Response lane now respects disabled cap configuration in baseline/soak scenarios.
+  - Added regression test:
+    - `shaper_response_lane_caps_can_be_disabled_with_zero_base_caps`
+- Decisions:
+  - Keep derived caps (`Hello`/`Bootstrap`/`Response`) bounded only when base query caps are enabled.
+- Next steps:
+  - Re-run baseline/soak on PR branch to confirm response-heavy scenarios do not see artificial cap drops under zero-cap config.
+- Change log:
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/tests.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (102 total harness/tests)
+
+- Status (2026-02-21): Merged latest `origin/main` into `feature/kad-phase2-class-shaper` to resolve PR conflicts.
+  - Conflict scope was documentation-only (`docs/handoff.md`); code merge completed cleanly.
+- Decisions:
+  - Keep branch behavior unchanged; this merge is for branch sync/conflict resolution.
+- Next steps:
+  - Keep PR #14 open and proceed with user-driven baseline validation.
+- Change log:
+  - Resolved `docs/handoff.md` merge conflict from `origin/main` merge.
+
+- Status (2026-02-21): Cherry-picked cumulative KAD status totals from `main` onto `feature/kad-phase2-class-shaper`.
+  - `/api/v1/status` now exposes lifetime totals (since service start):
     - `recv_req_total` / `sent_reqs_total`
     - `recv_res_total` / `recv_ress_total`
     - `timeouts_total`
@@ -17,20 +43,105 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - `tracked_out_unmatched_total`
     - `tracked_out_expired_total`
     - `outbound_shaper_delayed_total`
-  - Existing non-total fields remain windowed and unchanged.
+  - Existing windowed counters are unchanged.
 - Decisions:
-  - Keep existing window counters for periodic observability and add explicit totals to remove long-run polling ambiguity.
+  - Keep this cherry-pick on Phase 2 so before/after polling can compare stable totals rather than window snapshots.
 - Next steps:
-  - Merge hotfix to `main`, then cherry-pick onto `feature/kad-phase2-class-shaper` for rebuild/compare runs.
+  - Build new `main` and `feature/kad-phase2-class-shaper` binaries and rerun baseline with totals polling.
 - Change log:
-  - Updated `src/kad/service/types.rs`, `src/kad/service.rs`, `src/kad/service/status.rs`.
-  - Updated `src/kad/service/tests.rs`, `src/api/tests.rs`.
+  - Cherry-picked `00c6b70` into `feature/kad-phase2-class-shaper`.
   - Validation:
     - `cargo fmt` passed
     - `cargo clippy --all-targets --all-features -- -D warnings` passed
-    - `cargo test --all-targets --all-features` passed (99 total harness/tests)
+    - `cargo test --all-targets --all-features` passed (100 total harness/tests)
 
-- Status (2026-02-21): Completed hotfix `hotfix/sam-ping-pong-keepalive` and merged into `main` for SAM DATAGRAM-TCP keepalive stability.
+- Status (2026-02-21): Cherry-picked SAM DATAGRAM keepalive hotfix from `main` onto `feature/kad-phase2-class-shaper` for before/after baseline builds.
+  - Included transport-level handling of unsolicited `PING` frames with immediate `PONG` reply.
+  - Included unit coverage for PING/PONG line mapping in DATAGRAM TCP path.
+- Decisions:
+  - Keep this fix shared between `main` and Phase 2 branch so baseline deltas focus on shaper behavior, not SAM session churn.
+- Next steps:
+  - Build feature binary and run paired baseline compare against `main` binary.
+- Change log:
+  - Cherry-picked `2860194` into `feature/kad-phase2-class-shaper`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (100 total harness/tests)
+
+- Status: Isolated shaper state per outbound class and set explicit continuous runtime default in config on `feature/kad-phase2-class-shaper`.
+  - Shaper lane isolation fix:
+    - `shaper_global_sent_in_window` and `shaper_last_global_send` are now tracked per `OutboundClass`.
+    - peer lane keys are class-scoped (`class:dest`) for per-class peer counters/intervals.
+    - prevents response-lane traffic from suppressing query-lane sends.
+  - Added explicit KAD runtime config entry:
+    - `config.toml` now includes `kad.service_runtime_secs = 0` with comment (`0` = continuous run), to avoid periodic 360s restarts during baselines.
+  - Updated tests:
+    - adjusted class-lane bypass test to match lane isolation behavior.
+- Decisions:
+  - Maintain per-class shaping isolation as core Phase 2 invariant.
+  - Keep baseline guidance to run with continuous service runtime.
+- Next steps:
+  - Re-run strict before/after baseline compare with this commit and verify query metrics (`sent_reqs`, `recv_ress`, `pending`, `tracked_out_*`) are non-zero and stable.
+- Change log:
+  - Updated `src/kad/service.rs` shaper counters/timers to class-scoped state.
+  - Updated `src/kad/service/tests.rs` for class-scoped expectations.
+  - Updated `config.toml` (`kad.service_runtime_secs = 0`).
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (96 tests)
+
+- Status: Fixed Phase 2 query-lane suppression bug on `feature/kad-phase2-class-shaper`.
+  - Root cause observed in baseline: `sent_reqs/recv_ress/pending/timeouts` were all `0` while `outbound_shaper_delayed` was high.
+  - Cause: drop-on-delay lanes (`Query/Hello/Bootstrap`) combined with non-zero base/jitter caused near-constant “delayed => dropped” behavior.
+  - Fix:
+    - For drop-on-delay classes, scheduler now starts at `now` and only delays on min-interval constraints.
+    - Base/jitter scheduling remains for non-drop classes only.
+  - Added regression coverage:
+    - `shaper_query_lane_does_not_require_base_delay`
+- Decisions:
+  - Keep non-blocking/no-sleep behavior; enforce pacing via caps + min-interval gating for drop-lanes.
+- Next steps:
+  - Re-run strict before/after phase-2 baseline compare; validate `sent_reqs/recv_ress` are non-zero and compare metrics are meaningful.
+- Change log:
+  - Updated `src/kad/service.rs` class scheduler target-time behavior.
+  - Updated `src/kad/service/tests.rs` with query-lane no-base-delay regression test.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (96 tests)
+
+- Status: Started KAD Phase 2 with class-aware outbound shaping on `feature/kad-phase2-class-shaper`.
+  - Added explicit shaper classes:
+    - `Query`
+    - `Hello`
+    - `Bootstrap`
+    - `Response`
+  - Added per-class policy derivation (`shaper_policy`) so response traffic and liveness traffic are treated differently than query traffic.
+  - Routed send paths by class:
+    - `send_kad2_packet` opcodes map into class-aware shaping
+    - service HELLO sends use `Hello` class
+    - service BOOTSTRAP sends use `Bootstrap` class
+    - inbound reply sends use `Response` class
+  - Added regression test:
+    - `shaper_response_lane_bypasses_query_delay_budget`
+- Decisions:
+  - Keep phase-2 behavior internal for now (no `config.toml` schema changes yet).
+  - Favor lower suppression pressure on response/liveness paths while preserving query-lane shaping.
+- Next steps:
+  - Run strict before/after baseline pair and compare deltas under phase-2 class-aware policy.
+  - If stable, expose class policy tuning in config/documentation.
+- Change log:
+  - Updated `src/kad/service.rs` (class enum/policy + call-site routing).
+  - Updated `src/kad/service/inbound.rs` (response-class sends).
+  - Updated `src/kad/service/tests.rs` (new class-aware shaper test).
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (95 tests)
+
+- Status (2026-02-21): Started hotfix `hotfix/sam-ping-pong-keepalive` from `main` for SAM DATAGRAM-TCP keepalive stability.
   - Added handling for unsolicited `PING` frames on the DATAGRAM TCP socket:
     - detect `PING...` lines in `recv()` and in command reply wait loop
     - immediately emit matching `PONG...` and continue
@@ -38,7 +149,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Decisions:
   - Keep SAM keepalive handling in transport layer (`src/i2p/sam/datagram_tcp.rs`), transparent to KAD.
 - Next steps:
-  - Validate in live runtime that periodic `SESSION ... PONG timeout` reconnect events no longer occur around ~360s uptime.
+  - Commit/push branch and open PR with `gh`.
 - Change log:
   - Updated `src/i2p/sam/datagram_tcp.rs`.
   - Validation:
