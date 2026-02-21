@@ -27,7 +27,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Validation:
     - `cargo fmt` passed
     - `cargo clippy --all-targets --all-features -- -D warnings` passed
-    - `cargo test --all-targets --all-features` passed (99 total harness/tests)
+    - `cargo test --all-targets --all-features` passed (100 total harness/tests)
 
 - Status (2026-02-21): Cherry-picked SAM DATAGRAM keepalive hotfix from `main` onto `feature/kad-phase2-class-shaper` for before/after baseline builds.
   - Included transport-level handling of unsolicited `PING` frames with immediate `PONG` reply.
