@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Cherry-picked SAM DATAGRAM keepalive hotfix from `main` onto `feature/kad-phase2-class-shaper` for before/after baseline builds.
+  - Included transport-level handling of unsolicited `PING` frames with immediate `PONG` reply.
+  - Included unit coverage for PING/PONG line mapping in DATAGRAM TCP path.
+- Decisions:
+  - Keep this fix shared between `main` and Phase 2 branch so baseline deltas focus on shaper behavior, not SAM session churn.
+- Next steps:
+  - Build feature binary and run paired baseline compare against `main` binary.
+- Change log:
+  - Cherry-picked `2860194` into `feature/kad-phase2-class-shaper`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (100 total harness/tests)
+
 - Status: Isolated shaper state per outbound class and set explicit continuous runtime default in config on `feature/kad-phase2-class-shaper`.
   - Shaper lane isolation fix:
     - `shaper_global_sent_in_window` and `shaper_last_global_send` are now tracked per `OutboundClass`.
