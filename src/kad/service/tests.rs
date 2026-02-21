@@ -496,6 +496,29 @@ fn shaper_query_lane_does_not_require_base_delay() {
 }
 
 #[test]
+fn shaper_response_lane_caps_can_be_disabled_with_zero_base_caps() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let cfg = KadServiceConfig {
+        outbound_shaper_global_max_per_sec: 0,
+        outbound_shaper_peer_max_per_sec: 0,
+        ..Default::default()
+    };
+    let now = Instant::now();
+
+    for _ in 0..64 {
+        let scheduled =
+            shaper_schedule_send(&mut svc, &cfg, OutboundClass::Response, "peer-a", now)
+                .expect("response send should not be capped when base caps are disabled");
+        assert_eq!(scheduled, now);
+        shaper_mark_sent(&mut svc, OutboundClass::Response, "peer-a", now);
+    }
+
+    assert_eq!(svc.stats_window.outbound_shaper_drop_global_cap, 0);
+    assert_eq!(svc.stats_window.outbound_shaper_drop_peer_cap, 0);
+}
+
+#[test]
 fn shaper_cleanup_evicts_stale_peer_state() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);

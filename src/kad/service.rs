@@ -1630,6 +1630,14 @@ fn shaper_jitter_ms(svc: &mut KadService, max_ms: u64) -> u64 {
 }
 
 fn shaper_policy(cfg: &KadServiceConfig, class: OutboundClass) -> ShaperClassPolicy {
+    fn scaled_cap_or_disabled(base: u32, factor: u32, min_if_enabled: u32) -> u32 {
+        if base == 0 {
+            0
+        } else {
+            base.saturating_mul(factor).max(min_if_enabled)
+        }
+    }
+
     let query = ShaperClassPolicy {
         base_delay_ms: cfg.outbound_shaper_base_delay_ms,
         jitter_ms: cfg.outbound_shaper_jitter_ms,
@@ -1647,8 +1655,8 @@ fn shaper_policy(cfg: &KadServiceConfig, class: OutboundClass) -> ShaperClassPol
             jitter_ms: query.jitter_ms / 2,
             global_min_interval_ms: query.global_min_interval_ms,
             peer_min_interval_ms: query.peer_min_interval_ms / 2,
-            global_max_per_sec: query.global_max_per_sec.saturating_mul(2).max(32),
-            peer_max_per_sec: query.peer_max_per_sec.saturating_mul(2).max(8),
+            global_max_per_sec: scaled_cap_or_disabled(query.global_max_per_sec, 2, 32),
+            peer_max_per_sec: scaled_cap_or_disabled(query.peer_max_per_sec, 2, 8),
             drop_when_delayed: true,
         },
         OutboundClass::Bootstrap => ShaperClassPolicy {
@@ -1656,8 +1664,8 @@ fn shaper_policy(cfg: &KadServiceConfig, class: OutboundClass) -> ShaperClassPol
             jitter_ms: query.jitter_ms / 2,
             global_min_interval_ms: query.global_min_interval_ms / 2,
             peer_min_interval_ms: query.peer_min_interval_ms / 2,
-            global_max_per_sec: query.global_max_per_sec.saturating_mul(2).max(32),
-            peer_max_per_sec: query.peer_max_per_sec.saturating_mul(2).max(8),
+            global_max_per_sec: scaled_cap_or_disabled(query.global_max_per_sec, 2, 32),
+            peer_max_per_sec: scaled_cap_or_disabled(query.peer_max_per_sec, 2, 8),
             drop_when_delayed: true,
         },
         OutboundClass::Response => ShaperClassPolicy {
@@ -1665,8 +1673,8 @@ fn shaper_policy(cfg: &KadServiceConfig, class: OutboundClass) -> ShaperClassPol
             jitter_ms: 0,
             global_min_interval_ms: 0,
             peer_min_interval_ms: 0,
-            global_max_per_sec: query.global_max_per_sec.saturating_mul(4).max(128),
-            peer_max_per_sec: query.peer_max_per_sec.saturating_mul(4).max(24),
+            global_max_per_sec: scaled_cap_or_disabled(query.global_max_per_sec, 4, 128),
+            peer_max_per_sec: scaled_cap_or_disabled(query.peer_max_per_sec, 4, 24),
             drop_when_delayed: false,
         },
     }

@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Patched shaper policy to preserve “0 disables caps” semantics for derived class lanes.
+  - `shaper_policy` no longer forces minimum caps when base caps are `0`.
+  - Response lane now respects disabled cap configuration in baseline/soak scenarios.
+  - Added regression test:
+    - `shaper_response_lane_caps_can_be_disabled_with_zero_base_caps`
+- Decisions:
+  - Keep derived caps (`Hello`/`Bootstrap`/`Response`) bounded only when base query caps are enabled.
+- Next steps:
+  - Re-run baseline/soak on PR branch to confirm response-heavy scenarios do not see artificial cap drops under zero-cap config.
+- Change log:
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/tests.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (102 total harness/tests)
+
 - Status (2026-02-21): Merged latest `origin/main` into `feature/kad-phase2-class-shaper` to resolve PR conflicts.
   - Conflict scope was documentation-only (`docs/handoff.md`); code merge completed cleanly.
 - Decisions:
