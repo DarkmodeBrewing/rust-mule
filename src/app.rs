@@ -579,6 +579,12 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             match res {
                 Ok(()) => break,
                 Err(err) if is_recoverable_sam_kad_error(&err) => {
+                    if matches!(
+                        &err,
+                        crate::kad::service::KadServiceError::Sam(SamError::FramingDesync { .. })
+                    ) {
+                        svc.note_sam_framing_desync();
+                    }
                     tracing::warn!(
                         error = %err,
                         backoff_secs = backoff.as_secs(),

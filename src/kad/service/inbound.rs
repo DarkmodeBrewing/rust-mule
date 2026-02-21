@@ -523,35 +523,15 @@ pub(super) async fn handle_inbound_impl(
         }
 
         KADEMLIA_REQ_DEPRECATED => {
-            let req = match decode_kad1_req(&pkt.payload) {
-                Ok(r) => r,
-                Err(err) => {
-                    tracing::debug!(error = %err, from = %from_dest_b64, "failed to decode KAD1 REQ payload");
-                    return Ok(());
-                }
-            };
-            if req.check != crypto.my_kad_id {
-                return Ok(());
-            }
-
-            let max = (req.kind as usize).min(16);
-            let contacts = svc.routing.closest_to(req.target, max, from_hash);
-            let kad1_contacts = contacts
-                .iter()
-                .map(|n| (KadId(n.client_id), n.udp_dest))
-                .collect::<Vec<_>>();
-            let res_payload = encode_kad1_res(req.target, &kad1_contacts);
-            let res_plain = KadPacket::encode(KADEMLIA_RES_DEPRECATED, &res_payload);
-            let _ = shaper_send(
-                svc,
-                sock,
-                cfg,
-                OutboundClass::Response,
-                &from_dest_b64,
-                &res_plain,
-                KADEMLIA_RES_DEPRECATED,
-            )
-            .await;
+            tracing::debug!(
+                event = "kad_inbound_drop",
+                opcode = format_args!("0x{:02x}", pkt.opcode),
+                opcode_name = kad_opcode_name(pkt.opcode),
+                from = %crate::i2p::b64::short(&from_dest_b64),
+                reason = "legacy_kad1_disabled",
+                "dropped inbound KAD1 request"
+            );
+            return Ok(());
         }
 
         KADEMLIA2_RES => {

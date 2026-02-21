@@ -40,11 +40,14 @@ Captured TSV columns include:
   - `sent_reqs_total`, `recv_ress_total`, `timeouts_total`
   - `tracked_out_matched_total`, `tracked_out_unmatched_total`, `tracked_out_expired_total`
   - `outbound_shaper_delayed_total`
+  - `sam_framing_desync_total`
+- restart detection:
+  - `restart_marker` (`1` when `uptime_secs` decreases from previous sample, else `0`)
 - key throughput/error counters (`sent_reqs`, `recv_ress`, `timeouts`, batch send/fail counters)
 
 Notes:
 - `503` from `/api/v1/status` is treated as warmup/not-ready and skipped (not a script failure).
-- script summary reports `samples`, `skipped_503`, and `skipped_other`.
+- script summary reports `samples`, `skipped_503`, `skipped_other`, and `restarts`.
 
 Compare two baseline runs:
 - `bash scripts/test/kad_phase0_compare.sh --before /tmp/kad-before.tsv --after /tmp/kad-after.tsv`
@@ -56,6 +59,9 @@ Long-run baseline (default 6h):
 - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/kad_phase0_longrun.sh`
 - optional overrides:
   - `DURATION_SECS=28800` (8h), `INTERVAL_SECS=5`, `OUT_FILE=/tmp/kad-longrun.tsv`
+- output includes a post-run summary:
+  - `restart_markers=<count>`
+  - `sam_framing_desync_total_max=<max observed>`
 
 ## Timed Background Soak
 

@@ -244,6 +244,7 @@ pub struct KadServiceStatus {
     pub tracked_out_unmatched_total: u64,
     pub tracked_out_expired_total: u64,
     pub outbound_shaper_delayed_total: u64,
+    pub sam_framing_desync_total: u64,
 }
 
 #[derive(Debug)]
@@ -501,4 +502,5 @@ pub(super) struct KadServiceCumulative {
     pub(super) tracked_out_unmatched: u64,
     pub(super) tracked_out_expired: u64,
     pub(super) outbound_shaper_delayed: u64,
+    pub(super) sam_framing_desync: u64,
 }

@@ -355,6 +355,7 @@ fn build_status_reports_cumulative_totals_across_windows() {
     svc.stats_window.tracked_out_unmatched = 1;
     svc.stats_window.tracked_out_expired = 1;
     svc.stats_window.outbound_shaper_delayed = 3;
+    svc.note_sam_framing_desync();
     let st1 = status::build_status_impl(&mut svc, started);
     assert_eq!(st1.sent_reqs_total, 2);
     assert_eq!(st1.recv_ress_total, 1);
@@ -363,6 +364,7 @@ fn build_status_reports_cumulative_totals_across_windows() {
     assert_eq!(st1.tracked_out_unmatched_total, 1);
     assert_eq!(st1.tracked_out_expired_total, 1);
     assert_eq!(st1.outbound_shaper_delayed_total, 3);
+    assert_eq!(st1.sam_framing_desync_total, 1);
     assert_eq!(st1.recv_req_total, st1.sent_reqs_total);
     assert_eq!(st1.recv_res_total, st1.recv_ress_total);
 
@@ -373,6 +375,7 @@ fn build_status_reports_cumulative_totals_across_windows() {
     svc.stats_window.tracked_out_unmatched = 2;
     svc.stats_window.tracked_out_expired = 2;
     svc.stats_window.outbound_shaper_delayed = 7;
+    svc.note_sam_framing_desync();
     let st2 = status::build_status_impl(&mut svc, started);
     assert_eq!(st2.sent_reqs_total, 7);
     assert_eq!(st2.recv_ress_total, 5);
@@ -381,6 +384,7 @@ fn build_status_reports_cumulative_totals_across_windows() {
     assert_eq!(st2.tracked_out_unmatched_total, 3);
     assert_eq!(st2.tracked_out_expired_total, 3);
     assert_eq!(st2.outbound_shaper_delayed_total, 10);
+    assert_eq!(st2.sam_framing_desync_total, 2);
 }
 
 #[test]
