@@ -343,6 +343,11 @@ impl KadService {
     pub fn routing_mut(&mut self) -> &mut RoutingTable {
         &mut self.routing
     }
+
+    pub fn note_sam_framing_desync(&mut self) {
+        self.stats_cumulative.sam_framing_desync =
+            self.stats_cumulative.sam_framing_desync.saturating_add(1);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

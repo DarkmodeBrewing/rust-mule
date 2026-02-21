@@ -148,6 +148,7 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         tracked_out_unmatched_total: c.tracked_out_unmatched,
         tracked_out_expired_total: c.tracked_out_expired,
         outbound_shaper_delayed_total: c.outbound_shaper_delayed,
+        sam_framing_desync_total: c.sam_framing_desync,
     }
 }
 
@@ -285,6 +286,7 @@ pub(super) fn publish_status_impl(
         tracked_out_unmatched_total = st.tracked_out_unmatched_total,
         tracked_out_expired_total = st.tracked_out_expired_total,
         outbound_shaper_delayed_total = st.outbound_shaper_delayed_total,
+        sam_framing_desync_total = st.sam_framing_desync_total,
         verified_pct,
         buckets_empty = summary.buckets_empty,
         bucket_fill_min = summary.bucket_fill_min,

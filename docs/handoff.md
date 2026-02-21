@@ -8,6 +8,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Added SAM DATAGRAM desync hardening and long-run restart/desync markers.
+  - `SamDatagramTcp::recv()` now drops non-UTF8 SAM lines and continues scanning instead of forcing immediate reconnect.
+  - Added KAD status cumulative counter `sam_framing_desync_total` (incremented when service reconnects due to `SamError::FramingDesync`).
+  - `scripts/test/kad_phase0_baseline.sh` now records:
+    - `sam_framing_desync_total`
+    - `restart_marker` (set when sampled `uptime_secs` decreases)
+  - `scripts/test/kad_phase0_longrun.sh` now prints post-run summary:
+    - `restart_markers=<count>`
+    - `sam_framing_desync_total_max=<max observed>`
+- Decisions:
+  - Treat invalid UTF-8 header lines on DATAGRAM socket as recoverable noise and keep processing.
+  - Track framing-desync reconnects as a cumulative status metric for soak/baseline interpretation.
+- Next steps:
+  - Run another long baseline on this branch and confirm restart markers are `0` (or sparse) while throughput totals continue increasing.
+  - If markers remain non-zero, correlate to SAM router logs and evaluate stronger TCP-DATAGRAM realignment logic.
+- Change log:
+  - Updated `src/i2p/sam/datagram_tcp.rs`.
+  - Updated `src/kad/service/types.rs`, `src/kad/service/status.rs`, `src/kad/service.rs`, `src/kad/service/tests.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `scripts/test/kad_phase0_baseline.sh`, `scripts/test/kad_phase0_longrun.sh`, `scripts/test/README.md`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (103 total harness/tests)
+    - `bash -n scripts/test/kad_phase0_baseline.sh scripts/test/kad_phase0_longrun.sh scripts/test/kad_phase0_compare.sh` passed
+
 - Status (2026-02-21): Researched frequent inbound `opcode=0x0a` and prepared longer baseline tooling.
   - iMule protocol mapping confirms `0x0a` is Kad1 `KADEMLIA_PUBLISH_REQ` (legacy/deprecated opcode set).
   - rust-mule now labels legacy Kad1 opcodes explicitly in logs (instead of generic `UNKNOWN`), including `KADEMLIA_PUBLISH_REQ`.

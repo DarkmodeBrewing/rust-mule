@@ -29,4 +29,20 @@ INTERVAL_SECS="$INTERVAL_SECS" \
 OUT_FILE="$OUT_FILE" \
   "$baseline_script"
 
+restart_markers="$(
+  awk -F '\t' '
+    NR == 1 { for (i=1; i<=NF; i++) h[$i]=i; next }
+    { m += $(h["restart_marker"]); }
+    END { print m + 0 }
+  ' "$OUT_FILE"
+)"
+sam_desync_total_max="$(
+  awk -F '\t' '
+    NR == 1 { for (i=1; i<=NF; i++) h[$i]=i; next }
+    { v = $(h["sam_framing_desync_total"]) + 0; if (v > max) max = v; }
+    END { print max + 0 }
+  ' "$OUT_FILE"
+)"
+
+echo "long-run summary: restart_markers=$restart_markers sam_framing_desync_total_max=$sam_desync_total_max"
 echo "long-run baseline done: $OUT_FILE"
