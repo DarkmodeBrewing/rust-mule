@@ -8,6 +8,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Merged latest `origin/main` into `feature/kad-phase2-class-shaper` to resolve PR conflicts.
+  - Conflict scope was documentation-only (`docs/handoff.md`); code merge completed cleanly.
+- Decisions:
+  - Keep branch behavior unchanged; this merge is for branch sync/conflict resolution.
+- Next steps:
+  - Keep PR #14 open and proceed with user-driven baseline validation.
+- Change log:
+  - Resolved `docs/handoff.md` merge conflict from `origin/main` merge.
+
 - Status (2026-02-21): Cherry-picked cumulative KAD status totals from `main` onto `feature/kad-phase2-class-shaper`.
   - `/api/v1/status` now exposes lifetime totals (since service start):
     - `recv_req_total` / `sent_reqs_total`
