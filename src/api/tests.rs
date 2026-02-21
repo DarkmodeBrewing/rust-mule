@@ -156,6 +156,15 @@ fn sample_status() -> KadServiceStatus {
         outbound_shaper_delayed: 0,
         outbound_shaper_drop_global_cap: 0,
         outbound_shaper_drop_peer_cap: 0,
+        recv_req_total: 11,
+        recv_res_total: 12,
+        sent_reqs_total: 11,
+        recv_ress_total: 12,
+        timeouts_total: 13,
+        tracked_out_matched_total: 14,
+        tracked_out_unmatched_total: 15,
+        tracked_out_expired_total: 16,
+        outbound_shaper_delayed_total: 17,
     }
 }
 
@@ -902,6 +911,14 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     assert_eq!(
         status_json.get("recv_res").and_then(Value::as_u64),
         status_json.get("recv_ress").and_then(Value::as_u64)
+    );
+    assert_eq!(
+        status_json.get("recv_req_total").and_then(Value::as_u64),
+        status_json.get("sent_reqs_total").and_then(Value::as_u64)
+    );
+    assert_eq!(
+        status_json.get("recv_res_total").and_then(Value::as_u64),
+        status_json.get("recv_ress_total").and_then(Value::as_u64)
     );
     assert!(
         status_json

@@ -8,6 +8,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Cherry-picked cumulative KAD status totals from `main` onto `feature/kad-phase2-class-shaper`.
+  - `/api/v1/status` now exposes lifetime totals (since service start):
+    - `recv_req_total` / `sent_reqs_total`
+    - `recv_res_total` / `recv_ress_total`
+    - `timeouts_total`
+    - `tracked_out_matched_total`
+    - `tracked_out_unmatched_total`
+    - `tracked_out_expired_total`
+    - `outbound_shaper_delayed_total`
+  - Existing windowed counters are unchanged.
+- Decisions:
+  - Keep this cherry-pick on Phase 2 so before/after polling can compare stable totals rather than window snapshots.
+- Next steps:
+  - Build new `main` and `feature/kad-phase2-class-shaper` binaries and rerun baseline with totals polling.
+- Change log:
+  - Cherry-picked `00c6b70` into `feature/kad-phase2-class-shaper`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (99 total harness/tests)
+
 - Status (2026-02-21): Cherry-picked SAM DATAGRAM keepalive hotfix from `main` onto `feature/kad-phase2-class-shaper` for before/after baseline builds.
   - Included transport-level handling of unsolicited `PING` frames with immediate `PONG` reply.
   - Included unit coverage for PING/PONG line mapping in DATAGRAM TCP path.
