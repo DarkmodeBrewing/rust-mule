@@ -40,12 +40,12 @@ mod status;
 mod tests;
 mod types;
 
-use types::KadServiceStats;
 pub use types::{
     KadKeywordHit, KadKeywordHitOrigin, KadKeywordSearchInfo, KadPeerInfo, KadServiceCommand,
     KadServiceConfig, KadServiceCrypto, KadServiceStatus, KadSourceEntry, RoutingBucketSummary,
     RoutingNodeSummary, RoutingSummary,
 };
+use types::{KadServiceCumulative, KadServiceStats};
 
 pub type Result<T> = std::result::Result<T, KadServiceError>;
 
@@ -206,6 +206,7 @@ pub struct KadService {
     shaper_jitter_seed: u64,
     crawl_round: u64,
     stats_window: KadServiceStats,
+    stats_cumulative: KadServiceCumulative,
     publish_key_decode_fail_logged: HashSet<String>,
 
     lookup_queue: std::collections::VecDeque<LookupTask>,
@@ -303,6 +304,7 @@ impl KadService {
             shaper_jitter_seed: now.elapsed().as_nanos() as u64 ^ 0x9e37_79b9_7f4a_7c15,
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
+            stats_cumulative: KadServiceCumulative::default(),
             publish_key_decode_fail_logged: HashSet::new(),
             lookup_queue: std::collections::VecDeque::new(),
             active_lookup: None,

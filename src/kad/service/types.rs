@@ -230,6 +230,20 @@ pub struct KadServiceStatus {
     pub outbound_shaper_delayed: u64,
     pub outbound_shaper_drop_global_cap: u64,
     pub outbound_shaper_drop_peer_cap: u64,
+
+    // Lifetime totals since service start (not reset each status window).
+    // UI compatibility aliases:
+    // - recv_req_total maps to sent_reqs_total
+    // - recv_res_total maps to recv_ress_total
+    pub recv_req_total: u64,
+    pub recv_res_total: u64,
+    pub sent_reqs_total: u64,
+    pub recv_ress_total: u64,
+    pub timeouts_total: u64,
+    pub tracked_out_matched_total: u64,
+    pub tracked_out_unmatched_total: u64,
+    pub tracked_out_expired_total: u64,
+    pub outbound_shaper_delayed_total: u64,
 }
 
 #[derive(Debug)]
@@ -476,4 +490,15 @@ pub(super) struct KadServiceStats {
     pub(super) outbound_shaper_delayed: u64,
     pub(super) outbound_shaper_drop_global_cap: u64,
     pub(super) outbound_shaper_drop_peer_cap: u64,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub(super) struct KadServiceCumulative {
+    pub(super) sent_reqs: u64,
+    pub(super) recv_ress: u64,
+    pub(super) timeouts: u64,
+    pub(super) tracked_out_matched: u64,
+    pub(super) tracked_out_unmatched: u64,
+    pub(super) tracked_out_expired: u64,
+    pub(super) outbound_shaper_delayed: u64,
 }

@@ -343,6 +343,47 @@ fn tracked_out_cleanup_and_match_counters_are_reported() {
 }
 
 #[test]
+fn build_status_reports_cumulative_totals_across_windows() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let started = Instant::now();
+
+    svc.stats_window.sent_reqs = 2;
+    svc.stats_window.recv_ress = 1;
+    svc.stats_window.timeouts = 1;
+    svc.stats_window.tracked_out_matched = 1;
+    svc.stats_window.tracked_out_unmatched = 1;
+    svc.stats_window.tracked_out_expired = 1;
+    svc.stats_window.outbound_shaper_delayed = 3;
+    let st1 = status::build_status_impl(&mut svc, started);
+    assert_eq!(st1.sent_reqs_total, 2);
+    assert_eq!(st1.recv_ress_total, 1);
+    assert_eq!(st1.timeouts_total, 1);
+    assert_eq!(st1.tracked_out_matched_total, 1);
+    assert_eq!(st1.tracked_out_unmatched_total, 1);
+    assert_eq!(st1.tracked_out_expired_total, 1);
+    assert_eq!(st1.outbound_shaper_delayed_total, 3);
+    assert_eq!(st1.recv_req_total, st1.sent_reqs_total);
+    assert_eq!(st1.recv_res_total, st1.recv_ress_total);
+
+    svc.stats_window.sent_reqs = 5;
+    svc.stats_window.recv_ress = 4;
+    svc.stats_window.timeouts = 2;
+    svc.stats_window.tracked_out_matched = 2;
+    svc.stats_window.tracked_out_unmatched = 2;
+    svc.stats_window.tracked_out_expired = 2;
+    svc.stats_window.outbound_shaper_delayed = 7;
+    let st2 = status::build_status_impl(&mut svc, started);
+    assert_eq!(st2.sent_reqs_total, 7);
+    assert_eq!(st2.recv_ress_total, 5);
+    assert_eq!(st2.timeouts_total, 3);
+    assert_eq!(st2.tracked_out_matched_total, 3);
+    assert_eq!(st2.tracked_out_unmatched_total, 3);
+    assert_eq!(st2.tracked_out_expired_total, 3);
+    assert_eq!(st2.outbound_shaper_delayed_total, 10);
+}
+
+#[test]
 fn build_status_reports_pending_overdue_metrics() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);
