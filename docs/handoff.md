@@ -8,6 +8,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Researched frequent inbound `opcode=0x0a` and prepared longer baseline tooling.
+  - iMule protocol mapping confirms `0x0a` is Kad1 `KADEMLIA_PUBLISH_REQ` (legacy/deprecated opcode set).
+  - rust-mule now labels legacy Kad1 opcodes explicitly in logs (instead of generic `UNKNOWN`), including `KADEMLIA_PUBLISH_REQ`.
+  - baseline script now captures cumulative totals:
+    - `sent_reqs_total`, `recv_ress_total`, `timeouts_total`
+    - `tracked_out_*_total`, `outbound_shaper_delayed_total`
+  - added long-run wrapper:
+    - `scripts/test/kad_phase0_longrun.sh` (default 6h)
+- Decisions:
+  - Keep legacy Kad1 publish/search opcodes explicitly labeled but still unhandled for now.
+  - Use long-run baseline with totals for soak interpretation.
+- Next steps:
+  - Run `bash scripts/test/kad_phase0_longrun.sh` on `main` and compare totals slope between runs/builds.
+  - Decide whether to implement safe Kad1 publish/search decode/ignore counters beyond naming.
+- Change log:
+  - Updated `src/kad/wire.rs`, `src/kad/service.rs`, `src/kad/service/tests.rs`.
+  - Updated `scripts/test/kad_phase0_baseline.sh`, added `scripts/test/kad_phase0_longrun.sh`.
+  - Updated `scripts/test/README.md`.
+  - Validation:
+    - `bash -n` on updated scripts passed
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (103 total harness/tests)
+
 - Status (2026-02-21): Patched shaper policy to preserve “0 disables caps” semantics for derived class lanes.
   - `shaper_policy` no longer forces minimum caps when base caps are `0`.
   - Response lane now respects disabled cap configuration in baseline/soak scenarios.

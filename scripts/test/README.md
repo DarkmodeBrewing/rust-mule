@@ -17,6 +17,7 @@ Scenario and soak test scripts.
 - `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
 - `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
 - `kad_phase0_baseline.sh`: captures KAD Phase 0 timing/ordering baseline counters from `/api/v1/status` into TSV.
+- `kad_phase0_longrun.sh`: wrapper for long baseline captures (default 6h) using `kad_phase0_baseline.sh`.
 - `kad_phase0_compare.sh`: compares two Phase 0 baseline TSV files and prints before/after delta summary.
 - `kad_phase0_ci_smoke.sh`: offline deterministic smoke check for baseline+compare scripts using synthetic TSV fixtures (CI-safe, no network/node runtime).
 - `soak_triage.sh`: triage summary for soak tarball outputs.
@@ -35,6 +36,10 @@ Captured TSV columns include:
 - `pending_overdue`, `pending_max_overdue_ms`
 - `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
 - `outbound_shaper_delayed`, `outbound_shaper_drop_global_cap`, `outbound_shaper_drop_peer_cap`
+- cumulative totals:
+  - `sent_reqs_total`, `recv_ress_total`, `timeouts_total`
+  - `tracked_out_matched_total`, `tracked_out_unmatched_total`, `tracked_out_expired_total`
+  - `outbound_shaper_delayed_total`
 - key throughput/error counters (`sent_reqs`, `recv_ress`, `timeouts`, batch send/fail counters)
 
 Notes:
@@ -46,6 +51,11 @@ Compare two baseline runs:
 - output columns:
   - `metric`, `before_avg`, `after_avg`, `delta`, `pct_change`
   - min/max and sample counts for each side
+
+Long-run baseline (default 6h):
+- `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/kad_phase0_longrun.sh`
+- optional overrides:
+  - `DURATION_SECS=28800` (8h), `INTERVAL_SECS=5`, `OUT_FILE=/tmp/kad-longrun.tsv`
 
 ## Timed Background Soak
 
