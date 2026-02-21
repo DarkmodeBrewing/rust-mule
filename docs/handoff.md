@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Disabled KAD1 response behavior (no legacy handling).
+  - Service inbound path now drops `KADEMLIA_REQ_DEPRECATED` without emitting `KADEMLIA_RES_DEPRECATED`.
+  - Bootstrap probe path also drops inbound KAD1 REQ instead of sending KAD1 RES.
+  - Bootstrap summary now reports `kad1_dropped` (previously `kad1_res_sent`).
+- Decisions:
+  - Align runtime and bootstrap with project policy: no legacy KAD1 protocol handling.
+- Next steps:
+  - Re-run baseline/long-run and confirm no outbound KAD1 RES traffic appears in logs.
+  - If needed, add explicit status counter for KAD1 dropped requests in `/api/v1/status`.
+- Change log:
+  - Updated `src/kad/service/inbound.rs`.
+  - Updated `src/kad/bootstrap.rs`.
+  - Updated `src/kad/service.rs` imports.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (103 total harness/tests)
+
 - Status (2026-02-21): Adjusted SAM DATAGRAM desync handling per PR review.
   - `SamDatagramTcp::recv()` now returns `SamError::FramingDesync` on non-UTF8 SAM lines.
   - This ensures app-level reconnect is triggered instead of potentially spinning while dropping misaligned frames.
