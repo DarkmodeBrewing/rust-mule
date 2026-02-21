@@ -8,6 +8,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Reviewed new routing philosophy doc and mapped it into concrete backlog items.
+  - Read `docs/RUST-MULE_ROUTING_PHILOSOPHY.md`.
+  - Added follow-up tasks in `docs/TODO.md` and `docs/TASKS.md` for:
+    - peer reliability classes (`unknown/verified/stable/unreliable`)
+    - health-driven bucket refresh/eviction policy
+    - transport-aware latency scoring
+    - local (ephemeral) path-memory routing hints
+    - status counters for legacy/noise/drop diagnostics
+- Decisions:
+  - Treat routing philosophy as normative behavior guidance and convert it into measurable implementation milestones before deep KAD refactors.
+- Next steps:
+  - Design `PeerHealth` model + class transition rules and add unit tests.
+  - Extend `/api/v1/status` with counters needed to validate health-based routing behavior in baseline/soak runs.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Added `docs/RUST-MULE_ROUTING_PHILOSOPHY.md` to tracked docs.
+
 - Status (2026-02-21): Disabled KAD1 response behavior (no legacy handling).
   - Service inbound path now drops `KADEMLIA_REQ_DEPRECATED` without emitting `KADEMLIA_RES_DEPRECATED`.
   - Bootstrap probe path also drops inbound KAD1 REQ instead of sending KAD1 RES.
