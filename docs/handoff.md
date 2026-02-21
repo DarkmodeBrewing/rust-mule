@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Added cumulative KAD status counters on `hotfix/kad-status-cumulative-totals`.
+  - `/api/v1/status` now includes lifetime totals (since service start) for:
+    - `recv_req_total` / `sent_reqs_total`
+    - `recv_res_total` / `recv_ress_total`
+    - `timeouts_total`
+    - `tracked_out_matched_total`
+    - `tracked_out_unmatched_total`
+    - `tracked_out_expired_total`
+    - `outbound_shaper_delayed_total`
+  - Existing non-total fields remain windowed and unchanged.
+- Decisions:
+  - Keep existing window counters for periodic observability and add explicit totals to remove long-run polling ambiguity.
+- Next steps:
+  - Merge hotfix to `main`, then cherry-pick onto `feature/kad-phase2-class-shaper` for rebuild/compare runs.
+- Change log:
+  - Updated `src/kad/service/types.rs`, `src/kad/service.rs`, `src/kad/service/status.rs`.
+  - Updated `src/kad/service/tests.rs`, `src/api/tests.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (99 total harness/tests)
+
 - Status (2026-02-21): Completed hotfix `hotfix/sam-ping-pong-keepalive` and merged into `main` for SAM DATAGRAM-TCP keepalive stability.
   - Added handling for unsolicited `PING` frames on the DATAGRAM TCP socket:
     - detect `PING...` lines in `recv()` and in command reply wait loop

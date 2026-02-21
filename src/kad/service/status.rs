@@ -28,6 +28,26 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
     let (source_store_files, source_store_entries_total) =
         source_probe::source_store_totals_impl(svc);
     let w = svc.stats_window;
+    svc.stats_cumulative.sent_reqs = svc.stats_cumulative.sent_reqs.saturating_add(w.sent_reqs);
+    svc.stats_cumulative.recv_ress = svc.stats_cumulative.recv_ress.saturating_add(w.recv_ress);
+    svc.stats_cumulative.timeouts = svc.stats_cumulative.timeouts.saturating_add(w.timeouts);
+    svc.stats_cumulative.tracked_out_matched = svc
+        .stats_cumulative
+        .tracked_out_matched
+        .saturating_add(w.tracked_out_matched);
+    svc.stats_cumulative.tracked_out_unmatched = svc
+        .stats_cumulative
+        .tracked_out_unmatched
+        .saturating_add(w.tracked_out_unmatched);
+    svc.stats_cumulative.tracked_out_expired = svc
+        .stats_cumulative
+        .tracked_out_expired
+        .saturating_add(w.tracked_out_expired);
+    svc.stats_cumulative.outbound_shaper_delayed = svc
+        .stats_cumulative
+        .outbound_shaper_delayed
+        .saturating_add(w.outbound_shaper_delayed);
+    let c = svc.stats_cumulative;
     svc.stats_window = KadServiceStats::default();
 
     KadServiceStatus {
@@ -119,6 +139,15 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         outbound_shaper_delayed: w.outbound_shaper_delayed,
         outbound_shaper_drop_global_cap: w.outbound_shaper_drop_global_cap,
         outbound_shaper_drop_peer_cap: w.outbound_shaper_drop_peer_cap,
+        recv_req_total: c.sent_reqs,
+        recv_res_total: c.recv_ress,
+        sent_reqs_total: c.sent_reqs,
+        recv_ress_total: c.recv_ress,
+        timeouts_total: c.timeouts,
+        tracked_out_matched_total: c.tracked_out_matched,
+        tracked_out_unmatched_total: c.tracked_out_unmatched,
+        tracked_out_expired_total: c.tracked_out_expired,
+        outbound_shaper_delayed_total: c.outbound_shaper_delayed,
     }
 }
 
@@ -147,7 +176,10 @@ pub(super) fn publish_status_impl(
         tracked_out_requests = st.tracked_out_requests,
         sent_reqs = st.sent_reqs,
         recv_ress = st.recv_ress,
+        sent_reqs_total = st.sent_reqs_total,
+        recv_ress_total = st.recv_ress_total,
         timeouts = st.timeouts,
+        timeouts_total = st.timeouts_total,
         new_nodes = st.new_nodes,
         evicted = st.evicted,
         search_results = st.search_results,
@@ -246,6 +278,13 @@ pub(super) fn publish_status_impl(
         outbound_shaper_delayed = st.outbound_shaper_delayed,
         outbound_shaper_drop_global_cap = st.outbound_shaper_drop_global_cap,
         outbound_shaper_drop_peer_cap = st.outbound_shaper_drop_peer_cap,
+        sent_reqs_total = st.sent_reqs_total,
+        recv_ress_total = st.recv_ress_total,
+        timeouts_total = st.timeouts_total,
+        tracked_out_matched_total = st.tracked_out_matched_total,
+        tracked_out_unmatched_total = st.tracked_out_unmatched_total,
+        tracked_out_expired_total = st.tracked_out_expired_total,
+        outbound_shaper_delayed_total = st.outbound_shaper_delayed_total,
         verified_pct,
         buckets_empty = summary.buckets_empty,
         bucket_fill_min = summary.bucket_fill_min,
