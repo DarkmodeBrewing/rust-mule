@@ -181,6 +181,12 @@ impl SamDatagramTcp {
                 }
             };
 
+            if let Some(pong_line) = build_pong_line_for_ping(&line) {
+                tracing::debug!(raw = %line.trim(), "received SAM PING; sending PONG");
+                self.send_line_lf(&pong_line).await?;
+                continue;
+            }
+
             let reply = match SamReply::parse(&line) {
                 Ok(r) => r,
                 Err(err) => {
@@ -294,6 +300,12 @@ impl SamDatagramTcp {
                 });
             };
 
+            if let Some(pong_line) = build_pong_line_for_ping(&reply_line) {
+                tracing::debug!(raw = %reply_line.trim(), "received SAM PING; sending PONG");
+                self.send_line_lf(&pong_line).await?;
+                continue;
+            }
+
             let reply: SamReply = SamReply::parse(&reply_line).map_err(|e| SamError::BadFrame {
                 what: "control reply parse failed",
                 raw: format!("to={line_dbg} err={e}"),
@@ -391,6 +403,20 @@ fn bytes_to_utf8_line(b: &[u8]) -> Option<String> {
     std::str::from_utf8(b).ok().map(|s| s.to_string())
 }
 
+fn build_pong_line_for_ping(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if !trimmed.starts_with("PING") {
+        return None;
+    }
+
+    let rest = trimmed.strip_prefix("PING").unwrap_or("").trim_start();
+    if rest.is_empty() {
+        Some("PONG".to_string())
+    } else {
+        Some(format!("PONG {rest}"))
+    }
+}
+
 fn hex_head(b: &[u8], max: usize) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
@@ -401,4 +427,27 @@ fn hex_head(b: &[u8], max: usize) -> String {
         let _ = write!(&mut out, "{v:02x}");
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_pong_line_for_ping;
+
+    #[test]
+    fn ping_without_payload_maps_to_plain_pong() {
+        assert_eq!(build_pong_line_for_ping("PING"), Some("PONG".to_string()));
+    }
+
+    #[test]
+    fn ping_with_suffix_preserves_suffix() {
+        assert_eq!(
+            build_pong_line_for_ping("PING 1234 nonce=abcd"),
+            Some("PONG 1234 nonce=abcd".to_string())
+        );
+    }
+
+    #[test]
+    fn non_ping_line_returns_none() {
+        assert_eq!(build_pong_line_for_ping("SESSION STATUS RESULT=OK"), None);
+    }
 }
