@@ -8,7 +8,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
-- Status (2026-02-21): Started hotfix `hotfix/sam-ping-pong-keepalive` from `main` for SAM DATAGRAM-TCP keepalive stability.
+- Status (2026-02-21): Completed hotfix `hotfix/sam-ping-pong-keepalive` and merged into `main` for SAM DATAGRAM-TCP keepalive stability.
   - Added handling for unsolicited `PING` frames on the DATAGRAM TCP socket:
     - detect `PING...` lines in `recv()` and in command reply wait loop
     - immediately emit matching `PONG...` and continue
@@ -16,7 +16,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Decisions:
   - Keep SAM keepalive handling in transport layer (`src/i2p/sam/datagram_tcp.rs`), transparent to KAD.
 - Next steps:
-  - Commit/push branch and open PR with `gh`.
+  - Validate in live runtime that periodic `SESSION ... PONG timeout` reconnect events no longer occur around ~360s uptime.
 - Change log:
   - Updated `src/i2p/sam/datagram_tcp.rs`.
   - Validation:
