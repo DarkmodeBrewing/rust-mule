@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Adjusted SAM DATAGRAM desync handling per PR review.
+  - `SamDatagramTcp::recv()` now returns `SamError::FramingDesync` on non-UTF8 SAM lines.
+  - This ensures app-level reconnect is triggered instead of potentially spinning while dropping misaligned frames.
+- Decisions:
+  - Prefer fail-fast reconnect on non-UTF8 DATAGRAM line data to avoid silent inbound stall under framing slip.
+- Next steps:
+  - Re-run long baseline and verify no prolonged zero-throughput plateaus after desync events.
+  - Correlate `sam_framing_desync_total` with `restart_marker` counts.
+- Change log:
+  - Updated `src/i2p/sam/datagram_tcp.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (103 total harness/tests)
+
 - Status (2026-02-21): Added SAM DATAGRAM desync hardening and long-run restart/desync markers.
   - `SamDatagramTcp::recv()` now drops non-UTF8 SAM lines and continues scanning instead of forcing immediate reconnect.
   - Added KAD status cumulative counter `sam_framing_desync_total` (incremented when service reconnects due to `SamError::FramingDesync`).
