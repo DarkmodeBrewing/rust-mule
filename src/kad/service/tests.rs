@@ -401,6 +401,14 @@ fn build_status_reports_pending_overdue_metrics() {
 }
 
 #[test]
+fn kad_opcode_name_labels_legacy_kad1_publish_req() {
+    assert_eq!(
+        kad_opcode_name(KADEMLIA_PUBLISH_REQ_DEPRECATED),
+        "KADEMLIA_PUBLISH_REQ"
+    );
+}
+
+#[test]
 fn shaper_enforces_peer_and_global_caps() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);

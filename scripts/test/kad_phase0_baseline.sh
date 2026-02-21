@@ -44,7 +44,7 @@ fi
 TOKEN="$(cat "$TOKEN_FILE")"
 mkdir -p "$(dirname "$OUT_FILE")"
 
-echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\toutbound_shaper_delayed\toutbound_shaper_drop_global_cap\toutbound_shaper_drop_peer_cap\tsent_reqs\trecv_ress\ttimeouts\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
+echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\toutbound_shaper_delayed\toutbound_shaper_drop_global_cap\toutbound_shaper_drop_peer_cap\tsent_reqs\trecv_ress\ttimeouts\tsent_reqs_total\trecv_ress_total\ttimeouts_total\ttracked_out_matched_total\ttracked_out_unmatched_total\ttracked_out_expired_total\toutbound_shaper_delayed_total\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
 
 start_ts="$(date +%s)"
 deadline="$((start_ts + DURATION_SECS))"
@@ -81,6 +81,13 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
         (.sent_reqs // 0),
         (.recv_ress // 0),
         (.timeouts // 0),
+        (.sent_reqs_total // 0),
+        (.recv_ress_total // 0),
+        (.timeouts_total // 0),
+        (.tracked_out_matched_total // 0),
+        (.tracked_out_unmatched_total // 0),
+        (.tracked_out_expired_total // 0),
+        (.outbound_shaper_delayed_total // 0),
         (.new_nodes // 0),
         (.evicted // 0),
         (.source_search_batch_sent // 0),
