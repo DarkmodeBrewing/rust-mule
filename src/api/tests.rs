@@ -165,6 +165,7 @@ fn sample_status() -> KadServiceStatus {
         tracked_out_unmatched_total: 15,
         tracked_out_expired_total: 16,
         outbound_shaper_delayed_total: 17,
+        sam_framing_desync_total: 18,
     }
 }
 

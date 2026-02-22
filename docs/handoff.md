@@ -8,6 +8,84 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-21): Reviewed new routing philosophy doc and mapped it into concrete backlog items.
+  - Read `docs/RUST-MULE_ROUTING_PHILOSOPHY.md`.
+  - Added follow-up tasks in `docs/TODO.md` and `docs/TASKS.md` for:
+    - peer reliability classes (`unknown/verified/stable/unreliable`)
+    - health-driven bucket refresh/eviction policy
+    - transport-aware latency scoring
+    - local (ephemeral) path-memory routing hints
+    - status counters for legacy/noise/drop diagnostics
+- Decisions:
+  - Treat routing philosophy as normative behavior guidance and convert it into measurable implementation milestones before deep KAD refactors.
+- Next steps:
+  - Design `PeerHealth` model + class transition rules and add unit tests.
+  - Extend `/api/v1/status` with counters needed to validate health-based routing behavior in baseline/soak runs.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Added `docs/RUST-MULE_ROUTING_PHILOSOPHY.md` to tracked docs.
+
+- Status (2026-02-21): Disabled KAD1 response behavior (no legacy handling).
+  - Service inbound path now drops `KADEMLIA_REQ_DEPRECATED` without emitting `KADEMLIA_RES_DEPRECATED`.
+  - Bootstrap probe path also drops inbound KAD1 REQ instead of sending KAD1 RES.
+  - Bootstrap summary now reports `kad1_dropped` (previously `kad1_res_sent`).
+- Decisions:
+  - Align runtime and bootstrap with project policy: no legacy KAD1 protocol handling.
+- Next steps:
+  - Re-run baseline/long-run and confirm no outbound KAD1 RES traffic appears in logs.
+  - If needed, add explicit status counter for KAD1 dropped requests in `/api/v1/status`.
+- Change log:
+  - Updated `src/kad/service/inbound.rs`.
+  - Updated `src/kad/bootstrap.rs`.
+  - Updated `src/kad/service.rs` imports.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (103 total harness/tests)
+
+- Status (2026-02-21): Adjusted SAM DATAGRAM desync handling per PR review.
+  - `SamDatagramTcp::recv()` now returns `SamError::FramingDesync` on non-UTF8 SAM lines.
+  - This ensures app-level reconnect is triggered instead of potentially spinning while dropping misaligned frames.
+- Decisions:
+  - Prefer fail-fast reconnect on non-UTF8 DATAGRAM line data to avoid silent inbound stall under framing slip.
+- Next steps:
+  - Re-run long baseline and verify no prolonged zero-throughput plateaus after desync events.
+  - Correlate `sam_framing_desync_total` with `restart_marker` counts.
+- Change log:
+  - Updated `src/i2p/sam/datagram_tcp.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (103 total harness/tests)
+
+- Status (2026-02-21): Added SAM DATAGRAM desync hardening and long-run restart/desync markers.
+  - `SamDatagramTcp::recv()` now drops non-UTF8 SAM lines and continues scanning instead of forcing immediate reconnect.
+  - Added KAD status cumulative counter `sam_framing_desync_total` (incremented when service reconnects due to `SamError::FramingDesync`).
+  - `scripts/test/kad_phase0_baseline.sh` now records:
+    - `sam_framing_desync_total`
+    - `restart_marker` (set when sampled `uptime_secs` decreases)
+  - `scripts/test/kad_phase0_longrun.sh` now prints post-run summary:
+    - `restart_markers=<count>`
+    - `sam_framing_desync_total_max=<max observed>`
+- Decisions:
+  - Treat invalid UTF-8 header lines on DATAGRAM socket as recoverable noise and keep processing.
+  - Track framing-desync reconnects as a cumulative status metric for soak/baseline interpretation.
+- Next steps:
+  - Run another long baseline on this branch and confirm restart markers are `0` (or sparse) while throughput totals continue increasing.
+  - If markers remain non-zero, correlate to SAM router logs and evaluate stronger TCP-DATAGRAM realignment logic.
+- Change log:
+  - Updated `src/i2p/sam/datagram_tcp.rs`.
+  - Updated `src/kad/service/types.rs`, `src/kad/service/status.rs`, `src/kad/service.rs`, `src/kad/service/tests.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `scripts/test/kad_phase0_baseline.sh`, `scripts/test/kad_phase0_longrun.sh`, `scripts/test/README.md`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (103 total harness/tests)
+    - `bash -n scripts/test/kad_phase0_baseline.sh scripts/test/kad_phase0_longrun.sh scripts/test/kad_phase0_compare.sh` passed
+
 - Status (2026-02-21): Researched frequent inbound `opcode=0x0a` and prepared longer baseline tooling.
   - iMule protocol mapping confirms `0x0a` is Kad1 `KADEMLIA_PUBLISH_REQ` (legacy/deprecated opcode set).
   - rust-mule now labels legacy Kad1 opcodes explicitly in logs (instead of generic `UNKNOWN`), including `KADEMLIA_PUBLISH_REQ`.

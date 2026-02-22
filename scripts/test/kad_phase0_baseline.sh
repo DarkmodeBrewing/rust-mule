@@ -44,13 +44,15 @@ fi
 TOKEN="$(cat "$TOKEN_FILE")"
 mkdir -p "$(dirname "$OUT_FILE")"
 
-echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\toutbound_shaper_delayed\toutbound_shaper_drop_global_cap\toutbound_shaper_drop_peer_cap\tsent_reqs\trecv_ress\ttimeouts\tsent_reqs_total\trecv_ress_total\ttimeouts_total\ttracked_out_matched_total\ttracked_out_unmatched_total\ttracked_out_expired_total\toutbound_shaper_delayed_total\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
+echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\toutbound_shaper_delayed\toutbound_shaper_drop_global_cap\toutbound_shaper_drop_peer_cap\tsent_reqs\trecv_ress\ttimeouts\tsent_reqs_total\trecv_ress_total\ttimeouts_total\ttracked_out_matched_total\ttracked_out_unmatched_total\ttracked_out_expired_total\toutbound_shaper_delayed_total\tsam_framing_desync_total\trestart_marker\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
 
 start_ts="$(date +%s)"
 deadline="$((start_ts + DURATION_SECS))"
 samples=0
 skip_503=0
 skip_other=0
+prev_uptime=-1
+restart_events=0
 
 while [[ "$(date +%s)" -lt "$deadline" ]]; do
   now_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -62,8 +64,15 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
   http_code="${response##*$'\n'}"
   payload="${response%$'\n'*}"
   if [[ "$http_code" == "200" && -n "$payload" ]]; then
+    uptime_secs="$(jq -r '(.uptime_secs // 0)' <<<"$payload")"
+    restart_marker=0
+    if [[ "$prev_uptime" -ge 0 && "$uptime_secs" -lt "$prev_uptime" ]]; then
+      restart_marker=1
+      restart_events=$((restart_events + 1))
+    fi
+    prev_uptime="$uptime_secs"
     row="$(
-      jq -r --arg ts "$now_iso" '[
+      jq -r --arg ts "$now_iso" --argjson restart_marker "$restart_marker" '[
         $ts,
         (.uptime_secs // 0),
         (.routing // 0),
@@ -88,6 +97,8 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
         (.tracked_out_unmatched_total // 0),
         (.tracked_out_expired_total // 0),
         (.outbound_shaper_delayed_total // 0),
+        (.sam_framing_desync_total // 0),
+        $restart_marker,
         (.new_nodes // 0),
         (.evicted // 0),
         (.source_search_batch_sent // 0),
@@ -106,4 +117,4 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
   sleep "$INTERVAL_SECS"
 done
 
-echo "wrote baseline samples: $OUT_FILE (samples=$samples, skipped_503=$skip_503, skipped_other=$skip_other)"
+echo "wrote baseline samples: $OUT_FILE (samples=$samples, skipped_503=$skip_503, skipped_other=$skip_other, restarts=$restart_events)"

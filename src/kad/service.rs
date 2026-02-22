@@ -14,12 +14,12 @@ use crate::{
             KADEMLIA2_PONG, KADEMLIA2_PUBLISH_KEY_REQ, KADEMLIA2_PUBLISH_RES,
             KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_KEY_REQ,
             KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, Kad2PublishRes, Kad2PublishResKey,
-            Kad2SearchRes, KadPacket, TAG_KADMISCOPTIONS, decode_kad1_req,
+            Kad2SearchRes, KadPacket, TAG_KADMISCOPTIONS,
             decode_kad2_bootstrap_res, decode_kad2_hello, decode_kad2_publish_key_keyword_prefix,
             decode_kad2_publish_key_req_lenient, decode_kad2_publish_res,
             decode_kad2_publish_res_key, decode_kad2_publish_source_req_min, decode_kad2_req,
             decode_kad2_res, decode_kad2_search_key_req, decode_kad2_search_res,
-            decode_kad2_search_source_req, encode_kad1_res, encode_kad2_bootstrap_res,
+            decode_kad2_search_source_req, encode_kad2_bootstrap_res,
             encode_kad2_hello, encode_kad2_hello_req, encode_kad2_publish_key_req,
             encode_kad2_publish_res_for_key, encode_kad2_publish_res_for_source,
             encode_kad2_publish_source_req, encode_kad2_req, encode_kad2_res,
@@ -342,6 +342,11 @@ impl KadService {
 
     pub fn routing_mut(&mut self) -> &mut RoutingTable {
         &mut self.routing
+    }
+
+    pub fn note_sam_framing_desync(&mut self) {
+        self.stats_cumulative.sam_framing_desync =
+            self.stats_cumulative.sam_framing_desync.saturating_add(1);
     }
 }
 

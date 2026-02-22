@@ -20,6 +20,11 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [ ] Improve organic search/publish success rate (non-forced peers) with measurable baseline vs improved runs.
 - [ ] Continue iMule wire/parity verification for discovery, routing, and source lifecycle edge cases.
 - [ ] Add clearer timeout/retry outcome buckets for request -> response conversion diagnostics.
+- [ ] Implement explicit peer reliability classification (`unknown`, `verified`, `stable`, `unreliable`) and use it in routing/publish candidate selection.
+- [ ] Add transport-aware latency baselines and scoring so I2P latency variance is evaluated contextually, not globally.
+- [ ] Add bucket health scoring (responsiveness + timeout ratio + density quality) and make refresh/eviction decisions health-driven.
+- [ ] Add local path memory for successful search/publish paths and use it as a soft priority signal (local/ephemeral only).
+- [ ] Add KAD1/KAD2 noise/drop counters in `/api/v1/status` (legacy drops, malformed drops, framing-desync correlation) for long-run analysis.
 - [ ] Execute `docs/KAD_WIRE_REFACTOR_PLAN.md` phase 0 (baseline + timing/ordering guardrails).
 - [x] Define and expose Phase 0 timing/ordering baseline counters in `/api/v1/status`.
 - [x] Add KAD Phase 0 baseline capture script (`scripts/test/kad_phase0_baseline.sh`).

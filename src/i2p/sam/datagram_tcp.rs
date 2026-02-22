@@ -167,9 +167,9 @@ impl SamDatagramTcp {
             let line = match bytes_to_utf8_line(&line_bytes) {
                 Some(s) => s,
                 None => {
-                    // On a correctly-framed SAM TCP-DATAGRAM connection, every header line is
-                    // valid UTF-8. If we see binary junk, we're out of sync (e.g. we failed to
-                    // consume a payload). The only safe recovery is to reconnect.
+                    // Non-UTF8 here means the DATAGRAM stream framing is no longer trustworthy
+                    // (payload bytes consumed as line data). Force reconnect so we don't spin
+                    // dropping frames indefinitely on a desynced stream.
                     return Err(SamError::FramingDesync {
                         what: "invalid UTF-8 line",
                         details: format!(

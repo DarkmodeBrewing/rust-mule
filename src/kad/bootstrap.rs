@@ -2,14 +2,14 @@ use crate::{
     i2p::sam::SamKadSocket,
     kad::wire::{
         I2P_DEST_LEN, KADEMLIA_HELLO_REQ_DEPRECATED, KADEMLIA_HELLO_RES_DEPRECATED,
-        KADEMLIA_REQ_DEPRECATED, KADEMLIA_RES_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ,
-        KADEMLIA2_BOOTSTRAP_RES, KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES, KADEMLIA2_HELLO_RES_ACK,
-        KADEMLIA2_PING, KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ,
-        KADEMLIA2_REQ, KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
+        KADEMLIA_REQ_DEPRECATED, KADEMLIA2_BOOTSTRAP_REQ, KADEMLIA2_BOOTSTRAP_RES,
+        KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES, KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING,
+        KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ,
+        KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
         TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
         decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_search_source_req,
-        encode_kad1_res, encode_kad2_hello, encode_kad2_hello_req,
-        encode_kad2_publish_res_for_source, encode_kad2_res, encode_kad2_search_res_sources,
+        encode_kad2_hello, encode_kad2_hello_req, encode_kad2_publish_res_for_source,
+        encode_kad2_res, encode_kad2_search_res_sources,
     },
     kad::{KadId, udp_crypto},
     nodes::imule::ImuleNode,
@@ -126,32 +126,6 @@ fn closest_kad2_contacts(
         .collect()
 }
 
-fn closest_kad1_contacts(
-    known: impl IntoIterator<Item = ImuleNode>,
-    target: KadId,
-    max: usize,
-    exclude_dest_hash: u32,
-) -> Vec<(KadId, [u8; I2P_DEST_LEN])> {
-    let mut candidates = Vec::new();
-    for n in known {
-        if n.kad_version == 0 {
-            continue;
-        }
-        if i2p_dest_hash_prefix(&n.udp_dest) == exclude_dest_hash {
-            continue;
-        }
-        candidates.push(n);
-    }
-
-    candidates.sort_by_key(|n| xor_distance(KadId(n.client_id), target));
-
-    candidates
-        .into_iter()
-        .take(max)
-        .map(|n| (KadId(n.client_id), n.udp_dest))
-        .collect()
-}
-
 impl Default for BootstrapConfig {
     fn default() -> Self {
         Self {
@@ -262,7 +236,7 @@ pub async fn bootstrap(
     let mut search_source_reqs = 0usize;
     let mut search_res_sent = 0usize;
     let mut kad1_reqs = 0usize;
-    let mut kad1_res_sent = 0usize;
+    let mut kad1_dropped = 0usize;
     let mut pings = 0usize;
     let mut pongs_sent = 0usize;
 
@@ -809,7 +783,7 @@ pub async fn bootstrap(
             }
             KADEMLIA_REQ_DEPRECATED => {
                 kad1_reqs += 1;
-                let req = match decode_kad1_req(&pkt.payload) {
+                let _req = match decode_kad1_req(&pkt.payload) {
                     Ok(r) => r,
                     Err(err) => {
                         dropped_unparsable += 1;
@@ -821,46 +795,12 @@ pub async fn bootstrap(
                         continue;
                     }
                 };
-
-                if req.check != crypto.my_kad_id {
-                    continue;
-                }
-
-                let max = (req.kind as usize).min(16);
-                let known = nodes
-                    .iter()
-                    .cloned()
-                    .chain(discovered.values().cloned())
-                    .collect::<Vec<_>>();
-                let contacts = closest_kad1_contacts(known, req.target, max, from_hash);
-                let res_payload = encode_kad1_res(req.target, &contacts);
-                let res_plain = KadPacket::encode(KADEMLIA_RES_DEPRECATED, &res_payload);
-
-                if let Err(err) = sock.send_to(&recv.from_destination, &res_plain).await {
-                    if crate::logging::warn_throttled(
-                        "bootstrap_send_kad1_res_failed",
-                        Duration::from_secs(30),
-                    ) {
-                        tracing::warn!(
-                            error = %err,
-                            to = %crate::i2p::b64::short(&recv.from_destination),
-                            "failed sending KAD1 RES"
-                        );
-                    } else {
-                        tracing::debug!(
-                            error = %err,
-                            to = %crate::i2p::b64::short(&recv.from_destination),
-                            "failed sending KAD1 RES"
-                        );
-                    }
-                } else {
-                    kad1_res_sent += 1;
-                    tracing::debug!(
-                        to = %crate::i2p::b64::short(&recv.from_destination),
-                        contacts = contacts.len(),
-                        "sent KAD1 RES"
-                    );
-                }
+                kad1_dropped += 1;
+                tracing::debug!(
+                    from = %crate::i2p::b64::short(&recv.from_destination),
+                    reason = "legacy_kad1_disabled",
+                    "dropped KAD1 REQ during bootstrap"
+                );
             }
             KADEMLIA2_PONG => {
                 if pong_from.insert(recv.from_destination.clone()) {
@@ -1002,7 +942,7 @@ pub async fn bootstrap(
         search_source_reqs,
         search_res_sent,
         kad1_reqs,
-        kad1_res_sent,
+        kad1_dropped,
         pings,
         pongs_sent,
         pongs = pong_from.len(),
