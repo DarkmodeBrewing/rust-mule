@@ -36,10 +36,12 @@ Captured TSV columns include:
 - `pending_overdue`, `pending_max_overdue_ms`
 - `tracked_out_requests`, `tracked_out_matched`, `tracked_out_unmatched`, `tracked_out_expired`
 - `outbound_shaper_delayed`, `outbound_shaper_drop_global_cap`, `outbound_shaper_drop_peer_cap`
+- `dropped_legacy_kad1`, `dropped_unhandled_opcode`
 - cumulative totals:
   - `sent_reqs_total`, `recv_ress_total`, `timeouts_total`
   - `tracked_out_matched_total`, `tracked_out_unmatched_total`, `tracked_out_expired_total`
   - `outbound_shaper_delayed_total`
+  - `dropped_legacy_kad1_total`, `dropped_unhandled_opcode_total`
   - `sam_framing_desync_total`
 - restart detection:
   - `restart_marker` (`1` when `uptime_secs` decreases from previous sample, else `0`)
@@ -62,6 +64,8 @@ Long-run baseline (default 6h):
 - output includes a post-run summary:
   - `restart_markers=<count>`
   - `sam_framing_desync_total_max=<max observed>`
+  - `dropped_legacy_kad1_total_max=<max observed>`
+  - `dropped_unhandled_opcode_total_max=<max observed>`
 
 ## Timed Background Soak
 

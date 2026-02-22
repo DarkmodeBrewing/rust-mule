@@ -14,7 +14,16 @@ Policy:
 
 ## Phase 0: Baseline and Guardrails (Document/Measure First)
 
-- [ ] Capture baseline soak metrics for current KAD/search/publish behavior.
+- [x] Capture baseline soak metrics for current KAD/search/publish behavior.
+  - Latest confirmed 6h runs on `main` (February 22, 2026):
+    - `samples=4197`, `restarts=0`
+    - `restart_markers=0`
+    - `sam_framing_desync_total_max=0`
+    - productive traffic totals remained positive for full run window (`sent_reqs_total`, `recv_ress_total`, `timeouts_total` all increased over run)
+  - Acceptance gate for future KAD changes:
+    - `restart_markers == 0`
+    - `sam_framing_desync_total_max == 0`
+    - `sent_reqs_total` and `recv_ress_total` increase over run
 - [x] Define observable timing/ordering counters to compare before/after refactor.
   - Implemented status counters:
     - `pending_overdue`, `pending_max_overdue_ms`

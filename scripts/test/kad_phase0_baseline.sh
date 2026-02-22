@@ -44,7 +44,7 @@ fi
 TOKEN="$(cat "$TOKEN_FILE")"
 mkdir -p "$(dirname "$OUT_FILE")"
 
-echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\toutbound_shaper_delayed\toutbound_shaper_drop_global_cap\toutbound_shaper_drop_peer_cap\tsent_reqs\trecv_ress\ttimeouts\tsent_reqs_total\trecv_ress_total\ttimeouts_total\ttracked_out_matched_total\ttracked_out_unmatched_total\ttracked_out_expired_total\toutbound_shaper_delayed_total\tsam_framing_desync_total\trestart_marker\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
+echo -e "ts\tuptime_secs\trouting\tlive\tpending\tpending_overdue\tpending_max_overdue_ms\ttracked_out_requests\ttracked_out_matched\ttracked_out_unmatched\ttracked_out_expired\toutbound_shaper_delayed\toutbound_shaper_drop_global_cap\toutbound_shaper_drop_peer_cap\tdropped_legacy_kad1\tdropped_unhandled_opcode\tsent_reqs\trecv_ress\ttimeouts\tsent_reqs_total\trecv_ress_total\ttimeouts_total\ttracked_out_matched_total\ttracked_out_unmatched_total\ttracked_out_expired_total\toutbound_shaper_delayed_total\tdropped_legacy_kad1_total\tdropped_unhandled_opcode_total\tsam_framing_desync_total\trestart_marker\tnew_nodes\tevicted\tsource_search_batch_sent\tsource_search_batch_send_fail\tsource_publish_batch_sent\tsource_publish_batch_send_fail" >"$OUT_FILE"
 
 start_ts="$(date +%s)"
 deadline="$((start_ts + DURATION_SECS))"
@@ -87,6 +87,8 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
         (.outbound_shaper_delayed // 0),
         (.outbound_shaper_drop_global_cap // 0),
         (.outbound_shaper_drop_peer_cap // 0),
+        (.dropped_legacy_kad1 // 0),
+        (.dropped_unhandled_opcode // 0),
         (.sent_reqs // 0),
         (.recv_ress // 0),
         (.timeouts // 0),
@@ -97,6 +99,8 @@ while [[ "$(date +%s)" -lt "$deadline" ]]; do
         (.tracked_out_unmatched_total // 0),
         (.tracked_out_expired_total // 0),
         (.outbound_shaper_delayed_total // 0),
+        (.dropped_legacy_kad1_total // 0),
+        (.dropped_unhandled_opcode_total // 0),
         (.sam_framing_desync_total // 0),
         $restart_marker,
         (.new_nodes // 0),

@@ -47,6 +47,14 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         .stats_cumulative
         .outbound_shaper_delayed
         .saturating_add(w.outbound_shaper_delayed);
+    svc.stats_cumulative.dropped_legacy_kad1 = svc
+        .stats_cumulative
+        .dropped_legacy_kad1
+        .saturating_add(w.dropped_legacy_kad1);
+    svc.stats_cumulative.dropped_unhandled_opcode = svc
+        .stats_cumulative
+        .dropped_unhandled_opcode
+        .saturating_add(w.dropped_unhandled_opcode);
     let c = svc.stats_cumulative;
     svc.stats_window = KadServiceStats::default();
 
@@ -66,6 +74,8 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         res_contacts: w.res_contacts,
         dropped_undecipherable: w.dropped_undecipherable,
         dropped_unparsable: w.dropped_unparsable,
+        dropped_legacy_kad1: w.dropped_legacy_kad1,
+        dropped_unhandled_opcode: w.dropped_unhandled_opcode,
         recv_hello_reqs: w.recv_hello_reqs,
         sent_bootstrap_reqs: w.sent_bootstrap_reqs,
         recv_bootstrap_ress: w.recv_bootstrap_ress,
@@ -148,6 +158,8 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         tracked_out_unmatched_total: c.tracked_out_unmatched,
         tracked_out_expired_total: c.tracked_out_expired,
         outbound_shaper_delayed_total: c.outbound_shaper_delayed,
+        dropped_legacy_kad1_total: c.dropped_legacy_kad1,
+        dropped_unhandled_opcode_total: c.dropped_unhandled_opcode,
         sam_framing_desync_total: c.sam_framing_desync,
     }
 }
@@ -213,6 +225,8 @@ pub(super) fn publish_status_impl(
         res_contacts = st.res_contacts,
         dropped_undecipherable = st.dropped_undecipherable,
         dropped_unparsable = st.dropped_unparsable,
+        dropped_legacy_kad1 = st.dropped_legacy_kad1,
+        dropped_unhandled_opcode = st.dropped_unhandled_opcode,
         recv_hello_reqs = st.recv_hello_reqs,
         sent_bootstrap_reqs = st.sent_bootstrap_reqs,
         recv_bootstrap_ress = st.recv_bootstrap_ress,
@@ -286,6 +300,8 @@ pub(super) fn publish_status_impl(
         tracked_out_unmatched_total = st.tracked_out_unmatched_total,
         tracked_out_expired_total = st.tracked_out_expired_total,
         outbound_shaper_delayed_total = st.outbound_shaper_delayed_total,
+        dropped_legacy_kad1_total = st.dropped_legacy_kad1_total,
+        dropped_unhandled_opcode_total = st.dropped_unhandled_opcode_total,
         sam_framing_desync_total = st.sam_framing_desync_total,
         verified_pct,
         buckets_empty = summary.buckets_empty,

@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-22): Captured/recorded Phase-0 long-run baseline and added KAD1/noise drop counters to status.
+  - Documented baseline evidence + acceptance gate in `docs/KAD_WIRE_REFACTOR_PLAN.md` (6h main run, zero restarts/desyncs).
+  - Added `/api/v1/status` counters:
+    - window: `dropped_legacy_kad1`, `dropped_unhandled_opcode`
+    - cumulative: `dropped_legacy_kad1_total`, `dropped_unhandled_opcode_total`
+  - Updated baseline scripts to capture/report the new counters in TSV and long-run summary.
+- Decisions:
+  - Keep KAD1/noise visibility in status metrics so routing-philosophy work can be evaluated against real legacy/noise pressure.
+- Next steps:
+  - Implement `PeerHealth` class model and transition rules (`unknown/verified/stable/unreliable`) with tests.
+  - Use the new baseline acceptance gate after each routing-behavior change.
+- Change log:
+  - Updated `src/kad/service/types.rs`, `src/kad/service/status.rs`, `src/kad/service/inbound.rs`, `src/kad/service.rs`.
+  - Updated `src/api/tests.rs`, `src/kad/service/tests.rs`.
+  - Updated `scripts/test/kad_phase0_baseline.sh`, `scripts/test/kad_phase0_longrun.sh`, `scripts/test/README.md`.
+  - Updated `docs/KAD_WIRE_REFACTOR_PLAN.md`.
+
 - Status (2026-02-21): Reviewed new routing philosophy doc and mapped it into concrete backlog items.
   - Read `docs/RUST-MULE_ROUTING_PHILOSOPHY.md`.
   - Added follow-up tasks in `docs/TODO.md` and `docs/TASKS.md` for:

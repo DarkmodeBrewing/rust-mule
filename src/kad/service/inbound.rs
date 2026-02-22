@@ -523,6 +523,7 @@ pub(super) async fn handle_inbound_impl(
         }
 
         KADEMLIA_REQ_DEPRECATED => {
+            svc.stats_window.dropped_legacy_kad1 += 1;
             tracing::debug!(
                 event = "kad_inbound_drop",
                 opcode = format_args!("0x{:02x}", pkt.opcode),
@@ -1305,13 +1306,34 @@ pub(super) async fn handle_inbound_impl(
         }
 
         other => {
+            let (reason, legacy) = if matches!(
+                other,
+                KADEMLIA_HELLO_REQ_DEPRECATED
+                    | KADEMLIA_HELLO_RES_DEPRECATED
+                    | KADEMLIA_RES_DEPRECATED
+                    | KADEMLIA_SEARCH_REQ_DEPRECATED
+                    | KADEMLIA_SEARCH_RES_DEPRECATED
+                    | KADEMLIA_SEARCH_NOTES_REQ_DEPRECATED
+                    | KADEMLIA_PUBLISH_REQ_DEPRECATED
+                    | KADEMLIA_PUBLISH_RES_DEPRECATED
+                    | KADEMLIA_PUBLISH_NOTES_REQ_DEPRECATED
+            ) {
+                ("legacy_kad1_disabled", true)
+            } else {
+                ("unhandled_opcode", false)
+            };
+            if legacy {
+                svc.stats_window.dropped_legacy_kad1 += 1;
+            } else {
+                svc.stats_window.dropped_unhandled_opcode += 1;
+            }
             tracing::debug!(
                 event = "kad_inbound_drop",
                 opcode = format_args!("0x{other:02x}"),
                 from = %from_dest_b64,
                 len = pkt.payload.len(),
                 opcode_name = kad_opcode_name(other),
-                reason = "unhandled_opcode",
+                reason,
                 "dropped inbound KAD packet"
             );
         }
