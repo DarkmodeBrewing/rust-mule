@@ -25,6 +25,7 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
     let keyword_hits_total = svc.keyword_hits_total;
     let store_keyword_keywords = svc.keyword_store_by_keyword.len();
     let store_keyword_hits_total = svc.keyword_store_total;
+    let peer_health = svc.routing.peer_health_counts(now);
     let (source_store_files, source_store_entries_total) =
         source_probe::source_store_totals_impl(svc);
     let w = svc.stats_window;
@@ -112,6 +113,10 @@ pub(super) fn build_status_impl(svc: &mut KadService, started: Instant) -> KadSe
         store_keyword_hits_total,
         source_store_files,
         source_store_entries_total,
+        peer_unknown: peer_health.unknown,
+        peer_verified: peer_health.verified,
+        peer_stable: peer_health.stable,
+        peer_unreliable: peer_health.unreliable,
 
         recv_publish_key_reqs: w.recv_publish_key_reqs,
         recv_publish_key_decode_failures: w.recv_publish_key_decode_failures,
@@ -203,6 +208,10 @@ pub(super) fn publish_status_impl(
         store_keyword_hits_total = st.store_keyword_hits_total,
         source_store_files = st.source_store_files,
         source_store_entries_total = st.source_store_entries_total,
+        peer_unknown = st.peer_unknown,
+        peer_verified = st.peer_verified,
+        peer_stable = st.peer_stable,
+        peer_unreliable = st.peer_unreliable,
         verified_pct,
         buckets_empty = summary.buckets_empty,
         bucket_fill_min = summary.bucket_fill_min,
@@ -260,6 +269,10 @@ pub(super) fn publish_status_impl(
         store_keyword_hits_total = st.store_keyword_hits_total,
         source_store_files = st.source_store_files,
         source_store_entries_total = st.source_store_entries_total,
+        peer_unknown = st.peer_unknown,
+        peer_verified = st.peer_verified,
+        peer_stable = st.peer_stable,
+        peer_unreliable = st.peer_unreliable,
         recv_publish_key_reqs = st.recv_publish_key_reqs,
         recv_publish_key_decode_failures = st.recv_publish_key_decode_failures,
         sent_publish_key_ress = st.sent_publish_key_ress,
