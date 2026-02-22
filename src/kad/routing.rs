@@ -462,6 +462,7 @@ impl RoutingTable {
         out.sort_by_key(|st| {
             (
                 st.last_inbound.is_none(),
+                peer_health_rank(classify_peer_health(st, now)),
                 st.last_queried,
                 std::cmp::Reverse(st.last_seen),
             )
@@ -501,6 +502,7 @@ impl RoutingTable {
         out.sort_by_key(|st| {
             (
                 st.last_inbound.is_none(),
+                peer_health_rank(classify_peer_health(st, now)),
                 xor_distance(KadId(st.node.client_id), target),
                 st.last_queried,
                 std::cmp::Reverse(st.last_seen),
@@ -684,6 +686,15 @@ fn classify_peer_health(st: &NodeState, now: Instant) -> PeerHealthClass {
     }
 }
 
+fn peer_health_rank(class: PeerHealthClass) -> u8 {
+    match class {
+        PeerHealthClass::Stable => 0,
+        PeerHealthClass::Verified => 1,
+        PeerHealthClass::Unknown => 2,
+        PeerHealthClass::Unreliable => 3,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -767,5 +778,54 @@ mod tests {
         assert_eq!(counts.verified, 1);
         assert_eq!(counts.stable, 1);
         assert_eq!(counts.unreliable, 1);
+    }
+
+    #[test]
+    fn query_candidates_for_target_prefer_stable_over_unreliable() {
+        let my = KadId([0u8; 16]);
+        let now = Instant::now();
+        let mut rt = RoutingTable::new(my);
+
+        let n1 = ImuleNode {
+            kad_version: 6,
+            client_id: [1u8; 16],
+            udp_dest: [1u8; 387],
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified: true,
+        };
+        let n2 = ImuleNode {
+            kad_version: 6,
+            client_id: [2u8; 16],
+            udp_dest: [2u8; 387],
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified: true,
+        };
+        let _ = rt.upsert(n1, now);
+        let _ = rt.upsert(n2, now);
+
+        let d1_b64 = rt
+            .get_by_id(KadId([1u8; 16]))
+            .expect("node 1 present")
+            .dest_b64
+            .clone();
+        let d2_b64 = rt
+            .get_by_id(KadId([2u8; 16]))
+            .expect("node 2 present")
+            .dest_b64
+            .clone();
+
+        // Mark both as live, then make node1 unreliable.
+        rt.mark_seen_by_dest(&d1_b64, now);
+        rt.mark_seen_by_dest(&d2_b64, now);
+        rt.mark_failure_by_dest(&d1_b64);
+        rt.mark_failure_by_dest(&d1_b64);
+        rt.mark_failure_by_dest(&d1_b64);
+
+        let target = KadId([0u8; 16]);
+        let out = rt.select_query_candidates_for_target(target, 2, now, Duration::from_secs(1), 5);
+        let ids: Vec<u8> = out.iter().map(|n| n.client_id[0]).collect();
+        assert_eq!(ids, vec![2, 1]);
     }
 }

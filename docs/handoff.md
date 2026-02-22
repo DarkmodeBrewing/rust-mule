@@ -8,6 +8,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-22): Extended soft peer-health preference into query/crawl candidate selection.
+  - Updated routing query selectors to prefer healthier peers while preserving existing constraints:
+    - `select_query_candidates(...)`
+    - `select_query_candidates_for_target(...)`
+  - Preference order remains soft-only:
+    - `stable > verified > unknown > unreliable`
+  - Added routing test:
+    - `query_candidates_for_target_prefer_stable_over_unreliable`
+- Decisions:
+  - Keep distance, cooldown, and max-failure filters intact; only ordering changed.
+- Next steps:
+  - Baseline compare after merge to confirm no regression in `sent_reqs_total` / `recv_ress_total`.
+  - Evaluate whether publish batch candidate ordering should adopt same soft class preference.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 total harness/tests)
+
 - Status (2026-02-22): Implemented first class-aware preference slice for candidate ordering.
   - Added `RoutingTable::peer_health_class_by_dest(...)`.
   - Updated `closest_peers_with_fallback(...)` to prefer healthier peers (`stable > verified > unknown > unreliable`) without hard filtering.
