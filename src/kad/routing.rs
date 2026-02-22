@@ -109,6 +109,15 @@ impl RoutingTable {
         counts
     }
 
+    pub fn peer_health_class_by_dest(
+        &self,
+        dest_b64: &str,
+        now: Instant,
+    ) -> Option<PeerHealthClass> {
+        let st = self.get_by_dest(dest_b64)?;
+        Some(classify_peer_health(st, now))
+    }
+
     pub fn contains_id(&self, id: KadId) -> bool {
         self.by_id.contains_key(&id)
     }

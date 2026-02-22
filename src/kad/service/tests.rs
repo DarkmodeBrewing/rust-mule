@@ -59,6 +59,50 @@ fn closest_peers_with_fallback_filters_kad_version() {
 }
 
 #[test]
+fn closest_peers_with_fallback_prefers_stable_over_unreliable() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let now = Instant::now();
+
+    // id=1 is closer in XOR than id=2 for target=0, but we mark id=1 unreliable
+    // and id=2 stable, so fallback ordering should prefer id=2.
+    for n in [make_node(1, 3), make_node(2, 3)] {
+        let _ = svc.routing_mut().upsert(n, now);
+    }
+    let d1_b64 = svc
+        .routing()
+        .get_by_id(KadId({
+            let mut id = [0u8; 16];
+            id[15] = 1;
+            id
+        }))
+        .expect("node 1 present")
+        .dest_b64
+        .clone();
+    let d2_b64 = svc
+        .routing()
+        .get_by_id(KadId({
+            let mut id = [0u8; 16];
+            id[15] = 2;
+            id
+        }))
+        .expect("node 2 present")
+        .dest_b64
+        .clone();
+
+    svc.routing_mut().mark_seen_by_dest(&d2_b64, now); // stable (verified + recent inbound)
+    svc.routing_mut().mark_failure_by_dest(&d1_b64);
+    svc.routing_mut().mark_failure_by_dest(&d1_b64);
+    svc.routing_mut().mark_failure_by_dest(&d1_b64); // unreliable
+
+    let target = KadId([0u8; 16]);
+    let peers = closest_peers_with_fallback(&svc, target, 2, 3, 0);
+    let ids: Vec<u8> = peers.iter().map(|p| p.client_id[15]).collect();
+
+    assert_eq!(ids, vec![2, 1]);
+}
+
+#[test]
 fn stop_keyword_search_disables_active_job() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);

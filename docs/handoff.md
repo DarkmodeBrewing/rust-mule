@@ -8,6 +8,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-22): Implemented first class-aware preference slice for candidate ordering.
+  - Added `RoutingTable::peer_health_class_by_dest(...)`.
+  - Updated `closest_peers_with_fallback(...)` to prefer healthier peers (`stable > verified > unknown > unreliable`) without hard filtering.
+  - Added regression test:
+    - `closest_peers_with_fallback_prefers_stable_over_unreliable`
+- Decisions:
+  - Keep this as soft preference only; no hard exclusion of unknown/unreliable peers yet.
+- Next steps:
+  - Apply the same class-aware soft preference to query crawl candidate selection.
+  - Run baseline compare after merge and verify no regression in request/response totals.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/tests.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (105 total harness/tests)
+
 - Status (2026-02-22): Started routing philosophy phase-1 with peer-health scaffolding (status-only, no routing behavior change yet).
   - Added routing classification model:
     - `Unknown`

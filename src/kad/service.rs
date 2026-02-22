@@ -1202,7 +1202,36 @@ fn closest_peers_with_fallback(
 ) -> Vec<ImuleNode> {
     let mut peers = svc.routing.closest_to(target, max * 4, exclude_dest_hash);
     peers.retain(|p| p.kad_version >= min_kad_version);
+    let now = Instant::now();
+    peers.sort_by_key(|p| {
+        let dest = p.udp_dest_b64();
+        (
+            peer_health_rank(
+                svc.routing
+                    .peer_health_class_by_dest(&dest, now)
+                    .unwrap_or(crate::kad::routing::PeerHealthClass::Unknown),
+            ),
+            xor_distance(KadId(p.client_id), target),
+        )
+    });
     peers
+}
+
+fn peer_health_rank(class: crate::kad::routing::PeerHealthClass) -> u8 {
+    match class {
+        crate::kad::routing::PeerHealthClass::Stable => 0,
+        crate::kad::routing::PeerHealthClass::Verified => 1,
+        crate::kad::routing::PeerHealthClass::Unknown => 2,
+        crate::kad::routing::PeerHealthClass::Unreliable => 3,
+    }
+}
+
+fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
+    let mut out = [0u8; 16];
+    for (i, v) in out.iter_mut().enumerate() {
+        *v = a.0[i] ^ b.0[i];
+    }
+    out
 }
 
 async fn maybe_send_hello_to_peer(
