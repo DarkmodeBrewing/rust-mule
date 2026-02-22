@@ -157,6 +157,8 @@ pub struct KadServiceStatus {
     pub res_contacts: u64,
     pub dropped_undecipherable: u64,
     pub dropped_unparsable: u64,
+    pub dropped_legacy_kad1: u64,
+    pub dropped_unhandled_opcode: u64,
     pub recv_hello_reqs: u64,
     pub sent_bootstrap_reqs: u64,
     pub recv_bootstrap_ress: u64,
@@ -244,6 +246,8 @@ pub struct KadServiceStatus {
     pub tracked_out_unmatched_total: u64,
     pub tracked_out_expired_total: u64,
     pub outbound_shaper_delayed_total: u64,
+    pub dropped_legacy_kad1_total: u64,
+    pub dropped_unhandled_opcode_total: u64,
     pub sam_framing_desync_total: u64,
 }
 
@@ -425,6 +429,8 @@ pub(super) struct KadServiceStats {
     pub(super) res_contacts: u64,
     pub(super) dropped_undecipherable: u64,
     pub(super) dropped_unparsable: u64,
+    pub(super) dropped_legacy_kad1: u64,
+    pub(super) dropped_unhandled_opcode: u64,
     pub(super) recv_hello_reqs: u64,
     pub(super) sent_bootstrap_reqs: u64,
     pub(super) recv_bootstrap_ress: u64,
@@ -502,5 +508,7 @@ pub(super) struct KadServiceCumulative {
     pub(super) tracked_out_unmatched: u64,
     pub(super) tracked_out_expired: u64,
     pub(super) outbound_shaper_delayed: u64,
+    pub(super) dropped_legacy_kad1: u64,
+    pub(super) dropped_unhandled_opcode: u64,
     pub(super) sam_framing_desync: u64,
 }

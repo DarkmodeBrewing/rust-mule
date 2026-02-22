@@ -90,6 +90,8 @@ fn sample_status() -> KadServiceStatus {
         res_contacts: 0,
         dropped_undecipherable: 0,
         dropped_unparsable: 0,
+        dropped_legacy_kad1: 0,
+        dropped_unhandled_opcode: 0,
         recv_hello_reqs: 0,
         sent_bootstrap_reqs: 0,
         recv_bootstrap_ress: 0,
@@ -165,6 +167,8 @@ fn sample_status() -> KadServiceStatus {
         tracked_out_unmatched_total: 15,
         tracked_out_expired_total: 16,
         outbound_shaper_delayed_total: 17,
+        dropped_legacy_kad1_total: 0,
+        dropped_unhandled_opcode_total: 0,
         sam_framing_desync_total: 18,
     }
 }
