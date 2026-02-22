@@ -43,6 +43,22 @@ pub enum UpsertOutcome {
     IgnoredSelf,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PeerHealthClass {
+    Unknown,
+    Verified,
+    Stable,
+    Unreliable,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PeerHealthCounts {
+    pub unknown: usize,
+    pub verified: usize,
+    pub stable: usize,
+    pub unreliable: usize,
+}
+
 impl RoutingTable {
     pub fn new(my_id: KadId) -> Self {
         Self {
@@ -78,6 +94,19 @@ impl RoutingTable {
             .values()
             .filter(|st| is_recent_inbound(st, now, window))
             .count()
+    }
+
+    pub fn peer_health_counts(&self, now: Instant) -> PeerHealthCounts {
+        let mut counts = PeerHealthCounts::default();
+        for st in self.by_id.values() {
+            match classify_peer_health(st, now) {
+                PeerHealthClass::Unknown => counts.unknown += 1,
+                PeerHealthClass::Verified => counts.verified += 1,
+                PeerHealthClass::Stable => counts.stable += 1,
+                PeerHealthClass::Unreliable => counts.unreliable += 1,
+            }
+        }
+        counts
     }
 
     pub fn contains_id(&self, id: KadId) -> bool {
@@ -629,6 +658,23 @@ fn is_recent_inbound(st: &NodeState, now: Instant, window: Duration) -> bool {
         .is_some_and(|t| now.saturating_duration_since(t) <= window)
 }
 
+fn classify_peer_health(st: &NodeState, now: Instant) -> PeerHealthClass {
+    const STABLE_RECENT_WINDOW: Duration = Duration::from_secs(10 * 60);
+    const UNRELIABLE_FAILURE_THRESHOLD: u32 = 3;
+
+    if st.failures >= UNRELIABLE_FAILURE_THRESHOLD {
+        return PeerHealthClass::Unreliable;
+    }
+    if !st.node.verified {
+        return PeerHealthClass::Unknown;
+    }
+    if is_recent_inbound(st, now, STABLE_RECENT_WINDOW) && st.failures == 0 {
+        PeerHealthClass::Stable
+    } else {
+        PeerHealthClass::Verified
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,5 +689,74 @@ mod tests {
 
         assert_eq!(bucket_index(my, KadId(far)), Some(0));
         assert_eq!(bucket_index(my, KadId(near)), Some(127));
+    }
+
+    #[test]
+    fn peer_health_counts_reflect_unknown_verified_stable_unreliable() {
+        let my = KadId([0u8; 16]);
+        let now = Instant::now();
+        let mut rt = RoutingTable::new(my);
+
+        let n1 = ImuleNode {
+            kad_version: 6,
+            client_id: [1u8; 16],
+            udp_dest: [1u8; 387],
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified: false,
+        };
+        let n2 = ImuleNode {
+            kad_version: 6,
+            client_id: [2u8; 16],
+            udp_dest: [2u8; 387],
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified: true,
+        };
+        let n3 = ImuleNode {
+            kad_version: 6,
+            client_id: [3u8; 16],
+            udp_dest: [3u8; 387],
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified: true,
+        };
+        let n4 = ImuleNode {
+            kad_version: 6,
+            client_id: [4u8; 16],
+            udp_dest: [4u8; 387],
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified: true,
+        };
+
+        let _ = rt.upsert(n1, now);
+        let _ = rt.upsert(n2, now);
+        let _ = rt.upsert(n3, now);
+        let _ = rt.upsert(n4, now);
+
+        let d2 = [2u8; 387];
+        let d3 = [3u8; 387];
+        let d4 = [4u8; 387];
+        let d2_b64 = crate::i2p::b64::encode(&d2);
+        let d3_b64 = crate::i2p::b64::encode(&d3);
+        let d4_b64 = crate::i2p::b64::encode(&d4);
+
+        rt.mark_seen_by_dest(&d3_b64, now); // stable candidate: verified + recent inbound + 0 failures
+        rt.mark_seen_by_dest(&d4_b64, now); // unreliable candidate; then add failures
+        rt.mark_failure_by_dest(&d4_b64);
+        rt.mark_failure_by_dest(&d4_b64);
+        rt.mark_failure_by_dest(&d4_b64);
+
+        // verified-only candidate: older inbound
+        if let Some(st) = rt.get_mut_by_dest(&d2_b64) {
+            st.last_inbound = Some(now - Duration::from_secs(20 * 60));
+        }
+
+        let counts = rt.peer_health_counts(now);
+        assert_eq!(counts.unknown, 1);
+        assert_eq!(counts.verified, 1);
+        assert_eq!(counts.stable, 1);
+        assert_eq!(counts.unreliable, 1);
     }
 }

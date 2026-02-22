@@ -8,6 +8,32 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-22): Started routing philosophy phase-1 with peer-health scaffolding (status-only, no routing behavior change yet).
+  - Added routing classification model:
+    - `Unknown`
+    - `Verified`
+    - `Stable`
+    - `Unreliable`
+  - Added `RoutingTable::peer_health_counts(now)` and unit coverage.
+  - Exposed class counts in `/api/v1/status`:
+    - `peer_unknown`
+    - `peer_verified`
+    - `peer_stable`
+    - `peer_unreliable`
+- Decisions:
+  - Keep this slice observational only (metrics + classification) before using class in candidate selection/eviction.
+- Next steps:
+  - Integrate peer class into query/publish candidate prioritization (soft preference first).
+  - Add before/after baseline compare specifically for peer-class-aware prioritization.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Updated `src/kad/service/types.rs`, `src/kad/service/status.rs`.
+  - Updated `src/api/tests.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (104 total harness/tests)
+
 - Status (2026-02-22): Captured/recorded Phase-0 long-run baseline and added KAD1/noise drop counters to status.
   - Documented baseline evidence + acceptance gate in `docs/KAD_WIRE_REFACTOR_PLAN.md` (6h main run, zero restarts/desyncs).
   - Added `/api/v1/status` counters:

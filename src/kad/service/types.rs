@@ -195,6 +195,10 @@ pub struct KadServiceStatus {
     pub store_keyword_hits_total: usize,
     pub source_store_files: usize,
     pub source_store_entries_total: usize,
+    pub peer_unknown: usize,
+    pub peer_verified: usize,
+    pub peer_stable: usize,
+    pub peer_unreliable: usize,
 
     pub recv_publish_key_reqs: u64,
     pub recv_publish_key_decode_failures: u64,
