@@ -467,8 +467,12 @@ impl RoutingTable {
         // Prefer nodes we've actually heard from and healthier peers, then apply a rotating
         // tie-break key to avoid fixed deterministic dequeue order.
         out.sort_by_key(|st| {
-            let order_key =
-                candidate_order_key(self.my_id, st.node.udp_dest_hash_code(), order_epoch, 0);
+            let order_key = candidate_order_key(
+                self.my_id,
+                st.node.udp_dest_hash_code(),
+                order_epoch,
+                order_epoch,
+            );
             (
                 st.last_inbound.is_none(),
                 peer_health_rank(classify_peer_health(st, now)),

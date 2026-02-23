@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Addressed PR feedback on fixed salt input in query tie-break call.
+  - In `select_query_candidates(...)`, replaced literal salt argument `0` with `order_epoch` when calling `candidate_order_key(...)`.
+  - This keeps tie-break behavior rotating with epoch and removes fixed literal salt-like input from production call sites.
+- Decisions:
+  - Keep this as a minimal targeted change requested in review; no API or algorithm shape change.
+- Next steps:
+  - Re-run CodeQL on PR #21 and confirm no remaining hard-coded-salt alert on routing tie-break path.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 tests)
+
 - Status (2026-02-23): Removed hard-coded mixing constants from routing candidate ordering to avoid crypto-salt false positives in CodeQL.
   - Replaced custom constant-based mixer in `src/kad/routing.rs` with `DefaultHasher`-based non-crypto tie-break key generation.
   - Candidate ordering behavior is unchanged (still rotating epoch tie-break), but production code no longer carries fixed mixing constants that resemble hard-coded cryptographic material.
