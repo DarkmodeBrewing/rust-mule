@@ -5,7 +5,39 @@ BASE_URL="${BASE_URL:-http://127.0.0.1:17835}"
 TOKEN_FILE="${TOKEN_FILE:-data/api.token}"
 DURATION_SECS="${DURATION_SECS:-21600}"
 INTERVAL_SECS="${INTERVAL_SECS:-5}"
-OUT_FILE="${OUT_FILE:-/tmp/rust-mule-kad-phase0-longrun-$(date +%Y%m%d_%H%M%S).tsv}"
+
+timestamp_utc() {
+  date +%Y%m%d_%H%M%S
+}
+
+default_out_file() {
+  echo "/tmp/rust-mule-kad-phase0-longrun-$(timestamp_utc).tsv"
+}
+
+normalize_out_file() {
+  local out="${1:-}"
+  if [[ -z "${out// }" ]]; then
+    default_out_file
+    return
+  fi
+
+  if [[ "$out" != *.tsv ]]; then
+    out="${out}.tsv"
+  fi
+
+  local base stem prefix
+  base="$(basename "$out")"
+  stem="${base%.tsv}"
+  if [[ -z "$stem" || "$stem" == "-" || "$stem" == *"-" ]]; then
+    prefix="${out%.tsv}"
+    prefix="${prefix%-}"
+    out="${prefix}-$(timestamp_utc).tsv"
+  fi
+  echo "$out"
+}
+
+OUT_FILE="$(normalize_out_file "${OUT_FILE:-$(default_out_file)}")"
+mkdir -p "$(dirname "$OUT_FILE")"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 baseline_script="$script_dir/kad_phase0_baseline.sh"

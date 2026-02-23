@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Hardened long-run baseline script output-path handling to avoid malformed filenames from shell timestamp typos.
+  - `scripts/test/kad_phase0_longrun.sh` now:
+    - normalizes `OUT_FILE` (ensures `.tsv` suffix),
+    - auto-recovers malformed trailing-dash names by appending a fresh timestamp,
+    - creates the output parent directory automatically.
+  - This specifically protects runs where command substitution fails and yields values like `...-ROTATE-.tsv`.
+- Decisions:
+  - Prefer robust script-side normalization over relying on perfect shell invocation syntax.
+- Next steps:
+  - Keep using explicit `OUT_FILE=...$(date +%Y%m%d_%H%M%S).tsv`; script now safely recovers common malformed cases.
+- Change log:
+  - Updated `scripts/test/kad_phase0_longrun.sh`.
+  - Validation:
+    - `bash -n scripts/test/kad_phase0_longrun.sh` passed
+
 - Status (2026-02-23): Evaluated PR #21 review comments via `gh` and addressed remaining scanner-triggering literals in test path.
   - Verified inline comments are GitHub Advanced Security code-scanning findings (hard-coded salt-like value rule family).
   - Updated `candidate_order_key_changes_with_epoch` test to derive epoch/salt/dest hash from runtime values instead of fixed salt-like literals.
