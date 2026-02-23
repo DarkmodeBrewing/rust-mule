@@ -875,8 +875,13 @@ mod tests {
     #[test]
     fn candidate_order_key_changes_with_epoch() {
         let my_id = KadId([7u8; 16]);
-        let a = candidate_order_key(my_id, 0x1234_5678, 0, 0);
-        let b = candidate_order_key(my_id, 0x1234_5678, 1, 0);
+        let now = Instant::now();
+        let epoch_a = candidate_order_epoch(now, now);
+        let epoch_b = epoch_a.saturating_add(1);
+        let salt = target_order_salt(my_id);
+        let dest_hash = u32::from_be_bytes([my_id.0[0], my_id.0[1], my_id.0[2], my_id.0[3]]);
+        let a = candidate_order_key(my_id, dest_hash, epoch_a, salt);
+        let b = candidate_order_key(my_id, dest_hash, epoch_b, salt);
         assert_ne!(a, b);
     }
 }
