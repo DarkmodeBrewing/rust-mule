@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Added i2p/SAM targeted hardening backlog from focused module review (no runtime behavior changes in this step).
+  - Added explicit post-longrun tasks for:
+    - bounded HTTP response reads in `src/i2p/http.rs`,
+    - SAM control-line max length guard in `src/i2p/sam/client.rs`,
+    - stricter chunked parser CRLF validation and hostile-input tests,
+    - outbound datagram payload cap in `src/i2p/sam/datagram.rs`,
+    - i2p hostile-input regression coverage.
+  - Prioritized i2p hardening in `docs/TASKS.md` immediately after the planned KAD hardening slice.
+- Decisions:
+  - Keep these as immediate post-merge hardening work; do not alter active long-run validation conditions mid-run.
+- Next steps:
+  - Complete active longrun + compare gate.
+  - Execute KAD hardening slice, then i2p/SAM hardening slice in the newly documented order.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
 - Status (2026-02-23): Logged KAD best-practice/security review findings as explicit post-longrun tasks (no code behavior changes in this step).
   - Added high-value follow-up tasks in `docs/TODO.md` and reprioritized `docs/TASKS.md` for immediate post-merge execution:
     - clamp untrusted decoder counts before allocations,
