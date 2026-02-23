@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Removed hard-coded mixing constants from routing candidate ordering to avoid crypto-salt false positives in CodeQL.
+  - Replaced custom constant-based mixer in `src/kad/routing.rs` with `DefaultHasher`-based non-crypto tie-break key generation.
+  - Candidate ordering behavior is unchanged (still rotating epoch tie-break), but production code no longer carries fixed mixing constants that resemble hard-coded cryptographic material.
+- Decisions:
+  - Keep ordering randomness non-cryptographic and implementation-simple.
+  - Prefer standard-library hashing over custom mixers for maintainability and scanner friendliness.
+- Next steps:
+  - Re-run CodeQL to confirm the hard-coded cryptographic value alert is cleared.
+  - Continue baseline/soak comparison on PR branch once scanner is green.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 tests)
+
 - Status (2026-02-23): Added rotating candidate tie-break ordering for query selection (Phase-1 tuning).
   - Updated routing query selectors to include a time-rotating, seed-based tie-break key:
     - `select_query_candidates(...)`

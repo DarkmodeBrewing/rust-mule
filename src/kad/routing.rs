@@ -1,5 +1,7 @@
 use crate::{kad::KadId, nodes::imule::ImuleNode};
+use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap};
+use std::hash::{Hash, Hasher};
 use tokio::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -34,7 +36,6 @@ pub struct RoutingTable {
     bucket_activity: Vec<Option<Instant>>,
     bucket_last_refresh: Vec<Option<Instant>>,
     created_at: Instant,
-    order_seed: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +72,6 @@ impl RoutingTable {
             bucket_activity: vec![None; BUCKET_COUNT],
             bucket_last_refresh: vec![None; BUCKET_COUNT],
             created_at: now,
-            order_seed: routing_order_seed(my_id),
         }
     }
 
@@ -467,12 +467,8 @@ impl RoutingTable {
         // Prefer nodes we've actually heard from and healthier peers, then apply a rotating
         // tie-break key to avoid fixed deterministic dequeue order.
         out.sort_by_key(|st| {
-            let order_key = candidate_order_key(
-                self.order_seed,
-                st.node.udp_dest_hash_code(),
-                order_epoch,
-                0,
-            );
+            let order_key =
+                candidate_order_key(self.my_id, st.node.udp_dest_hash_code(), order_epoch, 0);
             (
                 st.last_inbound.is_none(),
                 peer_health_rank(classify_peer_health(st, now)),
@@ -517,7 +513,7 @@ impl RoutingTable {
 
         out.sort_by_key(|st| {
             let order_key = candidate_order_key(
-                self.order_seed,
+                self.my_id,
                 st.node.udp_dest_hash_code(),
                 order_epoch,
                 target_salt,
@@ -645,14 +641,6 @@ fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
 const BUCKET_COUNT: usize = 128;
 const CANDIDATE_ORDER_ROTATE_SECS: u64 = 30;
 
-fn routing_order_seed(my_id: KadId) -> u64 {
-    let mut first = [0u8; 8];
-    let mut second = [0u8; 8];
-    first.copy_from_slice(&my_id.0[..8]);
-    second.copy_from_slice(&my_id.0[8..]);
-    u64::from_be_bytes(first) ^ u64::from_be_bytes(second) ^ 0x9e37_79b9_7f4a_7c15
-}
-
 fn candidate_order_epoch(created_at: Instant, now: Instant) -> u64 {
     now.saturating_duration_since(created_at).as_secs() / CANDIDATE_ORDER_ROTATE_SECS
 }
@@ -663,15 +651,13 @@ fn target_order_salt(target: KadId) -> u64 {
     u64::from_be_bytes(first)
 }
 
-fn candidate_order_key(seed: u64, dest_hash: u32, epoch: u64, salt: u64) -> u64 {
-    splitmix64(seed ^ salt ^ u64::from(dest_hash) ^ epoch.wrapping_mul(0x517c_c1b7_2722_0a95_u64))
-}
-
-fn splitmix64(mut x: u64) -> u64 {
-    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15_u64);
-    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9_u64);
-    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb_u64);
-    x ^ (x >> 31)
+fn candidate_order_key(my_id: KadId, dest_hash: u32, epoch: u64, salt: u64) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    my_id.0.hash(&mut hasher);
+    dest_hash.hash(&mut hasher);
+    epoch.hash(&mut hasher);
+    salt.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn bucket_index(my_id: KadId, other: KadId) -> Option<usize> {
@@ -884,9 +870,9 @@ mod tests {
 
     #[test]
     fn candidate_order_key_changes_with_epoch() {
-        let seed = routing_order_seed(KadId([7u8; 16]));
-        let a = candidate_order_key(seed, 0x1234_5678, 0, 0);
-        let b = candidate_order_key(seed, 0x1234_5678, 1, 0);
+        let my_id = KadId([7u8; 16]);
+        let a = candidate_order_key(my_id, 0x1234_5678, 0, 0);
+        let b = candidate_order_key(my_id, 0x1234_5678, 1, 0);
         assert_ne!(a, b);
     }
 }
