@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Added API-module targeted hardening backlog from focused review (no runtime behavior changes in this step).
+  - Added explicit post-longrun tasks for:
+    - request body size limits for JSON endpoints,
+    - broader API route rate limiting,
+    - token-file self-heal on invalid/corrupt content,
+    - SSE serialization fallback warning/metrics,
+    - standardized typed API error envelope.
+  - Prioritized API hardening in `docs/TASKS.md` immediately after planned KAD/i2p/download hardening slices.
+- Decisions:
+  - Keep API hardening as sequential safety tranche after current long-run gate and existing hardening backlog order.
+- Next steps:
+  - Complete active longrun + compare gate.
+  - Execute KAD, i2p, download, then API hardening in documented order.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
 - Status (2026-02-23): Added download-module targeted hardening backlog from focused review (no runtime behavior changes in this step).
   - Added explicit post-longrun tasks for:
     - strict `OP_COMPRESSEDPART` completion gating (decompress/validate/persist before progress),
