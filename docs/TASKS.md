@@ -2,11 +2,17 @@
 
 ## Current Priority
 
-1. Download subsystem phase 0/1: scaffold + `.part`/`.part.met` lifecycle in `data/download` and finalize into `data/incoming`.
-2. KAD organic reliability pass (search/publish under real peer variance) and complete phase 0 baseline from `docs/KAD_WIRE_REFACTOR_PLAN.md`.
-3. UI statistics follow-up (dedicated statistics page + richer chart controls).
-4. Defer full KAD/wire timing refactor until soak baseline remains stable; then execute phased plan (`docs/KAD_WIRE_REFACTOR_PLAN.md`) slice-by-slice.
-5. Apply `docs/RUST-MULE_ROUTING_PHILOSOPHY.md` as implementation backlog:
+1. Complete current KAD long-run baseline validation and merge active tuning branch.
+2. Immediately after merge: KAD hostile-input hardening pass:
+   - clamp untrusted wire `count` fields before decoder allocations
+   - add cap/eviction for inbound per-source limiter state (`tracked_in_requests`)
+   - switch shaper jitter from deterministic LCG to OS-seeded non-crypto RNG
+   - add adversarial parser tests and fuzz targets (`kad/wire`, `kad/packed`)
+3. Download subsystem phase 0/1: scaffold + `.part`/`.part.met` lifecycle in `data/download` and finalize into `data/incoming`.
+4. KAD organic reliability pass (search/publish under real peer variance) and complete phase 0 baseline from `docs/KAD_WIRE_REFACTOR_PLAN.md`.
+5. UI statistics follow-up (dedicated statistics page + richer chart controls).
+6. Defer full KAD/wire timing refactor until soak baseline remains stable; then execute phased plan (`docs/KAD_WIRE_REFACTOR_PLAN.md`) slice-by-slice.
+7. Apply `docs/RUST-MULE_ROUTING_PHILOSOPHY.md` as implementation backlog:
    - add peer reliability classes and health-driven routing/eviction
    - add transport-aware latency evaluation and local path-memory prioritization
    - expose counters required to verify these policies in long-run baselines

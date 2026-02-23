@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Logged KAD best-practice/security review findings as explicit post-longrun tasks (no code behavior changes in this step).
+  - Added high-value follow-up tasks in `docs/TODO.md` and reprioritized `docs/TASKS.md` for immediate post-merge execution:
+    - clamp untrusted decoder counts before allocations,
+    - cap inbound per-source limiter map growth,
+    - replace deterministic shaper jitter with OS-seeded RNG,
+    - extend hostile-input parser tests and fuzzing,
+    - continue decomposing `src/kad/service.rs` complexity.
+- Decisions:
+  - Do not implement these during the active long-run validation window; queue as first hardening slice after the branch is validated/merged.
+- Next steps:
+  - Finish current 6h baseline compare; if accepted, merge.
+  - Start post-merge KAD hardening pass from the newly added priority items.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
 - Status (2026-02-23): Hardened long-run baseline script output-path handling to avoid malformed filenames from shell timestamp typos.
   - `scripts/test/kad_phase0_longrun.sh` now:
     - normalizes `OUT_FILE` (ensures `.tsv` suffix),

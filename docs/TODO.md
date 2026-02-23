@@ -17,6 +17,11 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 
 ## KAD
 
+- [ ] Post-current longrun + merge: harden KAD wire decoders against allocation amplification by clamping untrusted `count` fields before `Vec::with_capacity(...)`.
+- [ ] Post-current longrun + merge: cap `tracked_in_requests` growth with explicit max entries + eviction policy (hostile source churn protection).
+- [ ] Post-current longrun + merge: replace deterministic LCG shaper jitter with OS-seeded non-crypto RNG jitter.
+- [ ] Post-current longrun + merge: split `src/kad/service.rs` into smaller modules (`outbound`, `tracking`, `maintenance`) to reduce complexity risk.
+- [ ] Post-current longrun + merge: add hostile-input parser tests (oversized counts/truncated payloads) and fuzz targets for `kad/wire` + `kad/packed`.
 - [ ] Improve organic search/publish success rate (non-forced peers) with measurable baseline vs improved runs.
 - [ ] Continue iMule wire/parity verification for discovery, routing, and source lifecycle edge cases.
 - [ ] Add clearer timeout/retry outcome buckets for request -> response conversion diagnostics.
