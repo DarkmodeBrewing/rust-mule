@@ -62,6 +62,12 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 
 ## SAM / Runtime
 
+- [ ] Post-current longrun + merge: bound `src/i2p/http.rs` response reads (replace unbounded `read_to_end` with capped read loop).
+- [ ] Post-current longrun + merge: add SAM control line max-length guard in `src/i2p/sam/client.rs` (align with `datagram_tcp` framing limits).
+- [ ] Post-current longrun + merge: harden chunked HTTP parsing with explicit per-chunk CRLF validation and malformed-input rejection tests.
+- [ ] Post-current longrun + merge: enforce outbound payload size cap in `src/i2p/sam/datagram.rs` send path.
+- [ ] Post-current longrun + merge: log warning when `sam.keys` permission hardening (`chmod 600`) fails.
+- [ ] Post-current longrun + merge: add hostile-input regression tests for i2p module (oversized SAM lines, oversized HTTP body, malformed chunked bodies).
 - [ ] Investigate exposing a custom SAM client label instead of generic `SAM UDP Client` in router views.
 - [ ] Add memory-pressure instrumentation for routing/lookups/search caches.
 
