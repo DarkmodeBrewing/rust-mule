@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Added download-module targeted hardening backlog from focused review (no runtime behavior changes in this step).
+  - Added explicit post-longrun tasks for:
+    - strict `OP_COMPRESSEDPART` completion gating (decompress/validate/persist before progress),
+    - explicit protocol payload/block caps,
+    - bounded reserve fan-out per call,
+    - replacing production decoder `unwrap()` paths with typed errors,
+    - adversarial decode/ingest regression tests.
+  - Prioritized download hardening in `docs/TASKS.md` immediately after planned KAD and i2p hardening slices.
+- Decisions:
+  - Keep download hardening as the next safety tranche after current long-run gate and immediate KAD/i2p hardening items.
+- Next steps:
+  - Complete active longrun + compare gate.
+  - Execute KAD hardening, then i2p hardening, then download hardening in the documented order.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
 - Status (2026-02-23): Added i2p/SAM targeted hardening backlog from focused module review (no runtime behavior changes in this step).
   - Added explicit post-longrun tasks for:
     - bounded HTTP response reads in `src/i2p/http.rs`,
