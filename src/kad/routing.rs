@@ -33,6 +33,8 @@ pub struct RoutingTable {
     by_dest: HashMap<String, KadId>,
     bucket_activity: Vec<Option<Instant>>,
     bucket_last_refresh: Vec<Option<Instant>>,
+    created_at: Instant,
+    order_seed: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,12 +63,15 @@ pub struct PeerHealthCounts {
 
 impl RoutingTable {
     pub fn new(my_id: KadId) -> Self {
+        let now = Instant::now();
         Self {
             my_id,
             by_id: BTreeMap::new(),
             by_dest: HashMap::new(),
             bucket_activity: vec![None; BUCKET_COUNT],
             bucket_last_refresh: vec![None; BUCKET_COUNT],
+            created_at: now,
+            order_seed: routing_order_seed(my_id),
         }
     }
 
@@ -445,6 +450,7 @@ impl RoutingTable {
         base_interval: Duration,
         max_failures: u32,
     ) -> Vec<ImuleNode> {
+        let order_epoch = candidate_order_epoch(self.created_at, now);
         let mut out: Vec<&NodeState> = self
             .by_id
             .values()
@@ -458,11 +464,19 @@ impl RoutingTable {
             })
             .collect();
 
-        // Prefer nodes we've actually heard from, then oldest-queried, then most recently seen.
+        // Prefer nodes we've actually heard from and healthier peers, then apply a rotating
+        // tie-break key to avoid fixed deterministic dequeue order.
         out.sort_by_key(|st| {
+            let order_key = candidate_order_key(
+                self.order_seed,
+                st.node.udp_dest_hash_code(),
+                order_epoch,
+                0,
+            );
             (
                 st.last_inbound.is_none(),
                 peer_health_rank(classify_peer_health(st, now)),
+                order_key,
                 st.last_queried,
                 std::cmp::Reverse(st.last_seen),
             )
@@ -486,6 +500,8 @@ impl RoutingTable {
         base_interval: Duration,
         max_failures: u32,
     ) -> Vec<ImuleNode> {
+        let order_epoch = candidate_order_epoch(self.created_at, now);
+        let target_salt = target_order_salt(target);
         let mut out: Vec<&NodeState> = self
             .by_id
             .values()
@@ -500,10 +516,17 @@ impl RoutingTable {
             .collect();
 
         out.sort_by_key(|st| {
+            let order_key = candidate_order_key(
+                self.order_seed,
+                st.node.udp_dest_hash_code(),
+                order_epoch,
+                target_salt,
+            );
             (
                 st.last_inbound.is_none(),
                 peer_health_rank(classify_peer_health(st, now)),
                 xor_distance(KadId(st.node.client_id), target),
+                order_key,
                 st.last_queried,
                 std::cmp::Reverse(st.last_seen),
             )
@@ -620,6 +643,36 @@ fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
 }
 
 const BUCKET_COUNT: usize = 128;
+const CANDIDATE_ORDER_ROTATE_SECS: u64 = 30;
+
+fn routing_order_seed(my_id: KadId) -> u64 {
+    let mut first = [0u8; 8];
+    let mut second = [0u8; 8];
+    first.copy_from_slice(&my_id.0[..8]);
+    second.copy_from_slice(&my_id.0[8..]);
+    u64::from_be_bytes(first) ^ u64::from_be_bytes(second) ^ 0x9e37_79b9_7f4a_7c15
+}
+
+fn candidate_order_epoch(created_at: Instant, now: Instant) -> u64 {
+    now.saturating_duration_since(created_at).as_secs() / CANDIDATE_ORDER_ROTATE_SECS
+}
+
+fn target_order_salt(target: KadId) -> u64 {
+    let mut first = [0u8; 8];
+    first.copy_from_slice(&target.0[..8]);
+    u64::from_be_bytes(first)
+}
+
+fn candidate_order_key(seed: u64, dest_hash: u32, epoch: u64, salt: u64) -> u64 {
+    splitmix64(seed ^ salt ^ u64::from(dest_hash) ^ epoch.wrapping_mul(0x517c_c1b7_2722_0a95_u64))
+}
+
+fn splitmix64(mut x: u64) -> u64 {
+    x = x.wrapping_add(0x9e37_79b9_7f4a_7c15_u64);
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9_u64);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb_u64);
+    x ^ (x >> 31)
+}
 
 fn bucket_index(my_id: KadId, other: KadId) -> Option<usize> {
     if other == my_id || other.is_zero() {
@@ -827,5 +880,13 @@ mod tests {
         let out = rt.select_query_candidates_for_target(target, 2, now, Duration::from_secs(1), 5);
         let ids: Vec<u8> = out.iter().map(|n| n.client_id[0]).collect();
         assert_eq!(ids, vec![2, 1]);
+    }
+
+    #[test]
+    fn candidate_order_key_changes_with_epoch() {
+        let seed = routing_order_seed(KadId([7u8; 16]));
+        let a = candidate_order_key(seed, 0x1234_5678, 0, 0);
+        let b = candidate_order_key(seed, 0x1234_5678, 1, 0);
+        assert_ne!(a, b);
     }
 }

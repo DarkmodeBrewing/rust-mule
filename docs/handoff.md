@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-23): Added rotating candidate tie-break ordering for query selection (Phase-1 tuning).
+  - Updated routing query selectors to include a time-rotating, seed-based tie-break key:
+    - `select_query_candidates(...)`
+    - `select_query_candidates_for_target(...)`
+  - Existing eligibility and priority rules are unchanged:
+    - kad version/failure/backoff filters
+    - health-class preference (`stable > verified > unknown > unreliable`)
+    - XOR distance bias for target lookups
+  - Added unit coverage:
+    - `candidate_order_key_changes_with_epoch`
+- Decisions:
+  - Keep randomized ordering as a tie-breaker only (no hard policy changes).
+  - Rotate every 30 seconds to reduce deterministic dequeue fingerprints while preserving stability.
+- Next steps:
+  - Run a new long baseline and compare `sent_reqs_total`, `recv_ress_total`, `timeouts_total`, and shaper counters against the previous 6h baseline.
+  - If stable, apply the same rotating tie-break pattern to hello/bootstrap candidate selectors.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 tests)
+
 - Status (2026-02-22): Extended soft peer-health preference into query/crawl candidate selection.
   - Updated routing query selectors to prefer healthier peers while preserving existing constraints:
     - `select_query_candidates(...)`
