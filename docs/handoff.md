@@ -32,6 +32,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Change log:
   - Updated `src/kad/wire.rs`.
 
+- Status (2026-02-24): Added bounded growth + eviction policy for inbound per-source limiter state (`tracked_in_requests`).
+  - Added explicit caps:
+    - `TRACKED_IN_MAX_SOURCES = 4096`
+    - `TRACKED_IN_MAX_OPCODES_PER_SOURCE = 8`
+  - Added cleanup + eviction flow:
+    - `cleanup_tracked_in_requests(...)` (TTL cleanup + cap enforcement)
+    - `enforce_tracked_in_opcode_cap(...)` (per-source opcode map bounded)
+    - `evict_oldest_tracked_in_source(...)` (oldest-first global source eviction)
+  - `inbound_request_allowed(...)` now:
+    - forces cleanup when cap pressure is reached,
+    - evicts oldest source when inserting a new source at cap,
+    - enforces per-source opcode cap after updates.
+  - Added regression tests:
+    - `inbound_request_tracker_caps_number_of_sources`
+    - `inbound_request_tracker_caps_opcodes_per_source`
+- Decisions:
+  - Keep cap values internal constants for this hardening slice (no new config knobs yet).
+  - Use oldest-first eviction based on tracked entry age to preserve recent active sources.
+- Next steps:
+  - Continue KAD hardening with OS-seeded non-crypto jitter replacement for outbound shaper.
+- Change log:
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/tests.rs`.
+
 - Status (2026-02-24): Implemented first routing-tuning-v3 throughput-floor slice on crawl dispatch path.
   - `send_kad2_req(...)` now returns `bool` to indicate whether a request was actually sent (vs. shaper-dropped).
   - `crawl_once(...)` now:
