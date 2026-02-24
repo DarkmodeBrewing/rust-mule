@@ -8,6 +8,188 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Prepared safe-only split plan for `feature/kad-rotate-query-candidates` after long-run comparison showed throughput regression under rotate tuning.
+  - Branch-only commits relative to `origin/main` are:
+    - `80b64fb` / `c7e6662` / `f3f1e5c` (routing tie-break implementation follow-ups)
+    - `1ab817c` (long-run script output-path hardening)
+    - `de7282f` / `c1c1978` / `dd59dea` / `5ba2ee2` (docs backlog prioritization)
+  - Safe-only merge candidate set (no runtime routing-policy behavior change):
+    - `1ab817c`
+    - `de7282f`
+    - `c1c1978`
+    - `dd59dea`
+    - `5ba2ee2`
+  - Hold/experimental set (keep on feature branch until a win is proven):
+    - `80b64fb`
+    - `c7e6662`
+    - `f3f1e5c`
+  - Ready command sequence (from clean tree):
+    - `git checkout main`
+    - `git fetch origin --prune`
+    - `git pull --ff-only`
+    - `git checkout -b chore/kad-phase2-safe-split`
+    - `git cherry-pick 1ab817c de7282f c1c1978 dd59dea 5ba2ee2`
+    - run `cargo fmt && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-targets --all-features`
+    - `git push -u origin chore/kad-phase2-safe-split`
+    - open PR, merge, then keep routing-tuning commits isolated for follow-up baseline gates.
+- Decisions:
+  - Separate script/docs reliability changes from routing-order behavior changes.
+  - Do not advance routing tie-break tuning without a neutral-or-better long-run compare vs `main`.
+- Next steps:
+  - Create `chore/kad-phase2-safe-split` and cherry-pick only safe commits.
+  - Re-baseline routing tuning on a dedicated branch using identical network/runtime preconditions.
+- Change log:
+  - Updated `docs/handoff.md` with split/cherry-pick plan and commit classification.
+
+- Status (2026-02-23): Added API-module targeted hardening backlog from focused review (no runtime behavior changes in this step).
+  - Added explicit post-longrun tasks for:
+    - request body size limits for JSON endpoints,
+    - broader API route rate limiting,
+    - token-file self-heal on invalid/corrupt content,
+    - SSE serialization fallback warning/metrics,
+    - standardized typed API error envelope.
+  - Prioritized API hardening in `docs/TASKS.md` immediately after planned KAD/i2p/download hardening slices.
+- Decisions:
+  - Keep API hardening as sequential safety tranche after current long-run gate and existing hardening backlog order.
+- Next steps:
+  - Complete active longrun + compare gate.
+  - Execute KAD, i2p, download, then API hardening in documented order.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
+- Status (2026-02-23): Added download-module targeted hardening backlog from focused review (no runtime behavior changes in this step).
+  - Added explicit post-longrun tasks for:
+    - strict `OP_COMPRESSEDPART` completion gating (decompress/validate/persist before progress),
+    - explicit protocol payload/block caps,
+    - bounded reserve fan-out per call,
+    - replacing production decoder `unwrap()` paths with typed errors,
+    - adversarial decode/ingest regression tests.
+  - Prioritized download hardening in `docs/TASKS.md` immediately after planned KAD and i2p hardening slices.
+- Decisions:
+  - Keep download hardening as the next safety tranche after current long-run gate and immediate KAD/i2p hardening items.
+- Next steps:
+  - Complete active longrun + compare gate.
+  - Execute KAD hardening, then i2p hardening, then download hardening in the documented order.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
+- Status (2026-02-23): Added i2p/SAM targeted hardening backlog from focused module review (no runtime behavior changes in this step).
+  - Added explicit post-longrun tasks for:
+    - bounded HTTP response reads in `src/i2p/http.rs`,
+    - SAM control-line max length guard in `src/i2p/sam/client.rs`,
+    - stricter chunked parser CRLF validation and hostile-input tests,
+    - outbound datagram payload cap in `src/i2p/sam/datagram.rs`,
+    - i2p hostile-input regression coverage.
+  - Prioritized i2p hardening in `docs/TASKS.md` immediately after the planned KAD hardening slice.
+- Decisions:
+  - Keep these as immediate post-merge hardening work; do not alter active long-run validation conditions mid-run.
+- Next steps:
+  - Complete active longrun + compare gate.
+  - Execute KAD hardening slice, then i2p/SAM hardening slice in the newly documented order.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
+- Status (2026-02-23): Logged KAD best-practice/security review findings as explicit post-longrun tasks (no code behavior changes in this step).
+  - Added high-value follow-up tasks in `docs/TODO.md` and reprioritized `docs/TASKS.md` for immediate post-merge execution:
+    - clamp untrusted decoder counts before allocations,
+    - cap inbound per-source limiter map growth,
+    - replace deterministic shaper jitter with OS-seeded RNG,
+    - extend hostile-input parser tests and fuzzing,
+    - continue decomposing `src/kad/service.rs` complexity.
+- Decisions:
+  - Do not implement these during the active long-run validation window; queue as first hardening slice after the branch is validated/merged.
+- Next steps:
+  - Finish current 6h baseline compare; if accepted, merge.
+  - Start post-merge KAD hardening pass from the newly added priority items.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
+- Status (2026-02-23): Hardened long-run baseline script output-path handling to avoid malformed filenames from shell timestamp typos.
+  - `scripts/test/kad_phase0_longrun.sh` now:
+    - normalizes `OUT_FILE` (ensures `.tsv` suffix),
+    - auto-recovers malformed trailing-dash names by appending a fresh timestamp,
+    - creates the output parent directory automatically.
+  - This specifically protects runs where command substitution fails and yields values like `...-ROTATE-.tsv`.
+- Decisions:
+  - Prefer robust script-side normalization over relying on perfect shell invocation syntax.
+- Next steps:
+  - Keep using explicit `OUT_FILE=...$(date +%Y%m%d_%H%M%S).tsv`; script now safely recovers common malformed cases.
+- Change log:
+  - Updated `scripts/test/kad_phase0_longrun.sh`.
+  - Validation:
+    - `bash -n scripts/test/kad_phase0_longrun.sh` passed
+
+- Status (2026-02-23): Evaluated PR #21 review comments via `gh` and addressed remaining scanner-triggering literals in test path.
+  - Verified inline comments are GitHub Advanced Security code-scanning findings (hard-coded salt-like value rule family).
+  - Updated `candidate_order_key_changes_with_epoch` test to derive epoch/salt/dest hash from runtime values instead of fixed salt-like literals.
+- Decisions:
+  - Keep test intent unchanged (order key must change across epochs), but avoid fixed literal inputs that trigger CodeQL noise.
+- Next steps:
+  - Re-run PR code scanning and close outdated threads once alerts refresh.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 tests)
+
+- Status (2026-02-23): Addressed PR feedback on fixed salt input in query tie-break call.
+  - In `select_query_candidates(...)`, replaced literal salt argument `0` with `order_epoch` when calling `candidate_order_key(...)`.
+  - This keeps tie-break behavior rotating with epoch and removes fixed literal salt-like input from production call sites.
+- Decisions:
+  - Keep this as a minimal targeted change requested in review; no API or algorithm shape change.
+- Next steps:
+  - Re-run CodeQL on PR #21 and confirm no remaining hard-coded-salt alert on routing tie-break path.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 tests)
+
+- Status (2026-02-23): Removed hard-coded mixing constants from routing candidate ordering to avoid crypto-salt false positives in CodeQL.
+  - Replaced custom constant-based mixer in `src/kad/routing.rs` with `DefaultHasher`-based non-crypto tie-break key generation.
+  - Candidate ordering behavior is unchanged (still rotating epoch tie-break), but production code no longer carries fixed mixing constants that resemble hard-coded cryptographic material.
+- Decisions:
+  - Keep ordering randomness non-cryptographic and implementation-simple.
+  - Prefer standard-library hashing over custom mixers for maintainability and scanner friendliness.
+- Next steps:
+  - Re-run CodeQL to confirm the hard-coded cryptographic value alert is cleared.
+  - Continue baseline/soak comparison on PR branch once scanner is green.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 tests)
+
+- Status (2026-02-23): Added rotating candidate tie-break ordering for query selection (Phase-1 tuning).
+  - Updated routing query selectors to include a time-rotating, seed-based tie-break key:
+    - `select_query_candidates(...)`
+    - `select_query_candidates_for_target(...)`
+  - Existing eligibility and priority rules are unchanged:
+    - kad version/failure/backoff filters
+    - health-class preference (`stable > verified > unknown > unreliable`)
+    - XOR distance bias for target lookups
+  - Added unit coverage:
+    - `candidate_order_key_changes_with_epoch`
+- Decisions:
+  - Keep randomized ordering as a tie-breaker only (no hard policy changes).
+  - Rotate every 30 seconds to reduce deterministic dequeue fingerprints while preserving stability.
+- Next steps:
+  - Run a new long baseline and compare `sent_reqs_total`, `recv_ress_total`, `timeouts_total`, and shaper counters against the previous 6h baseline.
+  - If stable, apply the same rotating tie-break pattern to hello/bootstrap candidate selectors.
+- Change log:
+  - Updated `src/kad/routing.rs`.
+  - Validation:
+    - `cargo fmt` passed
+    - `cargo clippy --all-targets --all-features -- -D warnings` passed
+    - `cargo test --all-targets --all-features` passed (106 tests)
+
 - Status (2026-02-22): Extended soft peer-health preference into query/crawl candidate selection.
   - Updated routing query selectors to prefer healthier peers while preserving existing constraints:
     - `select_query_candidates(...)`
