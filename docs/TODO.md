@@ -54,14 +54,14 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 
 ## API
 
-- [ ] Post-current longrun + merge: add explicit request body size limits for JSON endpoints (global + per-route overrides where needed).
-- [ ] Post-current longrun + merge: extend API rate limiting beyond auth bootstrap/session/token rotate to high-frequency read/mutation routes.
-- [ ] Post-current longrun + merge: make `load_or_create_token` self-heal invalid/corrupt token files (rotate + replace with warning).
-- [ ] Post-current longrun + merge: emit warning/metric when SSE status serialization falls back to `{}`.
-- [ ] Post-current longrun + merge: standardize typed API error envelope for non-2xx responses (code + human message).
+- [x] Post-current longrun + merge: add explicit request body size limits for JSON endpoints (global + per-route overrides where needed).
+- [x] Post-current longrun + merge: extend API rate limiting beyond auth bootstrap/session/token rotate to high-frequency read/mutation routes.
+- [x] Post-current longrun + merge: make `load_or_create_token` self-heal invalid/corrupt token files (rotate + replace with warning).
+- [x] Post-current longrun + merge: emit warning/metric when SSE status serialization falls back to `{}`.
+- [x] Post-current longrun + merge: standardize typed API error envelope for non-2xx responses (code + human message).
 - [ ] Consider tiered API command timeouts (shared baseline exists; tune by endpoint class if needed).
-- [ ] Evaluate optional typed API error response envelope consistency for all non-2xx responses.
-- [ ] Add human-friendly messages for HTTP error status responses (consistent, user-facing text alongside status code).
+- [x] Evaluate optional typed API error response envelope consistency for all non-2xx responses.
+- [x] Add human-friendly messages for HTTP error status responses (consistent, user-facing text alongside status code).
 
 ## UI
 

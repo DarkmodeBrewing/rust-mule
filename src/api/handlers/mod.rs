@@ -21,7 +21,3 @@ pub(crate) use settings::{settings_get, settings_patch};
 
 #[cfg(test)]
 pub(crate) use kad::SearchDeleteQuery;
-#[cfg(test)]
-pub(crate) use settings::{
-    SettingsPatchApi, SettingsPatchGeneral, SettingsPatchRequest, SettingsPatchSam,
-};

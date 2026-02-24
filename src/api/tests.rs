@@ -11,8 +11,8 @@ use crate::{
     },
 };
 use axum::{
-    Json, Router,
-    body::{Body, to_bytes},
+    Router,
+    body::{Body, Bytes, to_bytes},
     extract::{Query, State},
     http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
     middleware,
@@ -50,6 +50,7 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         rate_limit_session_max: 30,
         rate_limit_token_rotate_max: 10,
         rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        sse_serialize_fallback_total: Arc::new(AtomicU64::new(0)),
     }
 }
 
@@ -71,6 +72,7 @@ fn test_app(state: ApiState) -> Router<()> {
             state,
             super::rate_limit::rate_limit_mw,
         ))
+        .layer(middleware::from_fn(super::error::error_envelope_mw))
 }
 
 fn sample_status() -> KadServiceStatus {
@@ -497,33 +499,30 @@ async fn settings_patch_updates_and_persists_config() {
     let (tx, _rx) = mpsc::channel(1);
     let state = test_state(tx);
 
-    let result = handlers::settings_patch(
-        State(state.clone()),
-        Json(handlers::SettingsPatchRequest {
-            general: Some(handlers::SettingsPatchGeneral {
-                log_level: Some("info".to_string()),
-                log_to_file: Some(false),
-                log_file_level: None,
-                auto_open_ui: Some(false),
-            }),
-            sam: Some(handlers::SettingsPatchSam {
-                host: None,
-                port: None,
-                session_name: Some("test-session".to_string()),
-            }),
-            api: Some(handlers::SettingsPatchApi {
-                port: Some(17836),
-                enable_debug_endpoints: Some(false),
-                auth_mode: Some(ApiAuthMode::HeadlessRemote),
-                rate_limit_enabled: Some(true),
-                rate_limit_window_secs: Some(60),
-                rate_limit_auth_bootstrap_max_per_window: Some(30),
-                rate_limit_session_max_per_window: Some(30),
-                rate_limit_token_rotate_max_per_window: Some(10),
-            }),
-        }),
-    )
-    .await;
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "general": {
+                "log_level": "info",
+                "log_to_file": false,
+                "auto_open_ui": false
+            },
+            "sam": {
+                "session_name": "test-session"
+            },
+            "api": {
+                "port": 17836,
+                "enable_debug_endpoints": false,
+                "auth_mode": "headless_remote",
+                "rate_limit_enabled": true,
+                "rate_limit_window_secs": 60,
+                "rate_limit_auth_bootstrap_max_per_window": 30,
+                "rate_limit_session_max_per_window": 30,
+                "rate_limit_token_rotate_max_per_window": 10
+            }
+        }))
+        .expect("serialize settings patch"),
+    );
+    let result = handlers::settings_patch(State(state.clone()), body).await;
 
     let resp = result.expect("settings_patch should succeed");
     assert_eq!(resp.0.settings.sam.session_name, "test-session");
@@ -553,42 +552,28 @@ async fn settings_patch_updates_and_persists_config() {
 async fn settings_patch_rejects_invalid_values() {
     let (tx, _rx) = mpsc::channel(1);
     let state = test_state(tx);
-    let resp = handlers::settings_patch(
-        State(state),
-        Json(handlers::SettingsPatchRequest {
-            general: Some(handlers::SettingsPatchGeneral {
-                log_level: Some("not-a-filter=[".to_string()),
-                log_to_file: None,
-                log_file_level: None,
-                auto_open_ui: None,
-            }),
-            sam: None,
-            api: None,
-        }),
-    )
-    .await;
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "general": {
+                "log_level": "not-a-filter=["
+            }
+        }))
+        .expect("serialize invalid settings patch"),
+    );
+    let resp = handlers::settings_patch(State(state), body).await;
     assert!(matches!(resp, Err(StatusCode::BAD_REQUEST)));
 
     let (tx, _rx) = mpsc::channel(1);
     let state = test_state(tx);
-    let resp_invalid_api_port = handlers::settings_patch(
-        State(state),
-        Json(handlers::SettingsPatchRequest {
-            general: None,
-            sam: None,
-            api: Some(handlers::SettingsPatchApi {
-                port: Some(0),
-                enable_debug_endpoints: None,
-                auth_mode: None,
-                rate_limit_enabled: None,
-                rate_limit_window_secs: None,
-                rate_limit_auth_bootstrap_max_per_window: None,
-                rate_limit_session_max_per_window: None,
-                rate_limit_token_rotate_max_per_window: None,
-            }),
-        }),
-    )
-    .await;
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "api": {
+                "port": 0
+            }
+        }))
+        .expect("serialize invalid api port patch"),
+    );
+    let resp_invalid_api_port = handlers::settings_patch(State(state), body).await;
     assert!(matches!(
         resp_invalid_api_port,
         Err(StatusCode::BAD_REQUEST)
@@ -596,24 +581,19 @@ async fn settings_patch_rejects_invalid_values() {
 
     let (tx, _rx) = mpsc::channel(1);
     let state = test_state(tx);
-    let resp_bad_rate_limit = handlers::settings_patch(
-        State(state),
-        Json(handlers::SettingsPatchRequest {
-            general: None,
-            sam: None,
-            api: Some(handlers::SettingsPatchApi {
-                port: None,
-                enable_debug_endpoints: None,
-                auth_mode: None,
-                rate_limit_enabled: Some(true),
-                rate_limit_window_secs: Some(0),
-                rate_limit_auth_bootstrap_max_per_window: Some(0),
-                rate_limit_session_max_per_window: Some(1),
-                rate_limit_token_rotate_max_per_window: Some(1),
-            }),
-        }),
-    )
-    .await;
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "api": {
+                "rate_limit_enabled": true,
+                "rate_limit_window_secs": 0,
+                "rate_limit_auth_bootstrap_max_per_window": 0,
+                "rate_limit_session_max_per_window": 1,
+                "rate_limit_token_rotate_max_per_window": 1
+            }
+        }))
+        .expect("serialize bad rate limit patch"),
+    );
+    let resp_bad_rate_limit = handlers::settings_patch(State(state), body).await;
     assert!(matches!(resp_bad_rate_limit, Err(StatusCode::BAD_REQUEST)));
 }
 
@@ -751,6 +731,63 @@ async fn session_route_is_rate_limited_when_threshold_exceeded() {
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = response_json(resp).await;
+    assert_eq!(body["code"], StatusCode::TOO_MANY_REQUESTS.as_u16());
+    assert_eq!(body["message"], "too many requests");
+}
+
+#[tokio::test]
+async fn status_route_is_rate_limited_when_threshold_exceeded() {
+    let (tx, _rx) = mpsc::channel(1);
+    let mut state = test_state(tx);
+    state.rate_limit_enabled = true;
+    state.rate_limit_session_max = 1;
+    state.rate_limit_window = Duration::from_secs(60);
+    let app = test_app(state);
+
+    for _ in 0..6 {
+        let resp = app
+            .clone()
+            .oneshot(authorized_api_get("/api/v1/status"))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    let limited = app
+        .oneshot(authorized_api_get("/api/v1/status"))
+        .await
+        .unwrap();
+    assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = response_json(limited).await;
+    assert_eq!(body["message"], "too many requests");
+}
+
+#[tokio::test]
+async fn downloads_create_rejects_oversized_body_with_json_envelope() {
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let app = test_app(state);
+
+    let huge_name = "a".repeat(12 * 1024);
+    let payload = json!({
+        "file_name": huge_name,
+        "file_size": 1234,
+        "file_hash_md4_hex": "00112233445566778899aabbccddeeff"
+    });
+    let req = Request::builder()
+        .uri("/api/v1/downloads")
+        .method(Method::POST)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(payload.to_string()))
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let body = response_json(resp).await;
+    assert_eq!(body["code"], StatusCode::PAYLOAD_TOO_LARGE.as_u16());
+    assert_eq!(body["message"], "request body too large");
 }
 
 #[tokio::test]
@@ -789,6 +826,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         rate_limit_session_max: 30,
         rate_limit_token_rotate_max: 10,
         rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        sse_serialize_fallback_total: Arc::new(AtomicU64::new(0)),
     };
 
     let resp = handlers::token_rotate(State(state.clone()))
@@ -832,6 +870,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         rate_limit_session_max: 30,
         rate_limit_token_rotate_max: 10,
         rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        sse_serialize_fallback_total: Arc::new(AtomicU64::new(0)),
     };
     // Keep sender alive.
     let _status_tx_guard = status_tx;

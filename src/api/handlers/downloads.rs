@@ -1,7 +1,7 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{Json, body::Bytes, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::api::ApiState;
+use crate::api::{ApiState, error::parse_json_with_limit};
 use crate::download::{CreateDownloadRequest, DownloadError};
 
 #[derive(Debug, Clone, Serialize)]
@@ -80,8 +80,9 @@ pub(crate) async fn downloads(
 
 pub(crate) async fn downloads_create(
     State(state): State<ApiState>,
-    Json(req): Json<CreateDownloadRequestBody>,
+    body: Bytes,
 ) -> Result<(StatusCode, Json<DownloadActionResponse>), StatusCode> {
+    let req: CreateDownloadRequestBody = parse_json_with_limit(body, 8 * 1024)?;
     let summary = state
         .download_handle
         .create_download(CreateDownloadRequest {

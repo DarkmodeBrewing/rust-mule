@@ -2,17 +2,11 @@
 
 ## Current Priority
 
-1. Immediately after download hardening: API hostile-input and resilience hardening pass:
-   - enforce JSON body limits (global + route overrides)
-   - extend rate limiting to high-frequency read/mutation endpoints
-   - self-heal corrupt `api.token` on load
-   - add SSE fallback serialization warning/metric
-   - standardize typed API error envelope
-2. Download subsystem phase 0/1: scaffold + `.part`/`.part.met` lifecycle in `data/download` and finalize into `data/incoming`.
-3. KAD organic reliability pass (search/publish under real peer variance) and complete phase 0 baseline from `docs/KAD_WIRE_REFACTOR_PLAN.md`.
-4. UI statistics follow-up (dedicated statistics page + richer chart controls).
-5. Defer full KAD/wire timing refactor until soak baseline remains stable; then execute phased plan (`docs/KAD_WIRE_REFACTOR_PLAN.md`) slice-by-slice.
-6. Apply `docs/RUST-MULE_ROUTING_PHILOSOPHY.md` as implementation backlog:
+1. Download subsystem phase 0/1: scaffold + `.part`/`.part.met` lifecycle in `data/download` and finalize into `data/incoming`.
+2. KAD organic reliability pass (search/publish under real peer variance) and complete phase 0 baseline from `docs/KAD_WIRE_REFACTOR_PLAN.md`.
+3. UI statistics follow-up (dedicated statistics page + richer chart controls).
+4. Defer full KAD/wire timing refactor until soak baseline remains stable; then execute phased plan (`docs/KAD_WIRE_REFACTOR_PLAN.md`) slice-by-slice.
+5. Apply `docs/RUST-MULE_ROUTING_PHILOSOPHY.md` as implementation backlog:
    - add peer reliability classes and health-driven routing/eviction
    - add transport-aware latency evaluation and local path-memory prioritization
    - expose counters required to verify these policies in long-run baselines

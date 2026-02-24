@@ -59,10 +59,30 @@ pub(crate) async fn rate_limit_mw(
 }
 
 fn rate_limit_for_path(path: &str, method: &Method, state: &ApiState) -> Option<u32> {
+    let read_limit = state.rate_limit_session_max.saturating_mul(6).max(1);
+    let query_limit = state.rate_limit_session_max.saturating_mul(4).max(1);
+    let mutate_limit = state.rate_limit_session_max.max(1);
+
     match (method, path) {
         (&Method::GET, "/api/v1/auth/bootstrap") => Some(state.rate_limit_auth_bootstrap_max),
         (&Method::POST, "/api/v1/session") => Some(state.rate_limit_session_max),
         (&Method::POST, "/api/v1/token/rotate") => Some(state.rate_limit_token_rotate_max),
+        (&Method::GET, "/api/v1/status") => Some(read_limit),
+        (&Method::GET, "/api/v1/events") => Some(read_limit),
+        (&Method::GET, "/api/v1/settings") => Some(query_limit),
+        (&Method::PATCH, "/api/v1/settings") => Some(mutate_limit),
+        (&Method::GET, "/api/v1/downloads") => Some(query_limit),
+        (&Method::POST, "/api/v1/downloads") => Some(mutate_limit),
+        _ if path.starts_with("/api/v1/downloads/") => Some(mutate_limit),
+        (&Method::GET, "/api/v1/searches") => Some(query_limit),
+        _ if path.starts_with("/api/v1/searches/") && *method == Method::GET => Some(query_limit),
+        _ if path.starts_with("/api/v1/searches/") && *method == Method::POST => Some(mutate_limit),
+        _ if path.starts_with("/api/v1/searches/") && *method == Method::DELETE => {
+            Some(mutate_limit)
+        }
+        (&Method::GET, "/api/v1/kad/peers") => Some(query_limit),
+        _ if path.starts_with("/api/v1/kad/") && *method == Method::GET => Some(query_limit),
+        _ if path.starts_with("/api/v1/kad/") && *method == Method::POST => Some(mutate_limit),
         _ => None,
     }
 }
