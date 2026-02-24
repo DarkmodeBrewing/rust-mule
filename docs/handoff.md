@@ -8,6 +8,39 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Completed first download hostile-input hardening slice on `feature/download-protocol-hardening`.
+  - Hardened `src/download/protocol.rs`:
+    - added explicit caps:
+      - `MAX_PART_PAYLOAD`
+      - `MAX_COMPRESSED_PAYLOAD`
+      - `MAX_BLOCK_LEN`
+    - removed production decode-path `unwrap()` usage by adding safe typed readers (`read_u64_le`, `read_u32_le`)
+    - added typed protocol errors for hostile-size conditions:
+      - `PayloadTooLarge`
+      - `BlockTooLarge`
+    - added regression tests for oversized sending/compressed payload semantics
+  - Hardened `src/download/service.rs`:
+    - added `MAX_RESERVE_BLOCKS_PER_CALL` cap in `reserve_blocks(...)`
+    - added service-level regression test for excessive `max_blocks`
+  - Validation:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (129 passed)
+- Decisions:
+  - Keep download cap values as internal constants for now (no config surface in this slice).
+  - Keep remaining compressed-part completion semantics (`decompress/validate/persist before mark received`) as the next focused step.
+- Next steps:
+  - Continue same branch with remaining download hostile-input items:
+    - gate `OP_COMPRESSEDPART` completion on verified decompression/persist
+    - add hostile ingest/decode tests for semantic mismatch paths
+  - Open PR after that tranche is complete (no auto-merge).
+- Change log:
+  - Updated `src/download/protocol.rs`.
+  - Updated `src/download/service.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Completed i2p/SAM hostile-input hardening slice on `feature/i2p-sam-hardening`.
   - Hardened HTTP handling in `src/i2p/http.rs`:
     - replaced unbounded `read_to_end` with capped read loop (`MAX_HTTP_RESPONSE_BYTES = 4 MiB`)

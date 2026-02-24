@@ -10,6 +10,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 pub type Result<T> = std::result::Result<T, DownloadError>;
 const INFLIGHT_LEASE_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_RESERVE_BLOCKS_PER_CALL: usize = 128;
 
 #[derive(Debug, Clone)]
 pub struct DownloadServiceConfig {
@@ -773,6 +774,11 @@ async fn reserve_blocks(
     if max_blocks == 0 {
         return Ok(Vec::new());
     }
+    if max_blocks > MAX_RESERVE_BLOCKS_PER_CALL {
+        return Err(DownloadError::InvalidInput(format!(
+            "max_blocks must be <= {MAX_RESERVE_BLOCKS_PER_CALL}"
+        )));
+    }
     if block_size == 0 {
         return Err(DownloadError::InvalidInput(
             "block_size must be > 0".to_string(),
@@ -1397,6 +1403,31 @@ mod tests {
             .expect("received");
         assert!(got.progress_pct > 0);
         assert_eq!(got.inflight_ranges, 1);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn reserve_blocks_rejects_excessive_max_blocks() {
+        let root = temp_dir("reserve-cap");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cap.bin".to_string(),
+                file_size: 1000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        let err = handle
+            .reserve_blocks(d.part_number, MAX_RESERVE_BLOCKS_PER_CALL + 1, 200)
+            .await
+            .expect_err("must reject too many blocks");
+        assert!(matches!(err, DownloadError::InvalidInput(_)));
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");

@@ -4,9 +4,6 @@
 
 1. Immediately after i2p hardening: download protocol hostile-input hardening pass:
    - gate `OP_COMPRESSEDPART` completion on successful decompress/validate/persist
-   - enforce explicit payload/block size caps
-   - cap per-call reserve fan-out
-   - remove decoder `unwrap()` usage in production paths
    - add adversarial decode/ingest tests
 2. Immediately after download hardening: API hostile-input and resilience hardening pass:
    - enforce JSON body limits (global + route overrides)
