@@ -13,6 +13,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 pub type Result<T> = std::result::Result<T, DownloadError>;
 const INFLIGHT_LEASE_TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_RESERVE_BLOCKS_PER_CALL: usize = 128;
+const MAX_INFLIGHT_LEASES_PER_PEER: usize = 32;
+const MAX_INFLIGHT_LEASES_PER_DOWNLOAD: usize = 256;
+const RETRY_BACKOFF_BASE_MS: u64 = 200;
+const RETRY_BACKOFF_MAX_MS: u64 = 5_000;
 
 #[derive(Debug, Clone)]
 pub struct DownloadServiceConfig {
@@ -489,6 +493,7 @@ async fn run_service(
                 part_path: r.part_path,
                 met,
                 leases: Vec::new(),
+                cooldown_until: None,
             },
         );
     }
@@ -713,6 +718,7 @@ struct ManagedDownload {
     part_path: PathBuf,
     met: PartMet,
     leases: Vec<InflightLease>,
+    cooldown_until: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -753,6 +759,12 @@ fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs()
+}
+
+fn retry_backoff_delay(retry_count: u32) -> Duration {
+    let shift = retry_count.saturating_sub(1).min(6);
+    let factor = 1u64 << shift;
+    Duration::from_millis((RETRY_BACKOFF_BASE_MS * factor).min(RETRY_BACKOFF_MAX_MS))
 }
 
 async fn create_download(
@@ -819,6 +831,7 @@ async fn create_download(
             part_path,
             met: met.clone(),
             leases: Vec::new(),
+            cooldown_until: None,
         },
     );
     Ok(summary_from_download(
@@ -873,6 +886,12 @@ async fn reserve_blocks(
     let d = downloads
         .get_mut(&part_number)
         .ok_or(DownloadError::NotFound(part_number))?;
+    if let Some(until) = d.cooldown_until {
+        if Instant::now() < until {
+            return Ok(Vec::new());
+        }
+        d.cooldown_until = None;
+    }
     match d.met.state {
         PartState::Queued | PartState::Downloading => {}
         other => {
@@ -884,9 +903,19 @@ async fn reserve_blocks(
         }
     }
 
+    let peer_leases = d.leases.iter().filter(|l| l.peer_id == peer_id).count();
+    if peer_leases >= MAX_INFLIGHT_LEASES_PER_PEER
+        || d.leases.len() >= MAX_INFLIGHT_LEASES_PER_DOWNLOAD
+    {
+        return Ok(Vec::new());
+    }
+    let budget = max_blocks
+        .min(MAX_INFLIGHT_LEASES_PER_PEER - peer_leases)
+        .min(MAX_INFLIGHT_LEASES_PER_DOWNLOAD - d.leases.len());
+
     let mut out = Vec::new();
     let deadline = Instant::now() + INFLIGHT_LEASE_TIMEOUT;
-    for _ in 0..max_blocks {
+    for _ in 0..budget {
         let Some(first) = d.met.missing_ranges.first().copied() else {
             break;
         };
@@ -913,6 +942,7 @@ async fn reserve_blocks(
         d.met.state = PartState::Downloading;
         d.met.updated_unix_secs = now_secs();
         d.met.last_error = None;
+        d.cooldown_until = None;
         save_part_met(&d.met_path, &d.met).await?;
     }
     Ok(out)
@@ -982,6 +1012,7 @@ async fn mark_block_failed(
         .file_size
         .saturating_sub(total_missing(&d.met.missing_ranges));
     d.met.updated_unix_secs = now_secs();
+    d.cooldown_until = Some(Instant::now() + retry_backoff_delay(d.met.retry_count));
     save_part_met(&d.met_path, &d.met).await?;
     Ok(summary_from_download(d))
 }
@@ -1024,6 +1055,7 @@ async fn peer_disconnected(
                 .file_size
                 .saturating_sub(total_missing(&d.met.missing_ranges));
             d.met.updated_unix_secs = now_secs();
+            d.cooldown_until = Some(Instant::now() + retry_backoff_delay(d.met.retry_count));
             save_part_met(&d.met_path, &d.met).await?;
         }
     }
@@ -1067,6 +1099,7 @@ async fn process_timeouts(
                 .file_size
                 .saturating_sub(total_missing(&d.met.missing_ranges));
             d.met.updated_unix_secs = now_secs();
+            d.cooldown_until = Some(Instant::now() + retry_backoff_delay(d.met.retry_count));
             save_part_met(&d.met_path, &d.met).await?;
             changed_any = true;
         }
@@ -1849,7 +1882,14 @@ mod tests {
         let again = handle
             .reserve_blocks(d.part_number, 1, 200)
             .await
-            .expect("reserve again");
+            .expect("reserve again immediate");
+        assert!(again.is_empty());
+
+        tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_BASE_MS + 75)).await;
+        let again = handle
+            .reserve_blocks(d.part_number, 1, 200)
+            .await
+            .expect("reserve again after cooldown");
         assert_eq!(again.len(), 1);
 
         let got = handle
@@ -1883,6 +1923,84 @@ mod tests {
             .await
             .expect_err("must reject too many blocks");
         assert!(matches!(err, DownloadError::InvalidInput(_)));
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn reserve_blocks_caps_inflight_leases_per_peer() {
+        let root = temp_dir("reserve-peer-cap");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cap-peer.bin".to_string(),
+                file_size: 10_000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        let first = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 128, 10)
+            .await
+            .expect("first reserve");
+        assert_eq!(first.len(), MAX_INFLIGHT_LEASES_PER_PEER);
+
+        let second = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 8, 10)
+            .await
+            .expect("second reserve");
+        assert!(second.is_empty());
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn mark_block_failed_enforces_short_retry_cooldown() {
+        let root = temp_dir("retry-cooldown");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cooldown.bin".to_string(),
+                file_size: 1_000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+        let blocks = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 100)
+            .await
+            .expect("reserve");
+        assert_eq!(blocks.len(), 1);
+
+        handle
+            .mark_block_failed_by_peer(
+                d.part_number,
+                "peer-a".to_string(),
+                blocks[0],
+                "timeout".to_string(),
+            )
+            .await
+            .expect("mark failed");
+
+        let immediate = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 100)
+            .await
+            .expect("reserve immediate");
+        assert!(immediate.is_empty());
+
+        tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_BASE_MS + 75)).await;
+        let after = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 100)
+            .await
+            .expect("reserve after cooldown");
+        assert_eq!(after.len(), 1);
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
@@ -2253,6 +2371,7 @@ mod tests {
                 part_path: part_path.clone(),
                 met,
                 leases: Vec::new(),
+                cooldown_until: None,
             },
         );
 
