@@ -8,6 +8,31 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Started download phase-2 pipeline hardening (fairness + retry cooldown).
+  - `src/download/service.rs`:
+    - added lease fairness caps:
+      - `MAX_INFLIGHT_LEASES_PER_PEER = 32`
+      - `MAX_INFLIGHT_LEASES_PER_DOWNLOAD = 256`
+    - added per-download transient retry cooldown (`cooldown_until`) after block-fail, peer disconnect, and timeout reclaim paths.
+    - added bounded exponential backoff helper (`retry_backoff_delay`, 200ms base, 5s max).
+    - reserve path now respects cooldown and fairness caps before assigning new ranges.
+  - tests:
+    - added `reserve_blocks_caps_inflight_leases_per_peer`.
+    - added `mark_block_failed_enforces_short_retry_cooldown`.
+    - updated existing retry test to account for cooldown behavior.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (140 passed)
+- Decisions:
+  - Keep cooldown transient/in-memory for this slice (no persistence yet) to avoid schema churn while we stabilize scheduler behavior.
+- Next steps:
+  - Add observable counters for cooldown rejections / peer-cap rejections.
+  - Tune scheduler policy with soak data (per-peer cap, backoff constants).
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Addressed PR #31 review hardening follow-ups (known.met + finalize path).
   - `src/download/service.rs`:
     - added resilient known index boot (`load_known_keys_resilient`): corrupt `known.met` is quarantined and service continues with empty known set.
