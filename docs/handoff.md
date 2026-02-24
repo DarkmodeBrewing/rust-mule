@@ -8,6 +8,39 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Prepared safe-only split plan for `feature/kad-rotate-query-candidates` after long-run comparison showed throughput regression under rotate tuning.
+  - Branch-only commits relative to `origin/main` are:
+    - `80b64fb` / `c7e6662` / `f3f1e5c` (routing tie-break implementation follow-ups)
+    - `1ab817c` (long-run script output-path hardening)
+    - `de7282f` / `c1c1978` / `dd59dea` / `5ba2ee2` (docs backlog prioritization)
+  - Safe-only merge candidate set (no runtime routing-policy behavior change):
+    - `1ab817c`
+    - `de7282f`
+    - `c1c1978`
+    - `dd59dea`
+    - `5ba2ee2`
+  - Hold/experimental set (keep on feature branch until a win is proven):
+    - `80b64fb`
+    - `c7e6662`
+    - `f3f1e5c`
+  - Ready command sequence (from clean tree):
+    - `git checkout main`
+    - `git fetch origin --prune`
+    - `git reset --hard origin/main` (only if local `main` is intentionally disposable; otherwise `git pull --ff-only`)
+    - `git checkout -b chore/kad-phase2-safe-split`
+    - `git cherry-pick 1ab817c de7282f c1c1978 dd59dea 5ba2ee2`
+    - run `cargo fmt && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-targets --all-features`
+    - `git push -u origin chore/kad-phase2-safe-split`
+    - open PR, merge, then keep routing-tuning commits isolated for follow-up baseline gates.
+- Decisions:
+  - Separate script/docs reliability changes from routing-order behavior changes.
+  - Do not advance routing tie-break tuning without a neutral-or-better long-run compare vs `main`.
+- Next steps:
+  - Create `chore/kad-phase2-safe-split` and cherry-pick only safe commits.
+  - Re-baseline routing tuning on a dedicated branch using identical network/runtime preconditions.
+- Change log:
+  - Updated `docs/handoff.md` with split/cherry-pick plan and commit classification.
+
 - Status (2026-02-23): Added API-module targeted hardening backlog from focused review (no runtime behavior changes in this step).
   - Added explicit post-longrun tasks for:
     - request body size limits for JSON endpoints,
