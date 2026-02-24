@@ -4,6 +4,7 @@ use std::net::{IpAddr, SocketAddr};
 use tokio::net::UdpSocket;
 
 type Result<T> = std::result::Result<T, SamError>;
+const MAX_FORWARDED_DGRAM_SIZE: usize = 64 * 1024;
 
 /// A SAM repliable datagram session (STYLE=DATAGRAM) with UDP forwarding enabled.
 ///
@@ -89,6 +90,7 @@ impl SamDatagramSocket {
         payload: &[u8],
         opts: SamDatagramSendOpts,
     ) -> Result<()> {
+        ensure_outbound_payload_size(payload.len())?;
         let mut header = String::new();
         header.push_str(self.sam_version);
         header.push(' ');
@@ -221,6 +223,15 @@ fn parse_forwarded_repliable(buf: &[u8]) -> Result<SamDatagramRecv> {
     })
 }
 
+fn ensure_outbound_payload_size(payload_len: usize) -> Result<()> {
+    if payload_len > MAX_FORWARDED_DGRAM_SIZE {
+        return Err(SamError::protocol(format!(
+            "datagram payload too large: {payload_len} > {MAX_FORWARDED_DGRAM_SIZE}"
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,5 +265,11 @@ mod tests {
         assert!(line.contains("HOST=127.0.0.1"));
         assert!(line.contains("inbound.quantity=2"));
         assert!(line.contains("outbound.quantity=2"));
+    }
+
+    #[test]
+    fn rejects_oversized_outbound_payload() {
+        let err = ensure_outbound_payload_size((64 * 1024) + 1).unwrap_err();
+        assert!(matches!(err, SamError::Protocol { .. }));
     }
 }

@@ -21,6 +21,9 @@ pub enum HttpError {
         value: String,
         source: std::num::ParseIntError,
     },
+    ResponseTooLarge {
+        max_bytes: usize,
+    },
 }
 
 impl std::fmt::Display for HttpError {
@@ -37,6 +40,9 @@ impl std::fmt::Display for HttpError {
             }
             Self::BadChunkSizeLineUtf8(_) => write!(f, "bad chunk size line utf8"),
             Self::BadChunkSize { value, .. } => write!(f, "bad chunk size: {value}"),
+            Self::ResponseTooLarge { max_bytes } => {
+                write!(f, "HTTP response exceeded max size of {max_bytes} bytes")
+            }
         }
     }
 }
@@ -49,6 +55,7 @@ impl std::error::Error for HttpError {
             Self::InvalidStatusCode { source, .. } => Some(source),
             Self::BadChunkSizeLineUtf8(source) => Some(source),
             Self::BadChunkSize { source, .. } => Some(source),
+            Self::ResponseTooLarge { .. } => None,
             Self::WriteTimedOut
             | Self::FlushTimedOut
             | Self::ReadTimedOut
@@ -63,6 +70,8 @@ pub struct HttpResponse {
     pub headers: HashMap<String, String>,
     pub body: Vec<u8>,
 }
+
+const MAX_HTTP_RESPONSE_BYTES: usize = 4 * 1024 * 1024;
 
 pub async fn http_get_bytes(
     mut stream: impl AsyncRead + AsyncWrite + Unpin,
@@ -86,13 +95,32 @@ pub async fn http_get_bytes(
         .map_err(|_| HttpError::FlushTimedOut)?
         .map_err(HttpError::Io)?;
 
-    let mut buf = Vec::new();
-    timeout(io_timeout, async { stream.read_to_end(&mut buf).await })
-        .await
-        .map_err(|_| HttpError::ReadTimedOut)?
-        .map_err(HttpError::Io)?;
+    let buf = read_to_end_bounded(&mut stream, io_timeout, MAX_HTTP_RESPONSE_BYTES).await?;
 
     parse_http_response(&buf)
+}
+
+async fn read_to_end_bounded(
+    stream: &mut (impl AsyncRead + Unpin),
+    io_timeout: Duration,
+    max_bytes: usize,
+) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = timeout(io_timeout, stream.read(&mut chunk))
+            .await
+            .map_err(|_| HttpError::ReadTimedOut)?
+            .map_err(HttpError::Io)?;
+        if n == 0 {
+            break;
+        }
+        if out.len().saturating_add(n) > max_bytes {
+            return Err(HttpError::ResponseTooLarge { max_bytes });
+        }
+        out.extend_from_slice(&chunk[..n]);
+    }
+    Ok(out)
 }
 
 fn parse_http_response(raw: &[u8]) -> Result<HttpResponse> {
@@ -175,15 +203,29 @@ fn decode_chunked(mut b: &[u8]) -> Result<Vec<u8>> {
             })?;
         b = &b[line_end + 2..];
         if size == 0 {
-            // Consume trailer headers until CRLF.
-            if let Some(trailer_end) = twoway_find(b, b"\r\n\r\n") {
-                let _ = trailer_end;
+            // Consume trailer headers until the final CRLF.
+            loop {
+                let trailer_end = twoway_find(b, b"\r\n").ok_or_else(|| {
+                    HttpError::InvalidResponse(
+                        "bad chunked encoding: missing CRLF in trailers".to_string(),
+                    )
+                })?;
+                let trailer_line = &b[..trailer_end];
+                b = &b[trailer_end + 2..];
+                if trailer_line.is_empty() {
+                    break;
+                }
             }
             break;
         }
         if b.len() < size + 2 {
             return Err(HttpError::InvalidResponse(
                 "bad chunked encoding: truncated chunk".to_string(),
+            ));
+        }
+        if &b[size..size + 2] != b"\r\n" {
+            return Err(HttpError::InvalidResponse(
+                "bad chunked encoding: missing CRLF after chunk payload".to_string(),
             ));
         }
         out.extend_from_slice(&b[..size]);
@@ -202,6 +244,7 @@ fn twoway_find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::repeat;
 
     #[test]
     fn parses_simple_http_response() {
@@ -218,5 +261,26 @@ mod tests {
         let r = parse_http_response(raw).unwrap();
         assert_eq!(r.status, 200);
         assert_eq!(r.body, b"hello");
+    }
+
+    #[test]
+    fn rejects_chunked_when_payload_crlf_is_missing() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhelloXX0\r\n\r\n";
+        let err = parse_http_response(raw).unwrap_err();
+        assert!(matches!(err, HttpError::InvalidResponse(_)));
+    }
+
+    #[test]
+    fn rejects_chunked_when_final_trailer_crlf_is_missing() {
+        let raw = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n";
+        let err = parse_http_response(raw).unwrap_err();
+        assert!(matches!(err, HttpError::InvalidResponse(_)));
+    }
+
+    #[tokio::test]
+    async fn read_to_end_bounded_rejects_unbounded_stream() {
+        let mut stream = repeat(0u8);
+        let err = read_to_end_bounded(&mut stream, Duration::from_secs(1), 1024).await;
+        assert!(matches!(err, Err(HttpError::ResponseTooLarge { .. })));
     }
 }

@@ -125,6 +125,7 @@ impl SamDatagramTcp {
                 "must create a DATAGRAM session before sending",
             ));
         }
+        ensure_datagram_payload_size(payload.len())?;
 
         let header = format!(
             "DATAGRAM SEND DESTINATION={} SIZE={}\n",
@@ -417,6 +418,15 @@ fn build_pong_line_for_ping(line: &str) -> Option<String> {
     }
 }
 
+fn ensure_datagram_payload_size(payload_len: usize) -> Result<(), SamError> {
+    if payload_len > MAX_DGRAM_TCP_SIZE {
+        return Err(SamError::protocol(format!(
+            "DATAGRAM payload too large: {payload_len} > {MAX_DGRAM_TCP_SIZE}"
+        )));
+    }
+    Ok(())
+}
+
 fn hex_head(b: &[u8], max: usize) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
@@ -431,7 +441,8 @@ fn hex_head(b: &[u8], max: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::build_pong_line_for_ping;
+    use super::{build_pong_line_for_ping, ensure_datagram_payload_size};
+    use crate::i2p::sam::SamError;
 
     #[test]
     fn ping_without_payload_maps_to_plain_pong() {
@@ -449,5 +460,11 @@ mod tests {
     #[test]
     fn non_ping_line_returns_none() {
         assert_eq!(build_pong_line_for_ping("SESSION STATUS RESULT=OK"), None);
+    }
+
+    #[test]
+    fn rejects_oversized_outbound_payload() {
+        let err = ensure_datagram_payload_size((64 * 1024) + 1).unwrap_err();
+        assert!(matches!(err, SamError::Protocol { .. }));
     }
 }

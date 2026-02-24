@@ -8,6 +8,38 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Completed i2p/SAM hostile-input hardening slice on `feature/i2p-sam-hardening`.
+  - Hardened HTTP handling in `src/i2p/http.rs`:
+    - replaced unbounded `read_to_end` with capped read loop (`MAX_HTTP_RESPONSE_BYTES = 4 MiB`)
+    - made chunked decoding stricter:
+      - enforce CRLF after each chunk payload
+      - require proper trailer termination (`CRLF` empty line)
+    - added hostile-input tests for malformed chunked frames and oversized body stream
+  - Hardened SAM control parsing in `src/i2p/sam/client.rs`:
+    - added explicit max control-line guard (`MAX_SAM_CONTROL_LINE_LEN = 8 KiB`)
+    - moved line decoding through capped/typed path with framing-desync errors on oversize/invalid UTF-8
+    - added unit tests for oversize and invalid-UTF8 lines
+  - Hardened outbound datagram send caps:
+    - `src/i2p/sam/datagram.rs` enforces outbound payload max (`64 KiB`)
+    - `src/i2p/sam/datagram_tcp.rs` enforces outbound payload max (`64 KiB`)
+    - added regression tests for oversize rejection in both paths
+  - Updated backlog docs:
+    - marked i2p/SAM hostile-input TODOs complete in `docs/TODO.md`
+    - moved next priority to download hostile-input hardening in `docs/TASKS.md`
+- Decisions:
+  - Keep hard limits internal constants for this slice (no new config surface yet).
+  - Use strict parsing for chunked framing to fail fast on malformed remote input.
+- Next steps:
+  - Open PR for `feature/i2p-sam-hardening` (do not merge without explicit instruction).
+  - Start the next hardening tranche: download protocol hostile-input protections.
+- Change log:
+  - Updated `src/i2p/http.rs`.
+  - Updated `src/i2p/sam/client.rs`.
+  - Updated `src/i2p/sam/datagram.rs`.
+  - Updated `src/i2p/sam/datagram_tcp.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
 - Status (2026-02-24): Validated KAD parser/fuzz hardening branch before PR.
   - Ran required validation:
     - `cargo fmt`
