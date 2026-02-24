@@ -2540,6 +2540,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn startup_quarantines_corrupt_known_met_and_continues() {
+        let root = temp_dir("startup-corrupt-known");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        tokio::fs::create_dir_all(&cfg.download_dir)
+            .await
+            .expect("mkdir download");
+        tokio::fs::create_dir_all(&cfg.incoming_dir)
+            .await
+            .expect("mkdir incoming");
+        tokio::fs::write(&cfg.known_met_path, b"{not-json")
+            .await
+            .expect("seed corrupt known");
+
+        let (handle, _status, join) = start_service(cfg.clone()).await.expect("start");
+
+        let mut found_quarantine = false;
+        for _ in 0..50 {
+            if !cfg.known_met_path.exists() {
+                let mut rd = tokio::fs::read_dir(root.as_path()).await.expect("read dir");
+                while let Some(entry) = rd.next_entry().await.expect("next entry") {
+                    let name = entry.file_name();
+                    if let Some(name_str) = name.to_str()
+                        && name_str.starts_with("known.met.corrupt.")
+                    {
+                        found_quarantine = true;
+                        break;
+                    }
+                }
+            }
+            if found_quarantine {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        assert!(!cfg.known_met_path.exists());
+        assert!(found_quarantine);
+
+        let known = crate::download::store::load_known_met_entries(&cfg.known_met_path)
+            .await
+            .expect("known");
+        assert!(known.is_empty());
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
     async fn create_download_rejects_path_traversal_file_names() {
         let root = temp_dir("invalid-name");
         let cfg = DownloadServiceConfig::from_data_dir(&root);

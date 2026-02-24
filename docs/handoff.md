@@ -8,6 +8,35 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Added known.met startup resilience regression coverage and hash-first operator helper.
+  - `src/download/service.rs`:
+    - added `startup_quarantines_corrupt_known_met_and_continues` test:
+      - validates service startup does not fail on corrupt `known.met`,
+      - validates corrupt file quarantine behavior (`known.met.corrupt.<ts>`),
+      - validates service continues with an empty known set.
+  - `scripts/docs/download_create_from_hash.sh`:
+    - new hash-first helper script to:
+      - optionally queue `POST /api/v1/kad/search_sources`,
+      - create download via `POST /api/v1/downloads` using MD4 hash input.
+  - docs:
+    - updated `scripts/docs/README.md` with helper mention.
+    - updated `docs/TODO.md` with helper completion marker.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (143 passed)
+- Decisions:
+  - Keep hash-first flow additive via operator helper script for now; full API/UI workflow remains a separate feature slice.
+- Next steps:
+  - Execute one full acceptance pass with `RUN_RESUME_SOAK=1` and archive the output directory.
+  - Start dedicated implementation slice for full hash-first API/UI flow and deeper known-met compatibility semantics.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Added `scripts/docs/download_create_from_hash.sh`.
+  - Updated `scripts/docs/README.md`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Added phase-0 acceptance runner and aligned task backlog for next download slices.
   - `scripts/test/download_phase0_acceptance.sh`:
     - new one-command acceptance orchestration for download/KAD phase-0:

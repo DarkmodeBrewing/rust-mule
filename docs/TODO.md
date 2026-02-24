@@ -53,6 +53,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [ ] Execute reproducible phase-0 acceptance pass and archive artifacts (`scripts/test/download_phase0_acceptance.sh`).
 - [ ] Deepen `known.met` compatibility and add restart/resume robustness assertions for crash/restart edge cases.
 - [ ] Add hash-first discovery/initiation path (direct MD4/file-hash driven flow, not keyword-only).
+- [x] Add operator helper for hash-first initiation (`scripts/docs/download_create_from_hash.sh`) to queue source search and create download from file hash.
 - [ ] Phase in AICH hashset support (`known2_64.met`) after MD4-first baseline is stable.
 
 ## API
