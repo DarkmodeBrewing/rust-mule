@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Addressed PR #30 Copilot review items 1..4 for download finalize hardening.
+  - `src/download/service.rs`:
+    - command-path finalization is now non-fatal (`try_finalize_completed_downloads`), so command replies are still sent even if post-command finalization fails.
+    - `finalize_single_download` now treats missing `.part` as already-finalized when matching incoming target(s) exist (idempotent restart behavior).
+    - copy/remove fallback now removes copied target on source-remove failure to avoid duplicate incoming artifacts on retries.
+    - `unique_incoming_path` now guarantees uniqueness across fallback collisions (`.completed`, `.completed.1`, ...).
+  - tests:
+    - added command-reply regression for finalize failures.
+    - added unique incoming path collision regression.
+    - added idempotent finalize regression when source `.part` is already moved.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (139 passed)
+- Decisions:
+  - Keep tick-path finalization strict (error-propagating) for now; only command-path was made non-fatal to eliminate caller hangs.
+- Next steps:
+  - Respond to PR #30 review threads with implemented changes and rationale.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Completed download phase 0/1 lifecycle follow-up implementation (`.part`/`.part.met`/startup recovery/finalize-to-incoming) and added regression coverage.
   - `src/download/service.rs`:
     - threaded `incoming_dir` through service runtime and invoked completion finalization on ticks and command paths.
