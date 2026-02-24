@@ -1658,4 +1658,10 @@ mod tests {
         // no contacts
         assert!(decode_kad2_res(&payload).is_err());
     }
+
+    #[test]
+    fn kad_packet_decode_rejects_invalid_packed_payload() {
+        let raw = [OP_KADEMLIAPACKEDPROT, KADEMLIA2_REQ, 0xFF, 0x00, 0x01];
+        assert!(KadPacket::decode(&raw).is_err());
+    }
 }

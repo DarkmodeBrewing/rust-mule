@@ -465,6 +465,30 @@ mod tests {
         assert!(err.to_string().to_lowercase().contains("adler32"));
     }
 
+    #[test]
+    fn rejects_invalid_zlib_method() {
+        // Same payload as "hello" but corrupt CM (must be 8/deflate).
+        let mut src = hex_to_bytes("789ccb48cdc9c90700062c0215");
+        src[0] = (src[0] & 0xF0) | 0x01;
+        let err = inflate_zlib(&src, 1024).unwrap_err();
+        assert!(err.to_string().contains("compression method"));
+    }
+
+    #[test]
+    fn rejects_header_check_bits_mismatch() {
+        let mut src = hex_to_bytes("789ccb48cdc9c90700062c0215");
+        src[1] ^= 0x01;
+        let err = inflate_zlib(&src, 1024).unwrap_err();
+        assert!(err.to_string().contains("check bits"));
+    }
+
+    #[test]
+    fn rejects_when_output_exceeds_max_out() {
+        let src = hex_to_bytes("789ccb48cdc9c90700062c0215");
+        let err = inflate_zlib(&src, 4).unwrap_err(); // "hello" => 5 bytes
+        assert!(err.to_string().contains("max_out"));
+    }
+
     fn hex_to_bytes(s: &str) -> Vec<u8> {
         assert!(s.len().is_multiple_of(2));
         let mut out = Vec::with_capacity(s.len() / 2);
