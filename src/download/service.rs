@@ -40,6 +40,9 @@ pub struct DownloadServiceStatus {
     pub running: bool,
     pub queue_len: usize,
     pub recovered_on_start: usize,
+    pub reserve_denied_cooldown_total: u64,
+    pub reserve_denied_peer_cap_total: u64,
+    pub reserve_denied_download_cap_total: u64,
     pub started_at: Instant,
 }
 
@@ -83,6 +86,12 @@ pub enum DownloadCommand {
     },
     RecoveredCount {
         reply: oneshot::Sender<usize>,
+    },
+    Status {
+        reply: oneshot::Sender<DownloadServiceStatus>,
+    },
+    Snapshot {
+        reply: oneshot::Sender<(DownloadServiceStatus, Vec<DownloadSummary>)>,
     },
     CreateDownload {
         req: CreateDownloadRequest,
@@ -172,6 +181,24 @@ impl DownloadServiceHandle {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(DownloadCommand::RecoveredCount { reply: tx })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)
+    }
+
+    pub async fn status(&self) -> Result<DownloadServiceStatus> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::Status { reply: tx })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)
+    }
+
+    pub async fn snapshot(&self) -> Result<(DownloadServiceStatus, Vec<DownloadSummary>)> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::Snapshot { reply: tx })
             .await
             .map_err(|_| DownloadError::ChannelClosed)?;
         rx.await.map_err(|_| DownloadError::ChannelClosed)
@@ -373,6 +400,31 @@ impl DownloadServiceHandle {
                     DownloadCommand::RecoveredCount { reply } => {
                         let _ = reply.send(0);
                     }
+                    DownloadCommand::Status { reply } => {
+                        let _ = reply.send(DownloadServiceStatus {
+                            running: false,
+                            queue_len: 0,
+                            recovered_on_start: 0,
+                            reserve_denied_cooldown_total: 0,
+                            reserve_denied_peer_cap_total: 0,
+                            reserve_denied_download_cap_total: 0,
+                            started_at: Instant::now(),
+                        });
+                    }
+                    DownloadCommand::Snapshot { reply } => {
+                        let _ = reply.send((
+                            DownloadServiceStatus {
+                                running: false,
+                                queue_len: 0,
+                                recovered_on_start: 0,
+                                reserve_denied_cooldown_total: 0,
+                                reserve_denied_peer_cap_total: 0,
+                                reserve_denied_download_cap_total: 0,
+                                started_at: Instant::now(),
+                            },
+                            Vec::new(),
+                        ));
+                    }
                     DownloadCommand::CreateDownload { reply, .. } => {
                         let _ = reply.send(Err(DownloadError::ChannelClosed));
                     }
@@ -433,6 +485,9 @@ pub async fn start_service(
         running: true,
         queue_len: recovered_count,
         recovered_on_start: recovered_count,
+        reserve_denied_cooldown_total: 0,
+        reserve_denied_peer_cap_total: 0,
+        reserve_denied_download_cap_total: 0,
         started_at,
     });
     let join = tokio::spawn(run_service(
@@ -499,6 +554,7 @@ async fn run_service(
     }
     let recovered_on_start = downloads.len();
     let mut known_keys = load_known_keys_resilient(&known_met_path).await?;
+    let mut pipeline_stats = DownloadPipelineStats::default();
     let mut timeout_tick = tokio::time::interval(Duration::from_secs(1));
     timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -514,10 +570,22 @@ async fn run_service(
                 )
                 .await?;
                 if changed {
-                    publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                    publish_status(
+                        &status_tx,
+                        started_at,
+                        downloads.len(),
+                        recovered_on_start,
+                        pipeline_stats,
+                    );
                 }
                 if finalized {
-                    publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                    publish_status(
+                        &status_tx,
+                        started_at,
+                        downloads.len(),
+                        recovered_on_start,
+                        pipeline_stats,
+                    );
                 }
             }
             cmd = rx.recv() => {
@@ -529,6 +597,27 @@ async fn run_service(
                     DownloadCommand::RecoveredCount { reply } => {
                         let _ = reply.send(recovered_on_start);
                     }
+                    DownloadCommand::Status { reply } => {
+                        let _ = reply.send(make_status(
+                            true,
+                            downloads.len(),
+                            recovered_on_start,
+                            started_at,
+                            pipeline_stats,
+                        ));
+                    }
+                    DownloadCommand::Snapshot { reply } => {
+                        let _ = reply.send((
+                            make_status(
+                                true,
+                                downloads.len(),
+                                recovered_on_start,
+                                started_at,
+                                pipeline_stats,
+                            ),
+                            list_summaries(&downloads),
+                        ));
+                    }
                     DownloadCommand::CreateDownload { req, reply } => {
                         let result = create_download(&mut downloads, &download_dir, req).await;
                         let _ = try_finalize_completed_downloads(
@@ -538,7 +627,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::Pause { part_number, reply } => {
@@ -556,7 +651,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::Resume { part_number, reply } => {
@@ -574,7 +675,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::Cancel { part_number, reply } => {
@@ -592,7 +699,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::Delete { part_number, reply } => {
@@ -604,7 +717,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::List { reply } => {
@@ -618,7 +737,15 @@ async fn run_service(
                         reply,
                     } => {
                         let result =
-                            reserve_blocks(&mut downloads, part_number, peer_id, max_blocks, block_size).await;
+                            reserve_blocks(
+                                &mut downloads,
+                                &mut pipeline_stats,
+                                part_number,
+                                peer_id,
+                                max_blocks,
+                                block_size,
+                            )
+                            .await;
                         let _ = try_finalize_completed_downloads(
                             &mut downloads,
                             &incoming_dir,
@@ -626,7 +753,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::MarkBlockReceived {
@@ -643,7 +776,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::MarkBlockFailed {
@@ -661,7 +800,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::PeerDisconnected { peer_id, reply } => {
@@ -673,7 +818,13 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::IngestInboundPacket { part_number, peer_id, packet, reply } => {
@@ -685,17 +836,24 @@ async fn run_service(
                             &mut known_keys,
                         )
                         .await;
-                        publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
+                        publish_status(
+                            &status_tx,
+                            started_at,
+                            downloads.len(),
+                            recovered_on_start,
+                            pipeline_stats,
+                        );
                         let _ = reply.send(result);
                     }
                     DownloadCommand::Shutdown { reply } => {
                         let _ = reply.send(());
-                        let _ = status_tx.send(DownloadServiceStatus {
-                            running: false,
-                            queue_len: downloads.len(),
+                        let _ = status_tx.send(make_status(
+                            false,
+                            downloads.len(),
                             recovered_on_start,
                             started_at,
-                        });
+                            pipeline_stats,
+                        ));
                         return Ok(());
                     }
                 }
@@ -703,12 +861,13 @@ async fn run_service(
         }
     }
 
-    let _ = status_tx.send(DownloadServiceStatus {
-        running: false,
-        queue_len: downloads.len(),
+    let _ = status_tx.send(make_status(
+        false,
+        downloads.len(),
         recovered_on_start,
         started_at,
-    });
+        pipeline_stats,
+    ));
     Ok(())
 }
 
@@ -726,6 +885,13 @@ struct InflightLease {
     range: BlockRange,
     peer_id: String,
     deadline: Instant,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct DownloadPipelineStats {
+    reserve_denied_cooldown_total: u64,
+    reserve_denied_peer_cap_total: u64,
+    reserve_denied_download_cap_total: u64,
 }
 
 fn list_summaries(
@@ -864,6 +1030,7 @@ async fn set_state(
 
 async fn reserve_blocks(
     downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
+    pipeline_stats: &mut DownloadPipelineStats,
     part_number: u16,
     peer_id: String,
     max_blocks: usize,
@@ -888,6 +1055,9 @@ async fn reserve_blocks(
         .ok_or(DownloadError::NotFound(part_number))?;
     if let Some(until) = d.cooldown_until {
         if Instant::now() < until {
+            pipeline_stats.reserve_denied_cooldown_total = pipeline_stats
+                .reserve_denied_cooldown_total
+                .saturating_add(1);
             return Ok(Vec::new());
         }
         d.cooldown_until = None;
@@ -904,9 +1074,16 @@ async fn reserve_blocks(
     }
 
     let peer_leases = d.leases.iter().filter(|l| l.peer_id == peer_id).count();
-    if peer_leases >= MAX_INFLIGHT_LEASES_PER_PEER
-        || d.leases.len() >= MAX_INFLIGHT_LEASES_PER_DOWNLOAD
-    {
+    if peer_leases >= MAX_INFLIGHT_LEASES_PER_PEER {
+        pipeline_stats.reserve_denied_peer_cap_total = pipeline_stats
+            .reserve_denied_peer_cap_total
+            .saturating_add(1);
+        return Ok(Vec::new());
+    }
+    if d.leases.len() >= MAX_INFLIGHT_LEASES_PER_DOWNLOAD {
+        pipeline_stats.reserve_denied_download_cap_total = pipeline_stats
+            .reserve_denied_download_cap_total
+            .saturating_add(1);
         return Ok(Vec::new());
     }
     let budget = max_blocks
@@ -1272,13 +1449,33 @@ fn publish_status(
     started_at: Instant,
     queue_len: usize,
     recovered_on_start: usize,
+    pipeline_stats: DownloadPipelineStats,
 ) {
-    let _ = status_tx.send(DownloadServiceStatus {
-        running: true,
+    let _ = status_tx.send(make_status(
+        true,
         queue_len,
         recovered_on_start,
         started_at,
-    });
+        pipeline_stats,
+    ));
+}
+
+fn make_status(
+    running: bool,
+    queue_len: usize,
+    recovered_on_start: usize,
+    started_at: Instant,
+    pipeline_stats: DownloadPipelineStats,
+) -> DownloadServiceStatus {
+    DownloadServiceStatus {
+        running,
+        queue_len,
+        recovered_on_start,
+        reserve_denied_cooldown_total: pipeline_stats.reserve_denied_cooldown_total,
+        reserve_denied_peer_cap_total: pipeline_stats.reserve_denied_peer_cap_total,
+        reserve_denied_download_cap_total: pipeline_stats.reserve_denied_download_cap_total,
+        started_at,
+    }
 }
 
 async fn finalize_completed_downloads(
@@ -1961,6 +2158,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reserve_blocks_peer_cap_increments_denied_counter() {
+        let root = temp_dir("reserve-peer-cap-counter");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cap-peer-counter.bin".to_string(),
+                file_size: 10_000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        let first = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 128, 10)
+            .await
+            .expect("first reserve");
+        assert_eq!(first.len(), MAX_INFLIGHT_LEASES_PER_PEER);
+        let second = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 10)
+            .await
+            .expect("second reserve");
+        assert!(second.is_empty());
+
+        let status = handle.status().await.expect("status");
+        assert_eq!(status.reserve_denied_peer_cap_total, 1);
+        assert_eq!(status.reserve_denied_cooldown_total, 0);
+        assert_eq!(status.reserve_denied_download_cap_total, 0);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn reserve_blocks_download_cap_increments_denied_counter() {
+        let root = temp_dir("reserve-download-cap-counter");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cap-download-counter.bin".to_string(),
+                file_size: 10_000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        for idx in 0..(MAX_INFLIGHT_LEASES_PER_DOWNLOAD / MAX_INFLIGHT_LEASES_PER_PEER) {
+            let peer = format!("peer-{idx}");
+            let lease_batch = handle
+                .reserve_blocks_for_peer(d.part_number, peer, 128, 1)
+                .await
+                .expect("fill reserve");
+            assert_eq!(lease_batch.len(), MAX_INFLIGHT_LEASES_PER_PEER);
+        }
+
+        let denied = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-overflow".to_string(), 1, 1)
+            .await
+            .expect("overflow reserve");
+        assert!(denied.is_empty());
+
+        let status = handle.status().await.expect("status");
+        assert_eq!(status.reserve_denied_download_cap_total, 1);
+        assert_eq!(status.reserve_denied_cooldown_total, 0);
+        assert_eq!(status.reserve_denied_peer_cap_total, 0);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
     async fn mark_block_failed_enforces_short_retry_cooldown() {
         let root = temp_dir("retry-cooldown");
         let cfg = DownloadServiceConfig::from_data_dir(&root);
@@ -1994,6 +2265,10 @@ mod tests {
             .await
             .expect("reserve immediate");
         assert!(immediate.is_empty());
+        let status = handle.status().await.expect("status");
+        assert_eq!(status.reserve_denied_cooldown_total, 1);
+        assert_eq!(status.reserve_denied_peer_cap_total, 0);
+        assert_eq!(status.reserve_denied_download_cap_total, 0);
 
         tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_BASE_MS + 75)).await;
         let after = handle
