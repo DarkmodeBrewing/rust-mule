@@ -217,11 +217,14 @@ pub async fn load_known_met_entries(path: &Path) -> Result<Vec<KnownMetEntry>> {
 }
 
 pub async fn append_known_met_entry(path: &Path, entry: KnownMetEntry) -> Result<bool> {
+    let mut entry = entry;
+    entry.file_hash_md4_hex = entry.file_hash_md4_hex.to_ascii_lowercase();
     let mut entries = load_known_met_entries(path).await?;
-    if entries
-        .iter()
-        .any(|e| e.file_hash_md4_hex == entry.file_hash_md4_hex && e.file_size == entry.file_size)
-    {
+    if entries.iter().any(|e| {
+        e.file_size == entry.file_size
+            && e.file_hash_md4_hex
+                .eq_ignore_ascii_case(&entry.file_hash_md4_hex)
+    }) {
         return Ok(false);
     }
     entries.push(entry);
@@ -453,9 +456,15 @@ mod tests {
             .await
             .expect("append");
         assert!(inserted);
-        let inserted_again = append_known_met_entry(&path, entry)
-            .await
-            .expect("append again");
+        let inserted_again = append_known_met_entry(
+            &path,
+            KnownMetEntry {
+                file_hash_md4_hex: "0123456789ABCDEF0123456789ABCDEF".to_string(),
+                ..entry
+            },
+        )
+        .await
+        .expect("append again");
         assert!(!inserted_again);
 
         let loaded = load_known_met_entries(&path).await.expect("load");

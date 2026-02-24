@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Addressed PR #31 review hardening follow-ups (known.met + finalize path).
+  - `src/download/service.rs`:
+    - added resilient known index boot (`load_known_keys_resilient`): corrupt `known.met` is quarantined and service continues with empty known set.
+    - canonicalized in-memory known dedup keys to lowercase hash form.
+    - added strict file-name sanitization (`sanitize_download_file_name`) to prevent path traversal/absolute path usage in download finalize targets.
+    - switched incoming existence checks to async directory scanning (`tokio::fs::read_dir` / `try_exists`) to avoid blocking runtime threads.
+    - replaced fixed-sleep test assumptions with bounded polling loops; added traversal-rejection test.
+  - `src/download/store.rs`:
+    - `append_known_met_entry` now canonicalizes hash casing and deduplicates case-insensitively.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (138 passed)
+- Decisions:
+  - Treat corrupted `known.met` as recoverable metadata state (quarantine + continue) rather than startup-fatal.
+- Next steps:
+  - Update PR #31 threads and merge once approved.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `src/download/store.rs`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Implemented download `known.met` slice and wired finalize lifecycle in service runtime.
   - `src/download/service.rs`:
     - added `known_met_path` to `DownloadServiceConfig` (`data/known.met`).

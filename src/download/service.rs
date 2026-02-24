@@ -493,11 +493,7 @@ async fn run_service(
         );
     }
     let recovered_on_start = downloads.len();
-    let known_entries = load_known_met_entries(&known_met_path).await?;
-    let mut known_keys: std::collections::HashSet<(String, u64)> = known_entries
-        .into_iter()
-        .map(|e| (e.file_hash_md4_hex, e.file_size))
-        .collect();
+    let mut known_keys = load_known_keys_resilient(&known_met_path).await?;
     let mut timeout_tick = tokio::time::interval(Duration::from_secs(1));
     timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -764,11 +760,7 @@ async fn create_download(
     download_dir: &Path,
     req: CreateDownloadRequest,
 ) -> Result<DownloadSummary> {
-    if req.file_name.trim().is_empty() {
-        return Err(DownloadError::InvalidInput(
-            "file_name must not be empty".to_string(),
-        ));
-    }
+    let safe_file_name = sanitize_download_file_name(&req.file_name)?;
     if req.file_size == 0 {
         return Err(DownloadError::InvalidInput(
             "file_size must be > 0".to_string(),
@@ -804,7 +796,7 @@ async fn create_download(
     let met = PartMet {
         version: crate::download::store::PART_MET_VERSION,
         part_number,
-        file_name: req.file_name,
+        file_name: safe_file_name,
         file_size: req.file_size,
         file_hash_md4_hex: req.file_hash_md4_hex,
         state: PartState::Queued,
@@ -1322,7 +1314,8 @@ async fn persist_known_entry(
     known_met_path: &Path,
     known_keys: &mut std::collections::HashSet<(String, u64)>,
 ) -> Result<()> {
-    let key = (d.met.file_hash_md4_hex.clone(), d.met.file_size);
+    let normalized_hash = canonicalize_hash_hex(&d.met.file_hash_md4_hex);
+    let key = (normalized_hash.clone(), d.met.file_size);
     if known_keys.contains(&key) {
         return Ok(());
     }
@@ -1331,7 +1324,7 @@ async fn persist_known_entry(
         KnownMetEntry {
             file_name: d.met.file_name.clone(),
             file_size: d.met.file_size,
-            file_hash_md4_hex: d.met.file_hash_md4_hex.clone(),
+            file_hash_md4_hex: normalized_hash,
             completed_unix_secs: now_secs(),
         },
     )
@@ -1343,8 +1336,9 @@ async fn persist_known_entry(
 }
 
 async fn finalize_single_download(d: &ManagedDownload, incoming_dir: &Path) -> Result<()> {
+    let safe_file_name = sanitize_download_file_name(&d.met.file_name)?;
     if !d.part_path.exists() {
-        if incoming_file_exists(incoming_dir, &d.met.file_name, d.met.part_number) {
+        if incoming_file_exists(incoming_dir, &safe_file_name, d.met.part_number).await {
             return Ok(());
         }
         return Err(DownloadError::InvalidInput(format!(
@@ -1352,7 +1346,7 @@ async fn finalize_single_download(d: &ManagedDownload, incoming_dir: &Path) -> R
             d.part_path.display()
         )));
     }
-    let target = unique_incoming_path(incoming_dir, &d.met.file_name, d.met.part_number);
+    let target = unique_incoming_path(incoming_dir, &safe_file_name, d.met.part_number).await?;
     match tokio::fs::rename(&d.part_path, &target).await {
         Ok(_) => Ok(()),
         Err(rename_err) => {
@@ -1418,36 +1412,63 @@ async fn delete_download_metadata_only(
     Ok(true)
 }
 
-fn unique_incoming_path(incoming_dir: &Path, file_name: &str, part_number: u16) -> PathBuf {
+async fn unique_incoming_path(
+    incoming_dir: &Path,
+    file_name: &str,
+    part_number: u16,
+) -> Result<PathBuf> {
     let base = incoming_dir.join(file_name);
-    if !base.exists() {
-        return base;
+    if !tokio::fs::try_exists(&base)
+        .await
+        .map_err(|source| DownloadStoreError::ReadFile {
+            path: base.clone(),
+            source,
+        })?
+    {
+        return Ok(base);
     }
     let fallback = incoming_dir.join(format!("{file_name}.{part_number:03}.completed"));
-    if !fallback.exists() {
-        return fallback;
+    if !tokio::fs::try_exists(&fallback)
+        .await
+        .map_err(|source| DownloadStoreError::ReadFile {
+            path: fallback.clone(),
+            source,
+        })?
+    {
+        return Ok(fallback);
     }
     let mut counter: u32 = 1;
     loop {
         let candidate =
             incoming_dir.join(format!("{file_name}.{part_number:03}.completed.{counter}"));
-        if !candidate.exists() {
-            return candidate;
+        if !tokio::fs::try_exists(&candidate).await.map_err(|source| {
+            DownloadStoreError::ReadFile {
+                path: candidate.clone(),
+                source,
+            }
+        })? {
+            return Ok(candidate);
         }
         counter = counter.saturating_add(1);
     }
 }
 
-fn incoming_file_exists(incoming_dir: &Path, file_name: &str, part_number: u16) -> bool {
+async fn incoming_file_exists(incoming_dir: &Path, file_name: &str, part_number: u16) -> bool {
     let base = incoming_dir.join(file_name);
-    if base.exists() {
+    if tokio::fs::try_exists(&base).await.unwrap_or(false) {
         return true;
     }
     let fallback_prefix = format!("{file_name}.{part_number:03}.completed");
-    let Ok(read_dir) = std::fs::read_dir(incoming_dir) else {
+    let Ok(mut read_dir) = tokio::fs::read_dir(incoming_dir).await else {
         return false;
     };
-    for entry in read_dir.flatten() {
+    loop {
+        let Ok(next) = read_dir.next_entry().await else {
+            return false;
+        };
+        let Some(entry) = next else {
+            break;
+        };
         let name = entry.file_name();
         let Some(name_str) = name.to_str() else {
             continue;
@@ -1457,6 +1478,85 @@ fn incoming_file_exists(incoming_dir: &Path, file_name: &str, part_number: u16) 
         }
     }
     false
+}
+
+async fn load_known_keys_resilient(
+    known_met_path: &Path,
+) -> Result<std::collections::HashSet<(String, u64)>> {
+    match load_known_met_entries(known_met_path).await {
+        Ok(entries) => Ok(entries
+            .into_iter()
+            .map(|e| (canonicalize_hash_hex(&e.file_hash_md4_hex), e.file_size))
+            .collect()),
+        Err(DownloadStoreError::ParseKnown { .. }) => {
+            let quarantine = quarantined_known_met_path(known_met_path);
+            match tokio::fs::rename(known_met_path, &quarantine).await {
+                Ok(_) => tracing::warn!(
+                    path = %known_met_path.display(),
+                    quarantined = %quarantine.display(),
+                    "known.met parse failed; quarantined and continuing with empty known set"
+                ),
+                Err(source) => tracing::warn!(
+                    path = %known_met_path.display(),
+                    quarantined = %quarantine.display(),
+                    error = %source,
+                    "known.met parse failed; quarantine rename failed; continuing with empty known set"
+                ),
+            }
+            Ok(std::collections::HashSet::new())
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn quarantined_known_met_path(path: &Path) -> PathBuf {
+    let mut os = path.as_os_str().to_os_string();
+    os.push(format!(".corrupt.{}", now_secs()));
+    PathBuf::from(os)
+}
+
+fn canonicalize_hash_hex(hash: &str) -> String {
+    hash.to_ascii_lowercase()
+}
+
+fn sanitize_download_file_name(input: &str) -> Result<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(DownloadError::InvalidInput(
+            "file_name must not be empty".to_string(),
+        ));
+    }
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Err(DownloadError::InvalidInput(
+            "file_name must be a relative basename".to_string(),
+        ));
+    }
+    let mut comps = path.components();
+    let first = comps.next();
+    if first.is_none() || comps.next().is_some() {
+        return Err(DownloadError::InvalidInput(
+            "file_name must be a plain file name".to_string(),
+        ));
+    }
+    match first {
+        Some(std::path::Component::Normal(name)) => {
+            let Some(name) = name.to_str() else {
+                return Err(DownloadError::InvalidInput(
+                    "file_name must be valid UTF-8".to_string(),
+                ));
+            };
+            if name.is_empty() {
+                return Err(DownloadError::InvalidInput(
+                    "file_name must not be empty".to_string(),
+                ));
+            }
+            Ok(name.to_string())
+        }
+        _ => Err(DownloadError::InvalidInput(
+            "file_name must be a plain file name".to_string(),
+        )),
+    }
 }
 
 fn total_missing(ranges: &[ByteRange]) -> u64 {
@@ -1951,7 +2051,12 @@ mod tests {
         assert_eq!(got.inflight_ranges, 0);
         assert_eq!(got.progress_pct, 100);
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        for _ in 0..50 {
+            if cfg.incoming_dir.join("ingest-compressed.bin").exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         let incoming_path = cfg.incoming_dir.join("ingest-compressed.bin");
         let bytes = tokio::fs::read(&incoming_path)
             .await
@@ -2021,7 +2126,12 @@ mod tests {
             .expect("save met");
 
         let (handle, _status, join) = start_service(cfg.clone()).await.expect("start");
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        for _ in 0..50 {
+            if !met_path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         let known = crate::download::store::load_known_met_entries(&cfg.known_met_path)
             .await
             .expect("known");
@@ -2030,6 +2140,27 @@ mod tests {
         assert!(!met_path.exists());
         assert!(cfg.incoming_dir.join("startup.bin").exists());
         assert!(handle.list().await.expect("list").is_empty());
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn create_download_rejects_path_traversal_file_names() {
+        let root = temp_dir("invalid-name");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+
+        let err = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "../escape.bin".to_string(),
+                file_size: 5,
+                file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
+            })
+            .await
+            .expect_err("must reject traversal");
+        assert!(matches!(err, DownloadError::InvalidInput(_)));
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
