@@ -8,6 +8,66 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Completed second download hostile-input hardening slice on `feature/download-protocol-hardening`.
+  - Hardened compressed inbound handling in `src/download/service.rs`:
+    - `OP_COMPRESSEDPART` now requires successful zlib inflate (`kad::packed::inflate_zlib`)
+    - requires decompressed length to match declared `unpacked_len`
+    - validates block/file bounds before state mutation
+    - persists decompressed bytes to `.part` file before `mark_block_received`
+  - Hardened inbound persistence flow:
+    - inbound blocks are persisted to `.part` via `persist_part_block(...)` before marking received
+  - Added regression tests:
+    - compressedpart happy path (decompress + persist + state advance)
+    - compressedpart invalid zlib path (reject + keep inflight state)
+  - Validation:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (131 passed)
+- Decisions:
+  - Reused existing hardened zlib decoder (`kad::packed::inflate_zlib`) to avoid introducing a new inflate implementation.
+  - Keep API hardening as the next immediate tranche after this download slice.
+- Next steps:
+  - Open PR for `feature/download-protocol-hardening` (no auto-merge).
+  - Start API hostile-input/resilience pass (body size limits, broader rate limits, token self-heal, SSE fallback metric, typed error envelope).
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-24): Completed first download hostile-input hardening slice on `feature/download-protocol-hardening`.
+  - Hardened `src/download/protocol.rs`:
+    - added explicit caps:
+      - `MAX_PART_PAYLOAD`
+      - `MAX_COMPRESSED_PAYLOAD`
+      - `MAX_BLOCK_LEN`
+    - removed production decode-path `unwrap()` usage by adding safe typed readers (`read_u64_le`, `read_u32_le`)
+    - added typed protocol errors for hostile-size conditions:
+      - `PayloadTooLarge`
+      - `BlockTooLarge`
+    - added regression tests for oversized sending/compressed payload semantics
+  - Hardened `src/download/service.rs`:
+    - added `MAX_RESERVE_BLOCKS_PER_CALL` cap in `reserve_blocks(...)`
+    - added service-level regression test for excessive `max_blocks`
+  - Validation:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (129 passed)
+- Decisions:
+  - Keep download cap values as internal constants for now (no config surface in this slice).
+  - Keep remaining compressed-part completion semantics (`decompress/validate/persist before mark received`) as the next focused step.
+- Next steps:
+  - Continue same branch with remaining download hostile-input items:
+    - gate `OP_COMPRESSEDPART` completion on verified decompression/persist
+    - add hostile ingest/decode tests for semantic mismatch paths
+  - Open PR after that tranche is complete (no auto-merge).
+- Change log:
+  - Updated `src/download/protocol.rs`.
+  - Updated `src/download/service.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Completed i2p/SAM hostile-input hardening slice on `feature/i2p-sam-hardening`.
   - Hardened HTTP handling in `src/i2p/http.rs`:
     - replaced unbounded `read_to_end` with capped read loop (`MAX_HTTP_RESPONSE_BYTES = 4 MiB`)

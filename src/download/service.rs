@@ -6,10 +6,12 @@ use crate::download::store::{
 };
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, watch};
 
 pub type Result<T> = std::result::Result<T, DownloadError>;
 const INFLIGHT_LEASE_TIMEOUT: Duration = Duration::from_secs(15);
+const MAX_RESERVE_BLOCKS_PER_CALL: usize = 128;
 
 #[derive(Debug, Clone)]
 pub struct DownloadServiceConfig {
@@ -773,6 +775,11 @@ async fn reserve_blocks(
     if max_blocks == 0 {
         return Ok(Vec::new());
     }
+    if max_blocks > MAX_RESERVE_BLOCKS_PER_CALL {
+        return Err(DownloadError::InvalidInput(format!(
+            "max_blocks must be <= {MAX_RESERVE_BLOCKS_PER_CALL}"
+        )));
+    }
     if block_size == 0 {
         return Err(DownloadError::InvalidInput(
             "block_size must be > 0".to_string(),
@@ -993,8 +1000,10 @@ async fn ingest_inbound_packet(
         .get(&part_number)
         .ok_or(DownloadError::NotFound(part_number))?;
     let expected_hash = parse_hex_hash(&d.met.file_hash_md4_hex)?;
+    let part_path = d.part_path.clone();
+    let file_size = d.met.file_size;
 
-    let block = match packet.opcode {
+    let (block, block_data) = match packet.opcode {
         protocol::OP_SENDINGPART => {
             let p = protocol::decode_sendingpart_payload(&packet.payload).map_err(|e| {
                 DownloadError::InvalidInput(format!("invalid sendingpart payload: {e}"))
@@ -1004,10 +1013,13 @@ async fn ingest_inbound_packet(
                     "sendingpart file hash mismatch".to_string(),
                 ));
             }
-            BlockRange {
-                start: p.start,
-                end: p.end_exclusive - 1,
-            }
+            (
+                BlockRange {
+                    start: p.start,
+                    end: p.end_exclusive - 1,
+                },
+                p.data,
+            )
         }
         protocol::OP_COMPRESSEDPART => {
             let p = protocol::decode_compressedpart_payload(&packet.payload).map_err(|e| {
@@ -1023,6 +1035,20 @@ async fn ingest_inbound_packet(
                     "compressedpart unpacked_len must be > 0".to_string(),
                 ));
             }
+            let decompressed =
+                crate::kad::packed::inflate_zlib(&p.compressed_data, p.unpacked_len as usize)
+                    .map_err(|e| {
+                        DownloadError::InvalidInput(format!(
+                            "invalid compressedpart zlib payload: {e}"
+                        ))
+                    })?;
+            if decompressed.len() != p.unpacked_len as usize {
+                return Err(DownloadError::InvalidInput(format!(
+                    "compressedpart unpacked_len mismatch: declared={}, actual={}",
+                    p.unpacked_len,
+                    decompressed.len()
+                )));
+            }
             let end = p
                 .start
                 .checked_add(u64::from(p.unpacked_len))
@@ -1030,10 +1056,13 @@ async fn ingest_inbound_packet(
                 .ok_or_else(|| {
                     DownloadError::InvalidInput("compressedpart range overflow".to_string())
                 })?;
-            BlockRange {
-                start: p.start,
-                end,
-            }
+            (
+                BlockRange {
+                    start: p.start,
+                    end,
+                },
+                decompressed,
+            )
         }
         other => {
             return Err(DownloadError::InvalidInput(format!(
@@ -1041,7 +1070,44 @@ async fn ingest_inbound_packet(
             )));
         }
     };
+    if block.end >= file_size {
+        return Err(DownloadError::InvalidInput(format!(
+            "inbound block out of file range: end={} file_size={}",
+            block.end, file_size
+        )));
+    }
+    persist_part_block(&part_path, block.start, &block_data).await?;
     mark_block_received(downloads, part_number, peer_id, block).await
+}
+
+async fn persist_part_block(path: &Path, start: u64, data: &[u8]) -> Result<()> {
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(path)
+        .await
+        .map_err(|source| DownloadStoreError::WriteFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.seek(std::io::SeekFrom::Start(start))
+        .await
+        .map_err(|source| DownloadStoreError::WriteFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.write_all(data)
+        .await
+        .map_err(|source| DownloadStoreError::WriteFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    file.flush()
+        .await
+        .map_err(|source| DownloadStoreError::WriteFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
 }
 
 async fn delete_download(
@@ -1404,6 +1470,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reserve_blocks_rejects_excessive_max_blocks() {
+        let root = temp_dir("reserve-cap");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cap.bin".to_string(),
+                file_size: 1000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        let err = handle
+            .reserve_blocks(d.part_number, MAX_RESERVE_BLOCKS_PER_CALL + 1, 200)
+            .await
+            .expect_err("must reject too many blocks");
+        assert!(matches!(err, DownloadError::InvalidInput(_)));
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
     async fn restart_reclaims_inflight_back_into_missing() {
         let root = temp_dir("reclaim");
         let cfg = DownloadServiceConfig::from_data_dir(&root);
@@ -1515,6 +1606,107 @@ mod tests {
             .expect("ingest");
         assert_eq!(got.inflight_ranges, 0);
         assert!(got.progress_pct > 0);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn ingest_compressedpart_decompresses_persists_then_marks_received() {
+        let root = temp_dir("ingest-compressed");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg.clone()).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "ingest-compressed.bin".to_string(),
+                file_size: 5,
+                file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
+            })
+            .await
+            .expect("create");
+        let reserved = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 5)
+            .await
+            .expect("reserve");
+        assert_eq!(reserved.len(), 1);
+        assert_eq!(reserved[0], BlockRange { start: 0, end: 4 });
+
+        // zlib-compressed "hello"
+        let compressed = vec![
+            0x78, 0x9c, 0xcb, 0x48, 0xcd, 0xc9, 0xc9, 0x07, 0x00, 0x06, 0x2c, 0x02, 0x15,
+        ];
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&hex_hash("0123456789abcdef0123456789abcdef"));
+        payload.extend_from_slice(&0u64.to_le_bytes());
+        payload.extend_from_slice(&5u32.to_le_bytes());
+        payload.extend_from_slice(&compressed);
+
+        let got = handle
+            .ingest_inbound_packet(
+                d.part_number,
+                "peer-a".to_string(),
+                InboundPacket {
+                    opcode: protocol::OP_COMPRESSEDPART,
+                    payload,
+                },
+            )
+            .await
+            .expect("ingest");
+        assert_eq!(got.inflight_ranges, 0);
+        assert_eq!(got.progress_pct, 100);
+
+        let part_path = part_path_for_part(&cfg.download_dir, d.part_number);
+        let bytes = tokio::fs::read(&part_path).await.expect("read part");
+        assert_eq!(&bytes[..5], b"hello");
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn ingest_compressedpart_rejects_invalid_zlib_and_keeps_inflight() {
+        let root = temp_dir("ingest-compressed-invalid");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "ingest-compressed-invalid.bin".to_string(),
+                file_size: 5,
+                file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
+            })
+            .await
+            .expect("create");
+        let reserved = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 5)
+            .await
+            .expect("reserve");
+        assert_eq!(reserved, vec![BlockRange { start: 0, end: 4 }]);
+
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&hex_hash("0123456789abcdef0123456789abcdef"));
+        payload.extend_from_slice(&0u64.to_le_bytes());
+        payload.extend_from_slice(&5u32.to_le_bytes());
+        payload.extend_from_slice(b"not-zlib");
+
+        let err = handle
+            .ingest_inbound_packet(
+                d.part_number,
+                "peer-a".to_string(),
+                InboundPacket {
+                    opcode: protocol::OP_COMPRESSEDPART,
+                    payload,
+                },
+            )
+            .await
+            .expect_err("invalid zlib must fail");
+        assert!(matches!(err, DownloadError::InvalidInput(_)));
+
+        let list = handle.list().await.expect("list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].inflight_ranges, 1);
+        assert_eq!(list[0].downloaded_bytes, 0);
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
