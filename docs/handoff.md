@@ -41,6 +41,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `scripts/test/kad_phase0_gate.sh`.
   - Updated `scripts/test/README.md`.
 
+- Status (2026-02-24): Added efficiency-focused gate checks so lower send rate is acceptable when quality improves.
+  - New efficiency checks compare after/before ratios of per-uptime-rate efficiencies:
+    - `tracked_out_matched_total / sent_reqs_total` (min threshold)
+    - `timeouts_total / sent_reqs_total` (max threshold)
+  - Added env controls:
+    - `MIN_MATCH_PER_SENT_RATIO` (default `0.90`)
+    - `MAX_TIMEOUT_PER_SENT_RATIO` (default `1.10`)
+  - Documented suggested noisy-network tuning:
+    - `MIN_SENT_REQS_TOTAL_RATIO=0.60` while keeping efficiency thresholds enabled.
+- Decisions:
+  - Keep absolute throughput checks, but supplement with efficiency checks to reduce false negatives from network variance.
+- Next steps:
+  - Re-run `kad_phase0_gate.sh` with the recommended noisy-network thresholds and confirm stable pass/fail behavior.
+- Change log:
+  - Updated `scripts/test/kad_phase0_gate.sh`.
+  - Updated `scripts/test/README.md`.
+
 - Status (2026-02-24): Created safe-only split branch from `origin/main` and applied non-behavioral commits from `feature/kad-rotate-query-candidates`.
   - Applied commits:
     - `7ee4fad` (`scripts/test/kad_phase0_longrun.sh` output-file normalization/recovery)

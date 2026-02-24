@@ -25,6 +25,8 @@ MIN_RECV_RESS_TOTAL_RATIO="${MIN_RECV_RESS_TOTAL_RATIO:-0.90}"
 MIN_TRACKED_OUT_MATCHED_TOTAL_RATIO="${MIN_TRACKED_OUT_MATCHED_TOTAL_RATIO:-0.90}"
 MAX_TIMEOUTS_TOTAL_RATIO="${MAX_TIMEOUTS_TOTAL_RATIO:-1.10}"
 MAX_OUTBOUND_SHAPER_DELAYED_TOTAL_RATIO="${MAX_OUTBOUND_SHAPER_DELAYED_TOTAL_RATIO:-1.25}"
+MIN_MATCH_PER_SENT_RATIO="${MIN_MATCH_PER_SENT_RATIO:-0.90}"
+MAX_TIMEOUT_PER_SENT_RATIO="${MAX_TIMEOUT_PER_SENT_RATIO:-1.10}"
 
 usage() {
   cat <<'USAGE'
@@ -47,6 +49,8 @@ Threshold env:
   MIN_TRACKED_OUT_MATCHED_TOTAL_RATIO=0.90
   MAX_TIMEOUTS_TOTAL_RATIO=1.10
   MAX_OUTBOUND_SHAPER_DELAYED_TOTAL_RATIO=1.25
+  MIN_MATCH_PER_SENT_RATIO=0.90
+  MAX_TIMEOUT_PER_SENT_RATIO=1.10
 USAGE
 }
 
@@ -149,6 +153,15 @@ safe_ratio() {
   }'
 }
 
+safe_div() {
+  local num="$1"
+  local den="$2"
+  awk -v n="$num" -v d="$den" 'BEGIN {
+    if (d <= 0) { print "nan"; exit }
+    printf "%.6f", n / d
+  }'
+}
+
 metric_total_rate() {
   local in_file="$1"
   local metric="$2"
@@ -178,6 +191,55 @@ metric_total_rate() {
       printf "%.6f", (last_v - first_v) / (last_u - first_u);
     }
   ' "$in_file"
+}
+
+check_efficiency_ratio() {
+  local check_name="$1"
+  local num_metric="$2"
+  local den_metric="$3"
+  local comparator="$4"
+  local threshold="$5"
+  local before_num before_den after_num after_den before_eff after_eff ratio pass
+
+  before_num="$(metric_total_rate "$BEFORE_OUT" "$num_metric")"
+  before_den="$(metric_total_rate "$BEFORE_OUT" "$den_metric")"
+  after_num="$(metric_total_rate "$AFTER_OUT" "$num_metric")"
+  after_den="$(metric_total_rate "$AFTER_OUT" "$den_metric")"
+
+  before_eff="$(safe_div "$before_num" "$before_den")"
+  after_eff="$(safe_div "$after_num" "$after_den")"
+  if [[ "$before_eff" == "nan" || "$after_eff" == "nan" ]]; then
+    ratio="nan"
+  else
+    ratio="$(safe_ratio "$before_eff" "$after_eff")"
+  fi
+
+  if [[ "$ratio" == "nan" ]]; then
+    pass="SKIP"
+  elif [[ "$comparator" == "min" ]]; then
+    if awk -v r="$ratio" -v t="$threshold" 'BEGIN { exit !(r >= t) }'; then
+      pass="PASS"
+    else
+      pass="FAIL"
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+  else
+    if awk -v r="$ratio" -v t="$threshold" 'BEGIN { exit !(r <= t) }'; then
+      pass="PASS"
+    else
+      pass="FAIL"
+      FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+  fi
+
+  printf "%s\t%s/%s\t%.6f\t%.6f\t%s\t%s\n" \
+    "$check_name" "$num_metric" "$den_metric" "$before_eff" "$after_eff" "$ratio" "$threshold" >>"$GATE_OUT"
+
+  if [[ "$comparator" == "min" ]]; then
+    log "gate $check_name metric=${num_metric}/${den_metric} mode=eff_rate before=$before_eff after=$after_eff ratio=$ratio threshold>=$threshold result=$pass"
+  else
+    log "gate $check_name metric=${num_metric}/${den_metric} mode=eff_rate before=$before_eff after=$after_eff ratio=$ratio threshold<=$threshold result=$pass"
+  fi
 }
 
 check_min_ratio() {
@@ -265,6 +327,8 @@ check_min_ratio "throughput_recv_total" "recv_ress_total" "$MIN_RECV_RESS_TOTAL_
 check_min_ratio "match_total" "tracked_out_matched_total" "$MIN_TRACKED_OUT_MATCHED_TOTAL_RATIO" "rate"
 check_max_ratio "timeouts_total" "timeouts_total" "$MAX_TIMEOUTS_TOTAL_RATIO" "rate"
 check_max_ratio "shaper_delayed_total" "outbound_shaper_delayed_total" "$MAX_OUTBOUND_SHAPER_DELAYED_TOTAL_RATIO" "rate"
+check_efficiency_ratio "match_per_sent" "tracked_out_matched_total" "sent_reqs_total" "min" "$MIN_MATCH_PER_SENT_RATIO"
+check_efficiency_ratio "timeouts_per_sent" "timeouts_total" "sent_reqs_total" "max" "$MAX_TIMEOUT_PER_SENT_RATIO"
 
 if (( FAIL_COUNT > 0 )); then
   log "gate_result=FAIL fail_count=$FAIL_COUNT gate_file=$GATE_OUT compare_file=$COMPARE_OUT"
