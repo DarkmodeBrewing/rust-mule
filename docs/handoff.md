@@ -8,6 +8,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Completed second download hostile-input hardening slice on `feature/download-protocol-hardening`.
+  - Hardened compressed inbound handling in `src/download/service.rs`:
+    - `OP_COMPRESSEDPART` now requires successful zlib inflate (`kad::packed::inflate_zlib`)
+    - requires decompressed length to match declared `unpacked_len`
+    - validates block/file bounds before state mutation
+    - persists decompressed bytes to `.part` file before `mark_block_received`
+  - Hardened inbound persistence flow:
+    - inbound blocks are persisted to `.part` via `persist_part_block(...)` before marking received
+  - Added regression tests:
+    - compressedpart happy path (decompress + persist + state advance)
+    - compressedpart invalid zlib path (reject + keep inflight state)
+  - Validation:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (131 passed)
+- Decisions:
+  - Reused existing hardened zlib decoder (`kad::packed::inflate_zlib`) to avoid introducing a new inflate implementation.
+  - Keep API hardening as the next immediate tranche after this download slice.
+- Next steps:
+  - Open PR for `feature/download-protocol-hardening` (no auto-merge).
+  - Start API hostile-input/resilience pass (body size limits, broader rate limits, token self-heal, SSE fallback metric, typed error envelope).
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Completed first download hostile-input hardening slice on `feature/download-protocol-hardening`.
   - Hardened `src/download/protocol.rs`:
     - added explicit caps:
