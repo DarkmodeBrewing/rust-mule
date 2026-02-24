@@ -8,6 +8,34 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Added phase-0 acceptance runner and aligned task backlog for next download slices.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - new one-command acceptance orchestration for download/KAD phase-0:
+      - captures pre/post `/api/v1/health`, `/api/v1/status`, `/api/v1/downloads` snapshots,
+      - runs `kad_phase0_gate.sh`,
+      - optionally runs `download_resume_soak.sh` and `kad_phase0_longrun.sh`,
+      - writes run summary (`summary.txt`) under a single out directory.
+  - docs:
+    - `scripts/test/README.md` updated with usage examples.
+    - `docs/TASKS.md` and `docs/TODO.md` updated with explicit next slices:
+      - `known.met` compatibility + resume robustness,
+      - hash-first discovery/initiation path.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (142 passed)
+- Decisions:
+  - Keep acceptance orchestration script-only in this slice so existing soak/gate scripts remain reusable primitives.
+- Next steps:
+  - Execute `scripts/test/download_phase0_acceptance.sh` with `RUN_RESUME_SOAK=1` (and optional `RUN_KAD_LONGRUN=1`) on current main binary and archive artifacts.
+  - Start implementation slice for `known.met` compatibility + restart/resume robustness.
+- Change log:
+  - Added `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Addressed PR #34 review comments (snapshot consistency + counter regression tests).
   - `src/download/service.rs`:
     - added `DownloadCommand::Snapshot` and `DownloadServiceHandle::snapshot()` to return `(DownloadServiceStatus, Vec<DownloadSummary>)` from one service-loop snapshot.

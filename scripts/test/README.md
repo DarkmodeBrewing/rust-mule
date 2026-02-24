@@ -13,6 +13,7 @@ Scenario and soak test scripts.
 - `download_soak_band.sh`: sequential runner that executes all four download soaks in one command and auto-collects tarballs.
 - `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
 - `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
+- `download_phase0_acceptance.sh`: one-command phase-0 acceptance runner (captures pre/post snapshots, runs KAD gate, optional resume soak and optional longrun).
 - `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
 - `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
 - `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
@@ -161,6 +162,14 @@ Pre-check:
 - Defaults:
   - `BASE_URL=http://127.0.0.1:17835`
   - `TOKEN_FILE=data/api.token`
+
+Phase-0 acceptance runner:
+- default (gate + snapshots):
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak:
+  - `RUN_RESUME_SOAK=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak + longrun:
+  - `RUN_RESUME_SOAK=1 RUN_KAD_LONGRUN=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 
 ### 1) Single File E2E Lifecycle Soak
 

@@ -14,6 +14,9 @@
 ## Scope (Current Iteration)
 
 - continue download phase 2 transfer work on top of merged phase 0/1 lifecycle + `known.met`
+- complete download phase-0 acceptance runbook execution and artifact capture (`scripts/test/download_phase0_acceptance.sh`)
+- next download slice: `known.met` compatibility depth + restart/resume robustness assertions
+- next user-value slice: hash-first discovery/initiation path (direct MD4/file-hash driven flow)
 - keep KAD reliability tracking and UI/API contract checks updated as fields evolve
 - keep behavior-contract documentation authoritative for all network/protocol changes
 - phase 0 baseline instrumentation is in place; gather before/after baseline artifacts for upcoming KAD shaper work
