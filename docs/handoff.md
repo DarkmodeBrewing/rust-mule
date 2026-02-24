@@ -8,6 +8,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Added an automated Phase-0 before/after gate wrapper on `feature/kad-routing-tuning-v2`.
+  - New script:
+    - `scripts/test/kad_phase0_gate.sh`
+  - Capabilities:
+    - runs before and after baseline captures using existing `kad_phase0_baseline.sh`,
+    - optional `BEFORE_SETUP_CMD` / `AFTER_SETUP_CMD` hooks for binary/process switching,
+    - readiness wait (`/api/v1/health` + `/api/v1/status`),
+    - auto-runs `kad_phase0_compare.sh`,
+    - emits threshold report (`gate.tsv`) and optional pass/fail exit gating.
+  - Documentation updated in `scripts/test/README.md` with examples and threshold env controls.
+- Decisions:
+  - Keep gate script shell-only and reuse existing baseline/compare scripts for consistency.
+  - Default gate enforces thresholds, with `ENFORCE_THRESHOLDS=0` escape hatch for exploratory runs.
+- Next steps:
+  - Use `kad_phase0_gate.sh` for future routing tuning before/after checks.
+  - If needed, add a small helper script that switches binaries/processes for `BEFORE_SETUP_CMD`/`AFTER_SETUP_CMD`.
+- Change log:
+  - Added `scripts/test/kad_phase0_gate.sh`.
+  - Updated `scripts/test/README.md`.
+
 - Status (2026-02-24): Created safe-only split branch from `origin/main` and applied non-behavioral commits from `feature/kad-rotate-query-candidates`.
   - Applied commits:
     - `7ee4fad` (`scripts/test/kad_phase0_longrun.sh` output-file normalization/recovery)

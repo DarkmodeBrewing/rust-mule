@@ -19,6 +19,7 @@ Scenario and soak test scripts.
 - `kad_phase0_baseline.sh`: captures KAD Phase 0 timing/ordering baseline counters from `/api/v1/status` into TSV.
 - `kad_phase0_longrun.sh`: wrapper for long baseline captures (default 6h) using `kad_phase0_baseline.sh`.
 - `kad_phase0_compare.sh`: compares two Phase 0 baseline TSV files and prints before/after delta summary.
+- `kad_phase0_gate.sh`: runs before/after baseline capture + compare + threshold gate in one command.
 - `kad_phase0_ci_smoke.sh`: offline deterministic smoke check for baseline+compare scripts using synthetic TSV fixtures (CI-safe, no network/node runtime).
 - `soak_triage.sh`: triage summary for soak tarball outputs.
 
@@ -66,6 +67,26 @@ Long-run baseline (default 6h):
   - `sam_framing_desync_total_max=<max observed>`
   - `dropped_legacy_kad1_total_max=<max observed>`
   - `dropped_unhandled_opcode_total_max=<max observed>`
+
+Automated before/after gate:
+- manual binary/process swap between captures:
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=../../mule-a/data/api.token DURATION_SECS=1800 INTERVAL_SECS=5 bash scripts/test/kad_phase0_gate.sh`
+- with setup hooks (script runs commands before each capture):
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=../../mule-a/data/api.token BEFORE_SETUP_CMD='bash scripts/test/switch_binary_main.sh' AFTER_SETUP_CMD='bash scripts/test/switch_binary_feature.sh' DURATION_SECS=1800 INTERVAL_SECS=5 bash scripts/test/kad_phase0_gate.sh`
+- outputs:
+  - `<OUT_DIR>/before.tsv`
+  - `<OUT_DIR>/after.tsv`
+  - `<OUT_DIR>/compare.tsv`
+  - `<OUT_DIR>/gate.tsv`
+- default gate thresholds (override via env):
+  - `sent_reqs_total` after/before >= `0.90`
+  - `recv_ress_total` after/before >= `0.90`
+  - `tracked_out_matched_total` after/before >= `0.90`
+  - `timeouts_total` after/before <= `1.10`
+  - `outbound_shaper_delayed_total` after/before <= `1.25`
+- enforcement:
+  - `ENFORCE_THRESHOLDS=1` exits non-zero on failed checks
+  - `ENFORCE_THRESHOLDS=0` prints failures but exits zero
 
 ## Timed Background Soak
 
