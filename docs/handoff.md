@@ -26,7 +26,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Ready command sequence (from clean tree):
     - `git checkout main`
     - `git fetch origin --prune`
-    - `git reset --hard origin/main` (only if local `main` is intentionally disposable; otherwise `git pull --ff-only`)
+    - `git pull --ff-only`
     - `git checkout -b chore/kad-phase2-safe-split`
     - `git cherry-pick 1ab817c de7282f c1c1978 dd59dea 5ba2ee2`
     - run `cargo fmt && cargo clippy --all-targets --all-features -- -D warnings && cargo test --all-targets --all-features`
