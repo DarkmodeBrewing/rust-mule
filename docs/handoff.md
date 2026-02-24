@@ -8,6 +8,50 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Completed API hostile-input/resilience hardening slice on `feature/api-hardening-resilience`.
+  - Added standardized non-2xx API envelope middleware in `src/api/error.rs`:
+    - `{ "code": <status>, "message": "<human-friendly>" }`
+    - applied to all `/api/v1/*` non-success responses
+  - Added request body hardening:
+    - global API body limit via `DefaultBodyLimit::max(64 * 1024)` in router
+    - per-route JSON limits via bounded parsing helper (`parse_json_with_limit`) for settings/download/kad mutation handlers
+  - Expanded API rate limiting in `src/api/rate_limit.rs`:
+    - now covers high-frequency read/mutation routes (`status`, `events`, `settings`, `downloads`, `searches`, `kad/*`)
+  - Hardened token loading in `src/api/token.rs`:
+    - `load_or_create_token` now self-heals invalid UTF-8 / non-hex / empty token files by rotating and replacing
+  - Added SSE fallback warning/metric:
+    - `ApiState.sse_serialize_fallback_total`
+    - warning log and counter increment when status SSE serialization falls back to `{}`.
+  - Added/updated regression tests:
+    - API envelope and body-limit behavior
+    - expanded rate-limit behavior
+    - token self-heal behavior
+  - Validation:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (135 passed)
+- Decisions:
+  - Kept API error envelope centralized in middleware to avoid scattering response formatting across handlers.
+  - Used global body limit plus per-route bounded parsing for explicit override control without broad extractor rewrites.
+- Next steps:
+  - Open PR for `feature/api-hardening-resilience` (no auto-merge unless explicitly requested).
+  - Continue next backlog priority (download phase completion / reliability baseline tasks).
+- Change log:
+  - Added `src/api/error.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/router.rs`.
+  - Updated `src/api/rate_limit.rs`.
+  - Updated `src/api/token.rs`.
+  - Updated `src/api/handlers/core.rs`.
+  - Updated `src/api/handlers/settings.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/handlers/kad.rs`.
+  - Updated `src/api/handlers/mod.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Completed second download hostile-input hardening slice on `feature/download-protocol-hardening`.
   - Hardened compressed inbound handling in `src/download/service.rs`:
     - `OP_COMPRESSEDPART` now requires successful zlib inflate (`kad::packed::inflate_zlib`)

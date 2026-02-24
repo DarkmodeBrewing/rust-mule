@@ -1,12 +1,13 @@
 use axum::{
     Json,
+    body::Bytes,
     extract::{Query, State},
     http::StatusCode,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    api::{API_CMD_TIMEOUT, ApiState},
+    api::{API_CMD_TIMEOUT, ApiState, error::parse_json_with_limit},
     kad::{
         KadId, keyword,
         service::{
@@ -454,8 +455,9 @@ pub(crate) async fn debug_routing_nodes(
 
 pub(crate) async fn debug_lookup_once(
     State(state): State<ApiState>,
-    Json(req): Json<DebugLookupReq>,
+    body: Bytes,
 ) -> Result<Json<DebugLookupResponse>, StatusCode> {
+    let req: DebugLookupReq = parse_json_with_limit(body, 16 * 1024)?;
     let target = match req.target_id_hex.as_deref() {
         Some(hex) => Some(KadId::from_hex(hex).map_err(|_| StatusCode::BAD_REQUEST)?),
         None => None,
@@ -483,8 +485,9 @@ pub(crate) async fn debug_lookup_once(
 
 pub(crate) async fn debug_probe_peer(
     State(state): State<ApiState>,
-    Json(req): Json<DebugProbeReq>,
+    body: Bytes,
 ) -> Result<Json<DebugProbeResponse>, StatusCode> {
+    let req: DebugProbeReq = parse_json_with_limit(body, 16 * 1024)?;
     if req.filename.trim().is_empty() {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -520,8 +523,9 @@ pub(crate) async fn debug_probe_peer(
 
 pub(crate) async fn kad_search_sources(
     State(state): State<ApiState>,
-    Json(req): Json<KadSourcesReq>,
+    body: Bytes,
 ) -> Result<Json<QueuedResponse>, StatusCode> {
+    let req: KadSourcesReq = parse_json_with_limit(body, 16 * 1024)?;
     let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_size = req.file_size.unwrap_or(0);
     state
@@ -534,8 +538,9 @@ pub(crate) async fn kad_search_sources(
 
 pub(crate) async fn kad_search_keyword(
     State(state): State<ApiState>,
-    Json(req): Json<KadSearchKeywordReq>,
+    body: Bytes,
 ) -> Result<Json<KadSearchKeywordResponse>, StatusCode> {
+    let req: KadSearchKeywordReq = parse_json_with_limit(body, 16 * 1024)?;
     let (word, keyword_id) = if let Some(hex) = req.keyword_id_hex.as_deref() {
         let id = KadId::from_hex(hex).map_err(|_| StatusCode::BAD_REQUEST)?;
         ("".to_string(), id)
@@ -562,8 +567,9 @@ pub(crate) async fn kad_search_keyword(
 
 pub(crate) async fn kad_publish_source(
     State(state): State<ApiState>,
-    Json(req): Json<KadSourcesReq>,
+    body: Bytes,
 ) -> Result<Json<QueuedResponse>, StatusCode> {
+    let req: KadSourcesReq = parse_json_with_limit(body, 16 * 1024)?;
     let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let file_size = req.file_size.unwrap_or(0);
     state
@@ -576,8 +582,9 @@ pub(crate) async fn kad_publish_source(
 
 pub(crate) async fn kad_publish_keyword(
     State(state): State<ApiState>,
-    Json(req): Json<KadPublishKeywordReq>,
+    body: Bytes,
 ) -> Result<Json<KadSearchKeywordResponse>, StatusCode> {
+    let req: KadPublishKeywordReq = parse_json_with_limit(body, 16 * 1024)?;
     let file = KadId::from_hex(&req.file_id_hex).map_err(|_| StatusCode::BAD_REQUEST)?;
     let (word, keyword_id) = if let Some(hex) = req.keyword_id_hex.as_deref() {
         let id = KadId::from_hex(hex).map_err(|_| StatusCode::BAD_REQUEST)?;

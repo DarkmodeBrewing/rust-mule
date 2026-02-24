@@ -1,9 +1,9 @@
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{Json, body::Bytes, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
-    api::ApiState,
+    api::{ApiState, error::parse_json_with_limit},
     config::{ApiAuthMode, Config},
 };
 
@@ -232,8 +232,9 @@ pub(crate) async fn settings_get(
 
 pub(crate) async fn settings_patch(
     State(state): State<ApiState>,
-    Json(patch): Json<SettingsPatchRequest>,
+    body: Bytes,
 ) -> Result<Json<SettingsResponse>, StatusCode> {
+    let patch: SettingsPatchRequest = parse_json_with_limit(body, 32 * 1024)?;
     let mut cfg = state.config.lock().await;
     let mut next = cfg.clone();
     apply_settings_patch(&mut next, patch);

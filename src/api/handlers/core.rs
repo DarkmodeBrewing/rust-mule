@@ -9,7 +9,15 @@ use axum::{
 };
 use futures_util::Stream;
 use serde::Serialize;
-use std::{convert::Infallible, net::SocketAddr, time::Instant};
+use std::{
+    convert::Infallible,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Instant,
+};
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
@@ -130,13 +138,18 @@ pub(crate) async fn events(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state.status_events_tx.subscribe();
     let initial = (*state.status_rx.borrow()).clone();
-    let stream = status_sse_stream(initial, BroadcastStream::new(rx));
+    let stream = status_sse_stream(
+        initial,
+        BroadcastStream::new(rx),
+        state.sse_serialize_fallback_total,
+    );
     Sse::new(stream).keep_alive(axum::response::sse::KeepAlive::default())
 }
 
 fn status_sse_stream(
     initial: Option<KadServiceStatus>,
     stream: BroadcastStream<KadServiceStatus>,
+    fallback_counter: Arc<AtomicU64>,
 ) -> impl Stream<Item = Result<Event, Infallible>> {
     use futures_util::StreamExt as _;
 
@@ -144,8 +157,19 @@ fn status_sse_stream(
         futures_util::stream::iter(initial.into_iter().map(Ok::<KadServiceStatus, Infallible>));
     let merged = initial_stream.chain(stream.filter_map(|msg| async move { msg.ok().map(Ok) }));
 
-    merged.map(|Ok(status)| {
-        let json = serde_json::to_string(&status).unwrap_or_else(|_| "{}".to_string());
+    merged.map(move |Ok(status)| {
+        let json = match serde_json::to_string(&status) {
+            Ok(json) => json,
+            Err(err) => {
+                let total = fallback_counter.fetch_add(1, Ordering::Relaxed) + 1;
+                tracing::warn!(
+                    error = %err,
+                    fallback_total = total,
+                    "failed to serialize SSE status payload; emitting fallback"
+                );
+                "{}".to_string()
+            }
+        };
         Ok(Event::default().event("status").data(json))
     })
 }

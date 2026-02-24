@@ -1,6 +1,7 @@
 use crate::config::ApiAuthMode;
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{get, post},
 };
 
@@ -81,6 +82,6 @@ pub(crate) fn build_app(state: ApiState) -> Router<()> {
         .route("/ui/:page", get(ui_page))
         .route("/ui/assets/*path", get(ui_asset))
         .fallback(get(ui_fallback))
-        .nest("/api/v1", v1)
+        .nest("/api/v1", v1.layer(DefaultBodyLimit::max(64 * 1024)))
         .with_state(state)
 }

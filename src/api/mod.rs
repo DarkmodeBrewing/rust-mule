@@ -5,6 +5,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::PathBuf,
     sync::Arc,
+    sync::atomic::AtomicU64,
     time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, mpsc, watch};
@@ -17,6 +18,7 @@ use crate::{
 
 mod auth;
 mod cors;
+mod error;
 mod handlers;
 mod rate_limit;
 mod router;
@@ -73,6 +75,7 @@ pub struct ApiState {
     pub(crate) rate_limit_session_max: u32,
     pub(crate) rate_limit_token_rotate_max: u32,
     pub(crate) rate_limits: Arc<tokio::sync::Mutex<HashMap<String, rate_limit::RateLimitBucket>>>,
+    pub(crate) sse_serialize_fallback_total: Arc<AtomicU64>,
 }
 
 pub struct ApiServeDeps {
@@ -151,6 +154,7 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         rate_limit_session_max: cfg.rate_limit_session_max_per_window.max(1),
         rate_limit_token_rotate_max: cfg.rate_limit_token_rotate_max_per_window.max(1),
         rate_limits: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+        sse_serialize_fallback_total: Arc::new(AtomicU64::new(0)),
     };
 
     let sessions_for_sweeper = state.sessions.clone();
@@ -160,7 +164,8 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         .layer(middleware::from_fn_with_state(
             state.clone(),
             rate_limit::rate_limit_mw,
-        ));
+        ))
+        .layer(middleware::from_fn(error::error_envelope_mw));
 
     tokio::spawn(async move {
         loop {
