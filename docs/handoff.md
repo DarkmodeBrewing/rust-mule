@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Created safe-only split branch from `origin/main` and applied non-behavioral commits from `feature/kad-rotate-query-candidates`.
+  - Applied commits:
+    - `7ee4fad` (`scripts/test/kad_phase0_longrun.sh` output-file normalization/recovery)
+    - `54b0651`, `5a978ae`, `78ce44a`, `f2964a7` (KAD/i2p/download/API hardening backlog prioritization docs)
+  - Explicitly excluded routing tie-break behavior follow-up commits from this branch.
+- Decisions:
+  - Keep this branch strictly to script reliability + docs backlog updates.
+  - Preserve routing behavior experiments for separate performance-gated branch work.
+- Next steps:
+  - Push this branch and open PR.
+  - Merge safe split first; continue routing tuning only with new long-run before/after gates.
+- Change log:
+  - Updated `scripts/test/kad_phase0_longrun.sh`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-22): Extended soft peer-health preference into query/crawl candidate selection.
   - Updated routing query selectors to prefer healthier peers while preserving existing constraints:
     - `select_query_candidates(...)`
