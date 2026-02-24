@@ -8,6 +8,56 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Added an automated Phase-0 before/after gate wrapper on `feature/kad-routing-tuning-v2`.
+  - New script:
+    - `scripts/test/kad_phase0_gate.sh`
+  - Capabilities:
+    - runs before and after baseline captures using existing `kad_phase0_baseline.sh`,
+    - optional `BEFORE_SETUP_CMD` / `AFTER_SETUP_CMD` hooks for binary/process switching,
+    - readiness wait (`/api/v1/health` + `/api/v1/status`),
+    - auto-runs `kad_phase0_compare.sh`,
+    - emits threshold report (`gate.tsv`) and optional pass/fail exit gating.
+  - Documentation updated in `scripts/test/README.md` with examples and threshold env controls.
+- Decisions:
+  - Keep gate script shell-only and reuse existing baseline/compare scripts for consistency.
+  - Default gate enforces thresholds, with `ENFORCE_THRESHOLDS=0` escape hatch for exploratory runs.
+- Next steps:
+  - Use `kad_phase0_gate.sh` for future routing tuning before/after checks.
+  - If needed, add a small helper script that switches binaries/processes for `BEFORE_SETUP_CMD`/`AFTER_SETUP_CMD`.
+- Change log:
+  - Added `scripts/test/kad_phase0_gate.sh`.
+  - Updated `scripts/test/README.md`.
+
+- Status (2026-02-24): Improved `kad_phase0_gate.sh` to avoid startup-skew false fails in cumulative metrics.
+  - Gate now normalizes `*_total` checks as per-uptime rates per run:
+    - `(last_value - first_value) / (uptime_last - uptime_first)`
+  - Capture now waits for stable readiness before each phase (`READY_STABLE_SUCCESSES`, default `3`).
+  - This fixes false failures when one phase includes warmup `503`/low-sample startup skew.
+- Decisions:
+  - Keep `compare.tsv` as-is for raw metric comparison, but drive pass/fail from per-uptime-rate gating for cumulative counters.
+- Next steps:
+  - Re-run the short gate (`DURATION_SECS=300`) to validate corrected gate behavior, then run full `1800s` gate.
+- Change log:
+  - Updated `scripts/test/kad_phase0_gate.sh`.
+  - Updated `scripts/test/README.md`.
+
+- Status (2026-02-24): Added efficiency-focused gate checks so lower send rate is acceptable when quality improves.
+  - New efficiency checks compare after/before ratios of per-uptime-rate efficiencies:
+    - `tracked_out_matched_total / sent_reqs_total` (min threshold)
+    - `timeouts_total / sent_reqs_total` (max threshold)
+  - Added env controls:
+    - `MIN_MATCH_PER_SENT_RATIO` (default `0.90`)
+    - `MAX_TIMEOUT_PER_SENT_RATIO` (default `1.10`)
+  - Documented suggested noisy-network tuning:
+    - `MIN_SENT_REQS_TOTAL_RATIO=0.60` while keeping efficiency thresholds enabled.
+- Decisions:
+  - Keep absolute throughput checks, but supplement with efficiency checks to reduce false negatives from network variance.
+- Next steps:
+  - Re-run `kad_phase0_gate.sh` with the recommended noisy-network thresholds and confirm stable pass/fail behavior.
+- Change log:
+  - Updated `scripts/test/kad_phase0_gate.sh`.
+  - Updated `scripts/test/README.md`.
+
 - Status (2026-02-24): Created safe-only split branch from `origin/main` and applied non-behavioral commits from `feature/kad-rotate-query-candidates`.
   - Applied commits:
     - `7ee4fad` (`scripts/test/kad_phase0_longrun.sh` output-file normalization/recovery)
