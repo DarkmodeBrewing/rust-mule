@@ -49,7 +49,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [x] Implement download subsystem scaffold (`src/download/*`) with typed errors and actor-style command loop.
 - [x] Implement `.part` / `.part.met` persistence and startup recovery from `data/download/`.
 - [ ] Implement block scheduler and transfer pipeline (`OP_REQUESTPARTS`, `OP_SENDINGPART`, compressed blocks).
-- [ ] Implement known file persistence (`known.met`) as a follow-up to completed flow into `data/incoming/`.
+- [x] Implement completion flow into `data/incoming/` with known file persistence (`known.met`).
 - [ ] Phase in AICH hashset support (`known2_64.met`) after MD4-first baseline is stable.
 
 ## API

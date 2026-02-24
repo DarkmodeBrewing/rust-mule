@@ -2,7 +2,7 @@
 
 ## Current Priority
 
-1. Download subsystem phase 0/1 follow-up: persist `known.met` on finalize and wire known-file recovery.
+1. Download subsystem phase 2: block scheduler + transfer execution hardening (`OP_REQUESTPARTS` / `OP_SENDINGPART` reliability).
 2. KAD organic reliability pass (search/publish under real peer variance) and complete phase 0 baseline from `docs/KAD_WIRE_REFACTOR_PLAN.md`.
 3. UI statistics follow-up (dedicated statistics page + richer chart controls).
 4. Defer full KAD/wire timing refactor until soak baseline remains stable; then execute phased plan (`docs/KAD_WIRE_REFACTOR_PLAN.md`) slice-by-slice.
@@ -13,7 +13,7 @@
 
 ## Scope (Current Iteration)
 
-- complete download finalize follow-up (`known.met` persistence/recovery) on top of merged `.part` lifecycle
+- continue download phase 2 transfer work on top of merged phase 0/1 lifecycle + `known.met`
 - keep KAD reliability tracking and UI/API contract checks updated as fields evolve
 - keep behavior-contract documentation authoritative for all network/protocol changes
 - phase 0 baseline instrumentation is in place; gather before/after baseline artifacts for upcoming KAD shaper work

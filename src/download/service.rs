@@ -1,8 +1,9 @@
 use crate::download::errors::{DownloadError, DownloadStoreError};
 use crate::download::protocol;
 use crate::download::store::{
-    ByteRange, PartMet, PartState, RecoveredDownload, allocate_next_part_number, met_path_for_part,
-    part_path_for_part, save_part_met, scan_recoverable_downloads,
+    ByteRange, KnownMetEntry, PartMet, PartState, RecoveredDownload, allocate_next_part_number,
+    append_known_met_entry, load_known_met_entries, met_path_for_part, part_path_for_part,
+    save_part_met, scan_recoverable_downloads,
 };
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -17,6 +18,7 @@ const MAX_RESERVE_BLOCKS_PER_CALL: usize = 128;
 pub struct DownloadServiceConfig {
     pub download_dir: PathBuf,
     pub incoming_dir: PathBuf,
+    pub known_met_path: PathBuf,
 }
 
 impl DownloadServiceConfig {
@@ -24,6 +26,7 @@ impl DownloadServiceConfig {
         Self {
             download_dir: data_dir.join("download"),
             incoming_dir: data_dir.join("incoming"),
+            known_met_path: data_dir.join("known.met"),
         }
     }
 }
@@ -435,6 +438,7 @@ pub async fn start_service(
         recovered,
         cfg.download_dir.clone(),
         cfg.incoming_dir.clone(),
+        cfg.known_met_path.clone(),
     ));
     Ok((DownloadServiceHandle { tx }, status_rx, join))
 }
@@ -462,6 +466,7 @@ async fn run_service(
     recovered: Vec<RecoveredDownload>,
     download_dir: PathBuf,
     incoming_dir: PathBuf,
+    known_met_path: PathBuf,
 ) -> Result<()> {
     let mut downloads = std::collections::BTreeMap::<u16, ManagedDownload>::new();
     for r in recovered {
@@ -488,6 +493,7 @@ async fn run_service(
         );
     }
     let recovered_on_start = downloads.len();
+    let mut known_keys = load_known_keys_resilient(&known_met_path).await?;
     let mut timeout_tick = tokio::time::interval(Duration::from_secs(1));
     timeout_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -495,7 +501,13 @@ async fn run_service(
         tokio::select! {
             _ = timeout_tick.tick() => {
                 let changed = process_timeouts(&mut downloads).await?;
-                let finalized = finalize_completed_downloads(&mut downloads, &incoming_dir).await?;
+                let finalized = finalize_completed_downloads(
+                    &mut downloads,
+                    &incoming_dir,
+                    &known_met_path,
+                    &mut known_keys,
+                )
+                .await?;
                 if changed {
                     publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                 }
@@ -514,7 +526,13 @@ async fn run_service(
                     }
                     DownloadCommand::CreateDownload { req, reply } => {
                         let result = create_download(&mut downloads, &download_dir, req).await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
@@ -526,7 +544,13 @@ async fn run_service(
                             &[PartState::Queued, PartState::Downloading],
                         )
                         .await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
@@ -538,7 +562,13 @@ async fn run_service(
                             &[PartState::Paused],
                         )
                         .await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
@@ -550,13 +580,25 @@ async fn run_service(
                             &[PartState::Queued, PartState::Paused, PartState::Downloading],
                         )
                         .await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
                     DownloadCommand::Delete { part_number, reply } => {
                         let result = delete_download(&mut downloads, part_number).await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
@@ -572,7 +614,13 @@ async fn run_service(
                     } => {
                         let result =
                             reserve_blocks(&mut downloads, part_number, peer_id, max_blocks, block_size).await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
@@ -583,7 +631,13 @@ async fn run_service(
                         reply,
                     } => {
                         let result = mark_block_received(&mut downloads, part_number, &peer_id, block).await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
@@ -595,19 +649,37 @@ async fn run_service(
                         reply,
                     } => {
                         let result = mark_block_failed(&mut downloads, part_number, &peer_id, block, reason).await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
                     DownloadCommand::PeerDisconnected { peer_id, reply } => {
                         let result = peer_disconnected(&mut downloads, &peer_id).await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
                     DownloadCommand::IngestInboundPacket { part_number, peer_id, packet, reply } => {
                         let result = ingest_inbound_packet(&mut downloads, part_number, &peer_id, packet).await;
-                        let _ = try_finalize_completed_downloads(&mut downloads, &incoming_dir).await;
+                        let _ = try_finalize_completed_downloads(
+                            &mut downloads,
+                            &incoming_dir,
+                            &known_met_path,
+                            &mut known_keys,
+                        )
+                        .await;
                         publish_status(&status_tx, started_at, downloads.len(), recovered_on_start);
                         let _ = reply.send(result);
                     }
@@ -688,11 +760,7 @@ async fn create_download(
     download_dir: &Path,
     req: CreateDownloadRequest,
 ) -> Result<DownloadSummary> {
-    if req.file_name.trim().is_empty() {
-        return Err(DownloadError::InvalidInput(
-            "file_name must not be empty".to_string(),
-        ));
-    }
+    let safe_file_name = sanitize_download_file_name(&req.file_name)?;
     if req.file_size == 0 {
         return Err(DownloadError::InvalidInput(
             "file_size must be > 0".to_string(),
@@ -728,7 +796,7 @@ async fn create_download(
     let met = PartMet {
         version: crate::download::store::PART_MET_VERSION,
         part_number,
-        file_name: req.file_name,
+        file_name: safe_file_name,
         file_size: req.file_size,
         file_hash_md4_hex: req.file_hash_md4_hex,
         state: PartState::Queued,
@@ -1183,6 +1251,8 @@ fn publish_status(
 async fn finalize_completed_downloads(
     downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
     incoming_dir: &Path,
+    known_met_path: &Path,
+    known_keys: &mut std::collections::HashSet<(String, u64)>,
 ) -> Result<bool> {
     let mut completed = Vec::<u16>::new();
     let mut changed = false;
@@ -1209,6 +1279,7 @@ async fn finalize_completed_downloads(
         }
 
         finalize_single_download(d, incoming_dir).await?;
+        persist_known_entry(d, known_met_path, known_keys).await?;
         d.met.state = PartState::Completed;
         d.met.updated_unix_secs = now_secs();
         save_part_met(&d.met_path, &d.met).await?;
@@ -1226,8 +1297,10 @@ async fn finalize_completed_downloads(
 async fn try_finalize_completed_downloads(
     downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
     incoming_dir: &Path,
+    known_met_path: &Path,
+    known_keys: &mut std::collections::HashSet<(String, u64)>,
 ) -> bool {
-    match finalize_completed_downloads(downloads, incoming_dir).await {
+    match finalize_completed_downloads(downloads, incoming_dir, known_met_path, known_keys).await {
         Ok(changed) => changed,
         Err(error) => {
             tracing::warn!(error = %error, "download finalization failed after command");
@@ -1236,9 +1309,36 @@ async fn try_finalize_completed_downloads(
     }
 }
 
+async fn persist_known_entry(
+    d: &ManagedDownload,
+    known_met_path: &Path,
+    known_keys: &mut std::collections::HashSet<(String, u64)>,
+) -> Result<()> {
+    let normalized_hash = canonicalize_hash_hex(&d.met.file_hash_md4_hex);
+    let key = (normalized_hash.clone(), d.met.file_size);
+    if known_keys.contains(&key) {
+        return Ok(());
+    }
+    let inserted = append_known_met_entry(
+        known_met_path,
+        KnownMetEntry {
+            file_name: d.met.file_name.clone(),
+            file_size: d.met.file_size,
+            file_hash_md4_hex: normalized_hash,
+            completed_unix_secs: now_secs(),
+        },
+    )
+    .await?;
+    if inserted {
+        known_keys.insert(key);
+    }
+    Ok(())
+}
+
 async fn finalize_single_download(d: &ManagedDownload, incoming_dir: &Path) -> Result<()> {
+    let safe_file_name = sanitize_download_file_name(&d.met.file_name)?;
     if !d.part_path.exists() {
-        if incoming_file_exists(incoming_dir, &d.met.file_name, d.met.part_number) {
+        if incoming_file_exists(incoming_dir, &safe_file_name, d.met.part_number).await {
             return Ok(());
         }
         return Err(DownloadError::InvalidInput(format!(
@@ -1246,7 +1346,7 @@ async fn finalize_single_download(d: &ManagedDownload, incoming_dir: &Path) -> R
             d.part_path.display()
         )));
     }
-    let target = unique_incoming_path(incoming_dir, &d.met.file_name, d.met.part_number);
+    let target = unique_incoming_path(incoming_dir, &safe_file_name, d.met.part_number).await?;
     match tokio::fs::rename(&d.part_path, &target).await {
         Ok(_) => Ok(()),
         Err(rename_err) => {
@@ -1312,36 +1412,63 @@ async fn delete_download_metadata_only(
     Ok(true)
 }
 
-fn unique_incoming_path(incoming_dir: &Path, file_name: &str, part_number: u16) -> PathBuf {
+async fn unique_incoming_path(
+    incoming_dir: &Path,
+    file_name: &str,
+    part_number: u16,
+) -> Result<PathBuf> {
     let base = incoming_dir.join(file_name);
-    if !base.exists() {
-        return base;
+    if !tokio::fs::try_exists(&base)
+        .await
+        .map_err(|source| DownloadStoreError::ReadFile {
+            path: base.clone(),
+            source,
+        })?
+    {
+        return Ok(base);
     }
     let fallback = incoming_dir.join(format!("{file_name}.{part_number:03}.completed"));
-    if !fallback.exists() {
-        return fallback;
+    if !tokio::fs::try_exists(&fallback)
+        .await
+        .map_err(|source| DownloadStoreError::ReadFile {
+            path: fallback.clone(),
+            source,
+        })?
+    {
+        return Ok(fallback);
     }
     let mut counter: u32 = 1;
     loop {
         let candidate =
             incoming_dir.join(format!("{file_name}.{part_number:03}.completed.{counter}"));
-        if !candidate.exists() {
-            return candidate;
+        if !tokio::fs::try_exists(&candidate).await.map_err(|source| {
+            DownloadStoreError::ReadFile {
+                path: candidate.clone(),
+                source,
+            }
+        })? {
+            return Ok(candidate);
         }
         counter = counter.saturating_add(1);
     }
 }
 
-fn incoming_file_exists(incoming_dir: &Path, file_name: &str, part_number: u16) -> bool {
+async fn incoming_file_exists(incoming_dir: &Path, file_name: &str, part_number: u16) -> bool {
     let base = incoming_dir.join(file_name);
-    if base.exists() {
+    if tokio::fs::try_exists(&base).await.unwrap_or(false) {
         return true;
     }
     let fallback_prefix = format!("{file_name}.{part_number:03}.completed");
-    let Ok(read_dir) = std::fs::read_dir(incoming_dir) else {
+    let Ok(mut read_dir) = tokio::fs::read_dir(incoming_dir).await else {
         return false;
     };
-    for entry in read_dir.flatten() {
+    loop {
+        let Ok(next) = read_dir.next_entry().await else {
+            return false;
+        };
+        let Some(entry) = next else {
+            break;
+        };
         let name = entry.file_name();
         let Some(name_str) = name.to_str() else {
             continue;
@@ -1351,6 +1478,85 @@ fn incoming_file_exists(incoming_dir: &Path, file_name: &str, part_number: u16) 
         }
     }
     false
+}
+
+async fn load_known_keys_resilient(
+    known_met_path: &Path,
+) -> Result<std::collections::HashSet<(String, u64)>> {
+    match load_known_met_entries(known_met_path).await {
+        Ok(entries) => Ok(entries
+            .into_iter()
+            .map(|e| (canonicalize_hash_hex(&e.file_hash_md4_hex), e.file_size))
+            .collect()),
+        Err(DownloadStoreError::ParseKnown { .. }) => {
+            let quarantine = quarantined_known_met_path(known_met_path);
+            match tokio::fs::rename(known_met_path, &quarantine).await {
+                Ok(_) => tracing::warn!(
+                    path = %known_met_path.display(),
+                    quarantined = %quarantine.display(),
+                    "known.met parse failed; quarantined and continuing with empty known set"
+                ),
+                Err(source) => tracing::warn!(
+                    path = %known_met_path.display(),
+                    quarantined = %quarantine.display(),
+                    error = %source,
+                    "known.met parse failed; quarantine rename failed; continuing with empty known set"
+                ),
+            }
+            Ok(std::collections::HashSet::new())
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn quarantined_known_met_path(path: &Path) -> PathBuf {
+    let mut os = path.as_os_str().to_os_string();
+    os.push(format!(".corrupt.{}", now_secs()));
+    PathBuf::from(os)
+}
+
+fn canonicalize_hash_hex(hash: &str) -> String {
+    hash.to_ascii_lowercase()
+}
+
+fn sanitize_download_file_name(input: &str) -> Result<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err(DownloadError::InvalidInput(
+            "file_name must not be empty".to_string(),
+        ));
+    }
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Err(DownloadError::InvalidInput(
+            "file_name must be a relative basename".to_string(),
+        ));
+    }
+    let mut comps = path.components();
+    let first = comps.next();
+    if first.is_none() || comps.next().is_some() {
+        return Err(DownloadError::InvalidInput(
+            "file_name must be a plain file name".to_string(),
+        ));
+    }
+    match first {
+        Some(std::path::Component::Normal(name)) => {
+            let Some(name) = name.to_str() else {
+                return Err(DownloadError::InvalidInput(
+                    "file_name must be valid UTF-8".to_string(),
+                ));
+            };
+            if name.is_empty() {
+                return Err(DownloadError::InvalidInput(
+                    "file_name must not be empty".to_string(),
+                ));
+            }
+            Ok(name.to_string())
+        }
+        _ => Err(DownloadError::InvalidInput(
+            "file_name must be a plain file name".to_string(),
+        )),
+    }
 }
 
 fn total_missing(ranges: &[ByteRange]) -> u64 {
@@ -1653,7 +1859,8 @@ mod tests {
         assert!(got.progress_pct > 0);
         assert_eq!(got.inflight_ranges, 1);
 
-        join.abort();
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1677,7 +1884,8 @@ mod tests {
             .expect_err("must reject too many blocks");
         assert!(matches!(err, DownloadError::InvalidInput(_)));
 
-        join.abort();
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1800,7 +2008,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingest_compressedpart_decompresses_persists_then_finalizes_to_incoming() {
+    async fn ingest_compressedpart_decompresses_persists_then_finalizes_and_records_known() {
         let root = temp_dir("ingest-compressed");
         let cfg = DownloadServiceConfig::from_data_dir(&root);
         let (handle, _status, join) = start_service(cfg.clone()).await.expect("start");
@@ -1843,12 +2051,27 @@ mod tests {
         assert_eq!(got.inflight_ranges, 0);
         assert_eq!(got.progress_pct, 100);
 
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let incoming = cfg.incoming_dir.join("ingest-compressed.bin");
-        let bytes = tokio::fs::read(&incoming).await.expect("read incoming");
+        for _ in 0..50 {
+            if cfg.incoming_dir.join("ingest-compressed.bin").exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let incoming_path = cfg.incoming_dir.join("ingest-compressed.bin");
+        let bytes = tokio::fs::read(&incoming_path)
+            .await
+            .expect("read incoming");
         assert_eq!(&bytes, b"hello");
         let list = handle.list().await.expect("list");
         assert!(list.is_empty());
+        let known = crate::download::store::load_known_met_entries(&cfg.known_met_path)
+            .await
+            .expect("known");
+        assert_eq!(known.len(), 1);
+        assert_eq!(
+            known[0].file_hash_md4_hex,
+            "0123456789abcdef0123456789abcdef"
+        );
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
@@ -1856,8 +2079,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn startup_finalizes_stale_completing_download_to_incoming() {
-        let root = temp_dir("startup-finalize");
+    async fn startup_finalize_completing_download_deduplicates_known_met() {
+        let root = temp_dir("startup-known");
         let cfg = DownloadServiceConfig::from_data_dir(&root);
         tokio::fs::create_dir_all(&cfg.download_dir)
             .await
@@ -1866,14 +2089,26 @@ mod tests {
             .await
             .expect("mkdir incoming");
 
+        crate::download::store::append_known_met_entry(
+            &cfg.known_met_path,
+            crate::download::store::KnownMetEntry {
+                file_name: "startup.bin".to_string(),
+                file_size: 5,
+                file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
+                completed_unix_secs: 1,
+            },
+        )
+        .await
+        .expect("seed known");
+
         let part_path = part_path_for_part(&cfg.download_dir, 1);
-        tokio::fs::write(&part_path, b"abcde")
+        tokio::fs::write(&part_path, b"hello")
             .await
             .expect("write part");
         let met = PartMet {
             version: crate::download::store::PART_MET_VERSION,
             part_number: 1,
-            file_name: "stale.bin".to_string(),
+            file_name: "startup.bin".to_string(),
             file_size: 5,
             file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
             state: PartState::Completing,
@@ -1891,13 +2126,20 @@ mod tests {
             .expect("save met");
 
         let (handle, _status, join) = start_service(cfg.clone()).await.expect("start");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        let list = handle.list().await.expect("list");
-        assert!(list.is_empty());
-        let incoming = cfg.incoming_dir.join("stale.bin");
-        let bytes = tokio::fs::read(&incoming).await.expect("incoming");
-        assert_eq!(bytes, b"abcde");
+        for _ in 0..50 {
+            if !met_path.exists() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let known = crate::download::store::load_known_met_entries(&cfg.known_met_path)
+            .await
+            .expect("known");
+        assert_eq!(known.len(), 1);
+        assert_eq!(known[0].file_name, "startup.bin");
         assert!(!met_path.exists());
+        assert!(cfg.incoming_dir.join("startup.bin").exists());
+        assert!(handle.list().await.expect("list").is_empty());
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
@@ -1905,102 +2147,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_download_reply_is_not_blocked_when_finalize_fails() {
-        let root = temp_dir("finalize-fail-reply");
+    async fn create_download_rejects_path_traversal_file_names() {
+        let root = temp_dir("invalid-name");
         let cfg = DownloadServiceConfig::from_data_dir(&root);
-        tokio::fs::create_dir_all(&cfg.download_dir)
-            .await
-            .expect("mkdir download");
-        tokio::fs::create_dir_all(&cfg.incoming_dir)
-            .await
-            .expect("mkdir incoming");
-
-        let met = PartMet {
-            version: crate::download::store::PART_MET_VERSION,
-            part_number: 1,
-            file_name: "missing-part.bin".to_string(),
-            file_size: 5,
-            file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
-            state: PartState::Completing,
-            downloaded_bytes: 5,
-            missing_ranges: Vec::new(),
-            inflight_ranges: Vec::new(),
-            retry_count: 0,
-            last_error: None,
-            created_unix_secs: 1,
-            updated_unix_secs: 1,
-        };
-        let met_path = met_path_for_part(&cfg.download_dir, 1);
-        crate::download::store::save_part_met(&met_path, &met)
-            .await
-            .expect("save met");
-
         let (handle, _status, join) = start_service(cfg).await.expect("start");
-        let created = handle
+
+        let err = handle
             .create_download(CreateDownloadRequest {
-                file_name: "new-download.bin".to_string(),
-                file_size: 10,
-                file_hash_md4_hex: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
-            })
-            .await
-            .expect("create should still respond");
-        assert_eq!(created.file_name, "new-download.bin");
-
-        join.abort();
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn unique_incoming_path_avoids_existing_fallback_collisions() {
-        let root = temp_dir("incoming-collision");
-        let incoming = root.join("incoming");
-        std::fs::create_dir_all(&incoming).expect("mkdir incoming");
-
-        std::fs::write(incoming.join("file.bin"), b"a").expect("write base");
-        std::fs::write(incoming.join("file.bin.007.completed"), b"b").expect("write fallback");
-        std::fs::write(incoming.join("file.bin.007.completed.1"), b"c").expect("write fallback.1");
-
-        let candidate = unique_incoming_path(&incoming, "file.bin", 7);
-        assert!(candidate.ends_with("file.bin.007.completed.2"));
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn finalize_single_download_is_idempotent_when_part_already_moved() {
-        let root = temp_dir("finalize-idempotent");
-        let cfg = DownloadServiceConfig::from_data_dir(&root);
-        tokio::fs::create_dir_all(&cfg.incoming_dir)
-            .await
-            .expect("mkdir incoming");
-        tokio::fs::write(cfg.incoming_dir.join("already-final.bin"), b"abcde")
-            .await
-            .expect("write incoming");
-
-        let d = ManagedDownload {
-            met_path: met_path_for_part(&cfg.download_dir, 1),
-            part_path: part_path_for_part(&cfg.download_dir, 1),
-            met: PartMet {
-                version: crate::download::store::PART_MET_VERSION,
-                part_number: 1,
-                file_name: "already-final.bin".to_string(),
+                file_name: "../escape.bin".to_string(),
                 file_size: 5,
                 file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
-                state: PartState::Completing,
-                downloaded_bytes: 5,
-                missing_ranges: Vec::new(),
-                inflight_ranges: Vec::new(),
-                retry_count: 0,
-                last_error: None,
-                created_unix_secs: 1,
-                updated_unix_secs: 1,
-            },
-            leases: Vec::new(),
-        };
-
-        finalize_single_download(&d, &cfg.incoming_dir)
+            })
             .await
-            .expect("already moved should be treated as finalized");
+            .expect_err("must reject traversal");
+        assert!(matches!(err, DownloadError::InvalidInput(_)));
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
         let _ = std::fs::remove_dir_all(&root);
     }
 

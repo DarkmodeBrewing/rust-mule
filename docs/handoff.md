@@ -8,51 +8,57 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
-- Status (2026-02-24): Addressed PR #30 Copilot review items 1..4 for download finalize hardening.
+- Status (2026-02-24): Addressed PR #31 review hardening follow-ups (known.met + finalize path).
   - `src/download/service.rs`:
-    - command-path finalization is now non-fatal (`try_finalize_completed_downloads`), so command replies are still sent even if post-command finalization fails.
-    - `finalize_single_download` now treats missing `.part` as already-finalized when matching incoming target(s) exist (idempotent restart behavior).
-    - copy/remove fallback now removes copied target on source-remove failure to avoid duplicate incoming artifacts on retries.
-    - `unique_incoming_path` now guarantees uniqueness across fallback collisions (`.completed`, `.completed.1`, ...).
-  - tests:
-    - added command-reply regression for finalize failures.
-    - added unique incoming path collision regression.
-    - added idempotent finalize regression when source `.part` is already moved.
+    - added resilient known index boot (`load_known_keys_resilient`): corrupt `known.met` is quarantined and service continues with empty known set.
+    - canonicalized in-memory known dedup keys to lowercase hash form.
+    - added strict file-name sanitization (`sanitize_download_file_name`) to prevent path traversal/absolute path usage in download finalize targets.
+    - switched incoming existence checks to async directory scanning (`tokio::fs::read_dir` / `try_exists`) to avoid blocking runtime threads.
+    - replaced fixed-sleep test assumptions with bounded polling loops; added traversal-rejection test.
+  - `src/download/store.rs`:
+    - `append_known_met_entry` now canonicalizes hash casing and deduplicates case-insensitively.
   - validation rerun:
     - `cargo fmt`
     - `cargo clippy --all-targets --all-features -- -D warnings`
-    - `cargo test --all-targets --all-features` (139 passed)
+    - `cargo test --all-targets --all-features` (138 passed)
 - Decisions:
-  - Keep tick-path finalization strict (error-propagating) for now; only command-path was made non-fatal to eliminate caller hangs.
+  - Treat corrupted `known.met` as recoverable metadata state (quarantine + continue) rather than startup-fatal.
 - Next steps:
-  - Respond to PR #30 review threads with implemented changes and rationale.
+  - Update PR #31 threads and merge once approved.
 - Change log:
   - Updated `src/download/service.rs`.
+  - Updated `src/download/store.rs`.
   - Updated `docs/handoff.md`.
 
-- Status (2026-02-24): Completed download phase 0/1 lifecycle follow-up implementation (`.part`/`.part.met`/startup recovery/finalize-to-incoming) and added regression coverage.
+- Status (2026-02-24): Implemented download `known.met` slice and wired finalize lifecycle in service runtime.
   - `src/download/service.rs`:
-    - threaded `incoming_dir` through service runtime and invoked completion finalization on ticks and command paths.
-    - added finalization pipeline for `PartState::Completing`:
-      - validate terminal state (`missing_ranges`/`inflight_ranges` empty + size match),
-      - move `.part` to `incoming/` (rename with copy/remove fallback),
-      - mark completed and remove `.part.met` + `.bak` metadata artifacts.
-    - startup now finalizes stale `Completing` entries and removes metadata-only completed entries from active queue.
+    - added `known_met_path` to `DownloadServiceConfig` (`data/known.met`).
+    - startup now loads known entries into an in-memory dedup key set.
+    - service now finalizes `Completing` downloads on tick and post-command paths:
+      - moves completed `.part` into `incoming/`,
+      - writes deduplicated known entries to `known.met`,
+      - removes finalized `.part.met` + `.bak` and queue entry.
+    - command-path finalization is non-fatal (`try_finalize_completed_downloads`) to prevent reply starvation.
+  - `src/download/store.rs`:
+    - added `KnownMetEntry`.
+    - added `load_known_met_entries(...)` and `append_known_met_entry(...)` with hash+size deduplication.
+    - added store regression test for known entry dedup/persistence.
   - tests:
-    - updated compressed ingest completion test to assert finalize-to-incoming behavior.
-    - added startup recovery/finalize regression test for stale `Completing` entries.
+    - compressed ingest now asserts finalize-to-incoming + known entry persisted.
+    - startup finalize regression ensures known dedup on restart recovery.
   - validation rerun:
     - `cargo fmt`
     - `cargo clippy --all-targets --all-features -- -D warnings`
-    - `cargo test --all-targets --all-features` (136 passed)
+    - `cargo test --all-targets --all-features` (137 passed)
 - Decisions:
-  - Keep finalize behavior in download service loop (single owner of lifecycle transitions) instead of spreading finalize calls across API/handlers.
-  - Treat known-file persistence (`known.met`) as the next explicit download follow-up slice.
+  - keep `known.met` Rust-native serialized structure for phase 0/1; wire-level/format parity can be handled as a later compatibility slice if needed.
 - Next steps:
-  - Implement `known.met` persistence/recovery and wire it into finalize path.
-  - Add tests for finalized-known-file entries and restart recovery behavior.
+  - implement download phase 2 block scheduler/transfer reliability improvements.
 - Change log:
+  - Updated `src/download/errors.rs`.
+  - Updated `src/download/mod.rs`.
   - Updated `src/download/service.rs`.
+  - Updated `src/download/store.rs`.
   - Updated `docs/TODO.md`.
   - Updated `docs/TASKS.md`.
   - Updated `docs/handoff.md`.
