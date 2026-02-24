@@ -1957,9 +1957,11 @@ async fn crawl_once(
     // Exploration strategy:
     // Prefer "live" peers, but always try to poke at least one "cold" peer as well.
     let alpha = cfg.alpha.max(1);
+    let send_goal = crawl_send_goal(svc, cfg, now);
+    let attempt_budget = crawl_attempt_budget(send_goal);
     let mut candidates = svc.routing.select_query_candidates_for_target(
         target,
-        alpha * 10, // enough to pick a mix
+        attempt_budget.max(alpha) * 10, // enough to pick a mix
         now,
         req_min,
         cfg.max_failures,
@@ -1969,10 +1971,10 @@ async fn crawl_once(
         return Ok(());
     }
 
-    let mut peers: Vec<ImuleNode> = Vec::with_capacity(alpha);
+    let mut peers: Vec<ImuleNode> = Vec::with_capacity(attempt_budget);
     let mut have_cold = false;
     for c in &candidates {
-        if peers.len() >= alpha {
+        if peers.len() >= attempt_budget {
             break;
         }
         let id = KadId(c.client_id);
@@ -1996,7 +1998,7 @@ async fn crawl_once(
                 .is_none()
         })
     {
-        if !peers.is_empty() {
+        if peers.len() >= attempt_budget && !peers.is_empty() {
             peers.pop();
         }
         peers.push(cold.clone());
@@ -2004,19 +2006,56 @@ async fn crawl_once(
 
     let requested_contacts = cfg.req_contacts.clamp(1, 31);
 
-    for p in peers {
-        if let Err(err) =
-            send_kad2_req(svc, sock, crypto, cfg, requested_contacts, target, &p).await
-        {
-            tracing::debug!(
-                error = %err,
-                to = %crate::i2p::b64::short(&p.udp_dest_b64()),
-                "failed sending KAD2 REQ (crawl)"
-            );
+    let mut sent = 0usize;
+    for p in peers.into_iter().take(attempt_budget) {
+        match send_kad2_req(svc, sock, crypto, cfg, requested_contacts, target, &p).await {
+            Ok(true) => {
+                sent += 1;
+                if sent >= send_goal {
+                    break;
+                }
+            }
+            Ok(false) => {}
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    to = %crate::i2p::b64::short(&p.udp_dest_b64()),
+                    "failed sending KAD2 REQ (crawl)"
+                );
+            }
         }
     }
 
+    if sent < alpha {
+        tracing::trace!(
+            sent,
+            alpha,
+            send_goal,
+            attempt_budget,
+            pending = svc.pending_reqs.len(),
+            live_10m = svc
+                .routing
+                .live_count_recent(now, Duration::from_secs(10 * 60)),
+            "crawl query send volume below alpha after shaping/candidate filtering"
+        );
+    }
+
     Ok(())
+}
+
+fn crawl_send_goal(svc: &KadService, cfg: &KadServiceConfig, now: Instant) -> usize {
+    let alpha = cfg.alpha.max(1);
+    let live_recent = svc
+        .routing
+        .live_count_recent(now, Duration::from_secs(10 * 60));
+    let pending = svc.pending_reqs.len();
+    let timeout_pressure = svc.stats_window.timeouts > svc.stats_window.sent_reqs.saturating_add(2);
+    let healthy = live_recent > 0 && pending < alpha && !timeout_pressure;
+    if healthy { alpha.max(2) } else { alpha }
+}
+
+fn crawl_attempt_budget(send_goal: usize) -> usize {
+    send_goal.saturating_mul(4).max(send_goal)
 }
 
 async fn send_kad2_req(
@@ -2027,7 +2066,7 @@ async fn send_kad2_req(
     requested_contacts: u8,
     target: KadId,
     peer: &ImuleNode,
-) -> Result<()> {
+) -> Result<bool> {
     let dest = peer.udp_dest_b64();
     let target_kad_id = KadId(peer.client_id);
 
@@ -2054,8 +2093,9 @@ async fn send_kad2_req(
             Instant::now() + Duration::from_secs(cfg.req_timeout_secs.max(5)),
         );
         svc.routing.mark_queried_by_dest(&dest, Instant::now());
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 async fn send_hello_batch(

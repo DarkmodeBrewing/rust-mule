@@ -170,7 +170,7 @@ pub(super) async fn tick_lookups_impl(
         let requested_contacts = cfg.req_contacts.clamp(1, 31);
         if send_kad2_req(svc, sock, crypto, cfg, requested_contacts, task.target, &p)
             .await
-            .is_ok()
+            .unwrap_or(false)
         {
             task.queried.insert(dest.clone());
             task.inflight.insert(dest.clone());
