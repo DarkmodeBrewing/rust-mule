@@ -84,6 +84,9 @@ Automated before/after gate:
   - `tracked_out_matched_total` after/before >= `0.90`
   - `timeouts_total` after/before <= `1.10`
   - `outbound_shaper_delayed_total` after/before <= `1.25`
+- gate metric mode:
+  - gate compares `*_total` metrics as per-uptime rates derived from each run (`(last-first)/(uptime_last-uptime_first)`), not raw averages.
+  - this avoids false fails from startup warmup/sample-window skew.
 - enforcement:
   - `ENFORCE_THRESHOLDS=1` exits non-zero on failed checks
   - `ENFORCE_THRESHOLDS=0` prints failures but exits zero

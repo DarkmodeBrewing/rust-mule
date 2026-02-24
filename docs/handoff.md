@@ -28,6 +28,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Added `scripts/test/kad_phase0_gate.sh`.
   - Updated `scripts/test/README.md`.
 
+- Status (2026-02-24): Improved `kad_phase0_gate.sh` to avoid startup-skew false fails in cumulative metrics.
+  - Gate now normalizes `*_total` checks as per-uptime rates per run:
+    - `(last_value - first_value) / (uptime_last - uptime_first)`
+  - Capture now waits for stable readiness before each phase (`READY_STABLE_SUCCESSES`, default `3`).
+  - This fixes false failures when one phase includes warmup `503`/low-sample startup skew.
+- Decisions:
+  - Keep `compare.tsv` as-is for raw metric comparison, but drive pass/fail from per-uptime-rate gating for cumulative counters.
+- Next steps:
+  - Re-run the short gate (`DURATION_SECS=300`) to validate corrected gate behavior, then run full `1800s` gate.
+- Change log:
+  - Updated `scripts/test/kad_phase0_gate.sh`.
+  - Updated `scripts/test/README.md`.
+
 - Status (2026-02-24): Created safe-only split branch from `origin/main` and applied non-behavioral commits from `feature/kad-rotate-query-candidates`.
   - Applied commits:
     - `7ee4fad` (`scripts/test/kad_phase0_longrun.sh` output-file normalization/recovery)
