@@ -226,7 +226,7 @@ pub struct KadService {
     shaper_peer_sent_in_window: HashMap<String, u32>,
     shaper_last_global_send: HashMap<OutboundClass, Instant>,
     shaper_last_peer_send: HashMap<String, Instant>,
-    shaper_jitter_seed: u64,
+    shaper_jitter_state: u64,
     crawl_round: u64,
     stats_window: KadServiceStats,
     stats_cumulative: KadServiceCumulative,
@@ -324,7 +324,7 @@ impl KadService {
             shaper_peer_sent_in_window: HashMap::new(),
             shaper_last_global_send: HashMap::new(),
             shaper_last_peer_send: HashMap::new(),
-            shaper_jitter_seed: now.elapsed().as_nanos() as u64 ^ 0x9e37_79b9_7f4a_7c15,
+            shaper_jitter_state: init_shaper_jitter_state(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
             stats_cumulative: KadServiceCumulative::default(),
@@ -1733,12 +1733,38 @@ fn shaper_jitter_ms(svc: &mut KadService, max_ms: u64) -> u64 {
     if max_ms == 0 {
         return 0;
     }
-    // Deterministic per-process jitter without external RNG dependency.
-    svc.shaper_jitter_seed = svc
-        .shaper_jitter_seed
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1);
-    svc.shaper_jitter_seed % (max_ms + 1)
+    // Non-crypto jitter from OS-seeded per-process state.
+    // xorshift64* keeps this lightweight while avoiding deterministic fixed-seed patterns.
+    let mut x = svc.shaper_jitter_state;
+    if x == 0 {
+        x = 0x9e37_79b9_7f4a_7c15;
+    }
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    svc.shaper_jitter_state = x;
+    let mixed = x.wrapping_mul(0x2545_F491_4F6C_DD1D);
+    mixed % (max_ms + 1)
+}
+
+fn init_shaper_jitter_state() -> u64 {
+    let mut raw = [0u8; 8];
+    if getrandom::getrandom(&mut raw).is_ok() {
+        let seeded = u64::from_le_bytes(raw);
+        if seeded != 0 {
+            return seeded;
+        }
+    }
+
+    let fallback = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    if fallback == 0 {
+        0x9e37_79b9_7f4a_7c15
+    } else {
+        fallback
+    }
 }
 
 fn shaper_policy(cfg: &KadServiceConfig, class: OutboundClass) -> ShaperClassPolicy {

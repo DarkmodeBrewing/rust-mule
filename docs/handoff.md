@@ -56,6 +56,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `src/kad/service.rs`.
   - Updated `src/kad/service/tests.rs`.
 
+- Status (2026-02-24): Replaced deterministic shaper jitter evolution with OS-seeded non-crypto jitter state.
+  - `KadService` jitter state now initializes from `getrandom(...)` with a guarded system-time fallback.
+  - Jitter evolution switched from deterministic LCG to xorshift64* (`shaper_jitter_ms`), still non-crypto and lightweight.
+  - This removes fixed-seed deterministic jitter patterns while preserving bounded jitter range behavior.
+- Decisions:
+  - Keep PRNG non-crypto and local-state-only (no additional config knobs in this slice).
+  - Preserve existing shaper policy semantics; change is limited to jitter source quality.
+- Next steps:
+  - Open/merge PR for the completed three-slice KAD hardening set:
+    - decoder allocation clamps,
+    - inbound limiter caps/eviction,
+    - OS-seeded jitter.
+  - Continue with adversarial parser/fuzz targets in follow-up branch.
+- Change log:
+  - Updated `src/kad/service.rs`.
+
 - Status (2026-02-24): Implemented first routing-tuning-v3 throughput-floor slice on crawl dispatch path.
   - `send_kad2_req(...)` now returns `bool` to indicate whether a request was actually sent (vs. shaper-dropped).
   - `crawl_once(...)` now:
