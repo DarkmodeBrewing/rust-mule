@@ -95,6 +95,7 @@ For each:
 
 ## Commit & Pull Request Guidelines
 
+- Work should always be done in branches, pushed to main is locked
 - Commit messages in history use a short prefix (e.g., `chore: ...`, `wip: ...`). Follow this convention for consistency.
 - PRs should include a short summary, the motivation/issue link if applicable, and any config or data file changes noted explicitly.
 
