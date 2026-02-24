@@ -22,6 +22,8 @@ pub struct SamClient {
     hello_done: bool,
 }
 
+const MAX_SAM_CONTROL_LINE_LEN: usize = 8 * 1024;
+
 impl SamClient {
     pub async fn connect_hello(host: &str, port: u16, min: &str, max: &str) -> Result<Self> {
         let mut c = Self::connect(host, port).await?;
@@ -320,21 +322,7 @@ impl SamClient {
 
     async fn read_line_timeout_for(&mut self, waiting_for: &str) -> Result<String> {
         match timeout(self.io_timeout, async {
-            let mut buf = String::new();
-            let n = match self.reader.read_line(&mut buf).await {
-                Ok(n) => n,
-                Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
-                    return Err(SamError::FramingDesync {
-                        what: "control reply invalid UTF-8",
-                        details: format!("waiting_for={waiting_for} err={e}"),
-                    });
-                }
-                Err(e) => return Err(SamError::io("read SAM line", e)),
-            };
-            if n == 0 {
-                return Err(SamError::Closed);
-            }
-            Ok::<String, SamError>(buf.trim_end_matches(['\r', '\n']).to_string())
+            read_line_capped(&mut self.reader, &format!("waiting_for={waiting_for}")).await
         })
         .await
         {
@@ -492,19 +480,61 @@ async fn send_line_crlf(writer: &mut tokio::net::tcp::OwnedWriteHalf, line: &str
 }
 
 async fn read_line(reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>) -> Result<String> {
-    let mut buf = String::new();
-    let n = match reader.read_line(&mut buf).await {
-        Ok(n) => n,
-        Err(e) if e.kind() == std::io::ErrorKind::InvalidData => {
-            return Err(SamError::FramingDesync {
-                what: "invalid UTF-8 line",
-                details: e.to_string(),
-            });
-        }
-        Err(e) => return Err(SamError::io("read SAM line", e)),
-    };
+    read_line_capped(reader, "stream line").await
+}
+
+async fn read_line_capped(
+    reader: &mut BufReader<tokio::net::tcp::OwnedReadHalf>,
+    details: &str,
+) -> Result<String> {
+    let mut buf = Vec::new();
+    let n = reader
+        .read_until(b'\n', &mut buf)
+        .await
+        .map_err(|e| SamError::io("read SAM line", e))?;
     if n == 0 {
         return Err(SamError::Closed);
     }
-    Ok(buf.trim_end_matches(['\r', '\n']).to_string())
+    decode_line_bytes(buf, details)
+}
+
+fn decode_line_bytes(mut bytes: Vec<u8>, details: &str) -> Result<String> {
+    if bytes.len() > MAX_SAM_CONTROL_LINE_LEN {
+        return Err(SamError::FramingDesync {
+            what: "SAM control line too long",
+            details: format!("{details} len={}", bytes.len()),
+        });
+    }
+    while matches!(bytes.last(), Some(b'\n' | b'\r')) {
+        bytes.pop();
+    }
+
+    String::from_utf8(bytes).map_err(|err| SamError::FramingDesync {
+        what: "control reply invalid UTF-8",
+        details: format!("{details} err={err}"),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_line_bytes_rejects_oversized_lines() {
+        let bytes = vec![b'a'; MAX_SAM_CONTROL_LINE_LEN + 1];
+        let err = decode_line_bytes(bytes, "unit").unwrap_err();
+        assert!(matches!(err, SamError::FramingDesync { .. }));
+    }
+
+    #[test]
+    fn decode_line_bytes_rejects_invalid_utf8() {
+        let err = decode_line_bytes(vec![0xff, b'\n'], "unit").unwrap_err();
+        assert!(matches!(err, SamError::FramingDesync { .. }));
+    }
+
+    #[test]
+    fn decode_line_bytes_trims_crlf() {
+        let line = decode_line_bytes(b"HELLO REPLY RESULT=OK\r\n".to_vec(), "unit").unwrap();
+        assert_eq!(line, "HELLO REPLY RESULT=OK");
+    }
 }
