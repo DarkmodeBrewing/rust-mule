@@ -53,7 +53,7 @@ pub(crate) fn parse_json_with_limit<T: serde::de::DeserializeOwned>(
 
 pub(crate) async fn error_envelope_mw(req: Request<Body>, next: Next) -> Response {
     let is_api_v1 = req.uri().path().starts_with("/api/v1/");
-    let mut resp = next.run(req).await;
+    let resp = next.run(req).await;
     if !is_api_v1 {
         return resp;
     }
@@ -62,7 +62,9 @@ pub(crate) async fn error_envelope_mw(req: Request<Body>, next: Next) -> Respons
     }
 
     let status = resp.status();
-    let body = status_with_message(status).1;
-    resp = (status, body).into_response();
-    resp
+    let envelope_resp = status_with_message(status).into_response();
+    let (mut orig_parts, _orig_body) = resp.into_parts();
+    let (envelope_parts, envelope_body) = envelope_resp.into_parts();
+    orig_parts.headers.extend(envelope_parts.headers);
+    Response::from_parts(orig_parts, envelope_body)
 }

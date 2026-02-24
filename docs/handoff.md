@@ -8,6 +8,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Addressed PR #29 review comments (Copilot) on API hardening branch.
+  - `src/api/error.rs`:
+    - `error_envelope_mw` now preserves original response parts/headers/extensions and only replaces body/content headers for the envelope response.
+    - This prevents loss of middleware/handler response headers (e.g. CORS) on non-2xx API responses.
+  - `src/api/rate_limit.rs`:
+    - corrected `/api/v1/searches/:search_id` wildcard rate-limit behavior:
+      - `GET` detail reads now use `query_limit`
+      - `POST`/`DELETE` search mutations keep `mutate_limit`
+  - Validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (135 passed)
+- Decisions:
+  - Keep error-enveloping at middleware layer, but preserve original response metadata to avoid side effects with downstream middleware behavior.
+- Next steps:
+  - Push follow-up commit to PR #29 and resolve reviewer threads.
+- Change log:
+  - Updated `src/api/error.rs`.
+  - Updated `src/api/rate_limit.rs`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Completed API hostile-input/resilience hardening slice on `feature/api-hardening-resilience`.
   - Added standardized non-2xx API envelope middleware in `src/api/error.rs`:
     - `{ "code": <status>, "message": "<human-friendly>" }`
