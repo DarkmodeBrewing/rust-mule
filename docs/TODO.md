@@ -46,10 +46,10 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [x] Post-current longrun + merge: cap `reserve_blocks` fan-out per call (`MAX_RESERVE_BLOCKS_PER_CALL`) to bound worst-case CPU work.
 - [x] Post-current longrun + merge: remove production-path `unwrap()` in `download::protocol` decoders and return typed `ProtocolError` instead.
 - [x] Post-current longrun + merge: add hostile-input tests for download protocol decode/ingest (oversized payloads, malformed compressed parts, semantic mismatch cases).
-- [ ] Implement download subsystem scaffold (`src/download/*`) with typed errors and actor-style command loop.
-- [ ] Implement `.part` / `.part.met` persistence and startup recovery from `data/download/`.
+- [x] Implement download subsystem scaffold (`src/download/*`) with typed errors and actor-style command loop.
+- [x] Implement `.part` / `.part.met` persistence and startup recovery from `data/download/`.
 - [ ] Implement block scheduler and transfer pipeline (`OP_REQUESTPARTS`, `OP_SENDINGPART`, compressed blocks).
-- [ ] Implement completion flow into `data/incoming/` with known file persistence (`known.met`).
+- [ ] Implement known file persistence (`known.met`) as a follow-up to completed flow into `data/incoming/`.
 - [ ] Phase in AICH hashset support (`known2_64.met`) after MD4-first baseline is stable.
 
 ## API

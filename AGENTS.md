@@ -2,6 +2,9 @@
 
 ## Instruction for this repo:
 
+- Prefer 80–150 lines max per read
+- Use rg -n to pinpoint, then sed a small window
+- Avoid sed -n '1,320p' style unless you really need it
 - Read handoff.md before doing anything.
 - After each meaningful change (or after tests run), update handoff.md with: status, decisions, next steps, and a change log entry.
 - Keep it short and factual.
