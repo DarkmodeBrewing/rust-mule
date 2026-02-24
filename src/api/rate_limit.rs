@@ -75,6 +75,7 @@ fn rate_limit_for_path(path: &str, method: &Method, state: &ApiState) -> Option<
         (&Method::POST, "/api/v1/downloads") => Some(mutate_limit),
         _ if path.starts_with("/api/v1/downloads/") => Some(mutate_limit),
         (&Method::GET, "/api/v1/searches") => Some(query_limit),
+        _ if path.starts_with("/api/v1/searches/") && *method == Method::GET => Some(query_limit),
         _ if path.starts_with("/api/v1/searches/") => Some(mutate_limit),
         (&Method::GET, "/api/v1/kad/peers") => Some(query_limit),
         _ if path.starts_with("/api/v1/kad/") && *method == Method::GET => Some(query_limit),
