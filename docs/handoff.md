@@ -8,6 +8,81 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Started KAD hostile-input hardening with allocation clamp slice (`feature/kad-hardening-count-clamps`).
+  - Hardened KAD wire decoders to clamp allocation size from untrusted counts based on remaining payload bytes before `Vec::with_capacity(...)`:
+    - `decode_kad2_bootstrap_res`
+    - `decode_kad2_res`
+    - `decode_kad2_publish_key_req`
+    - `decode_kad2_search_res`
+  - Added clamp helper/constants:
+    - `clamp_allocation_count_by_remaining(...)`
+    - `KAD2_CONTACT_MIN_WIRE_BYTES`
+    - `KAD2_SEARCH_RESULT_MIN_WIRE_BYTES`
+    - `KAD2_PUBLISH_KEY_ENTRY_MIN_WIRE_BYTES`
+  - Strict decoding behavior remains unchanged (declared entries still parsed; truncated payloads still error).
+  - Added hostile truncation regression tests with large declared counts:
+    - `decode_kad2_bootstrap_res_rejects_truncated_large_count`
+    - `decode_kad2_publish_key_req_rejects_truncated_large_count`
+    - `decode_kad2_search_res_rejects_truncated_large_count`
+- Decisions:
+  - Clamp allocation capacity only, not loop iteration count, to preserve protocol strictness while preventing allocation amplification.
+- Next steps:
+  - Continue KAD hardening pass with `tracked_in_requests` bounded growth + eviction policy.
+  - Then replace deterministic shaper jitter with OS-seeded non-crypto RNG jitter.
+- Change log:
+  - Updated `src/kad/wire.rs`.
+
+- Status (2026-02-24): Added bounded growth + eviction policy for inbound per-source limiter state (`tracked_in_requests`).
+  - Added explicit caps:
+    - `TRACKED_IN_MAX_SOURCES = 4096`
+    - `TRACKED_IN_MAX_OPCODES_PER_SOURCE = 8`
+  - Added cleanup + eviction flow:
+    - `cleanup_tracked_in_requests(...)` (TTL cleanup + cap enforcement)
+    - `enforce_tracked_in_opcode_cap(...)` (per-source opcode map bounded)
+    - `evict_oldest_tracked_in_source(...)` (oldest-first global source eviction)
+  - `inbound_request_allowed(...)` now:
+    - forces cleanup when cap pressure is reached,
+    - evicts oldest source when inserting a new source at cap,
+    - enforces per-source opcode cap after updates.
+  - Added regression tests:
+    - `inbound_request_tracker_caps_number_of_sources`
+    - `inbound_request_tracker_caps_opcodes_per_source`
+- Decisions:
+  - Keep cap values internal constants for this hardening slice (no new config knobs yet).
+  - Use oldest-first eviction based on tracked entry age to preserve recent active sources.
+- Next steps:
+  - Continue KAD hardening with OS-seeded non-crypto jitter replacement for outbound shaper.
+- Change log:
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/tests.rs`.
+
+- Status (2026-02-24): Replaced deterministic shaper jitter evolution with OS-seeded non-crypto jitter state.
+  - `KadService` jitter state now initializes from `getrandom(...)` with a guarded system-time fallback.
+  - Jitter evolution switched from deterministic LCG to xorshift64* (`shaper_jitter_ms`), still non-crypto and lightweight.
+  - This removes fixed-seed deterministic jitter patterns while preserving bounded jitter range behavior.
+- Decisions:
+  - Keep PRNG non-crypto and local-state-only (no additional config knobs in this slice).
+  - Preserve existing shaper policy semantics; change is limited to jitter source quality.
+- Next steps:
+  - Open/merge PR for the completed three-slice KAD hardening set:
+    - decoder allocation clamps,
+    - inbound limiter caps/eviction,
+    - OS-seeded jitter.
+  - Continue with adversarial parser/fuzz targets in follow-up branch.
+- Change log:
+  - Updated `src/kad/service.rs`.
+
+- Status (2026-02-24): Addressed PR review follow-up for decoder clamp test coverage.
+  - Added missing hostile truncation regression test:
+    - `decode_kad2_res_rejects_truncated_large_count`
+  - This closes the only Copilot-suggested follow-up on PR #25.
+- Decisions:
+  - Keep hostile count/truncation test coverage symmetric across all four decoders touched by allocation-clamp hardening.
+- Next steps:
+  - Merge PR #25 and continue to next hardening task (adversarial parser/fuzz targets).
+- Change log:
+  - Updated `src/kad/wire.rs`.
+
 - Status (2026-02-24): Implemented first routing-tuning-v3 throughput-floor slice on crawl dispatch path.
   - `send_kad2_req(...)` now returns `bool` to indicate whether a request was actually sent (vs. shaper-dropped).
   - `crawl_once(...)` now:

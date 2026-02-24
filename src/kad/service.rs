@@ -151,6 +151,8 @@ const KEYWORD_JOB_ACTION_BATCH: usize = 5;
 const TRACKED_OUT_REQUEST_TTL: Duration = Duration::from_secs(180);
 const TRACKED_IN_CLEANUP_EVERY: Duration = Duration::from_secs(12 * 60);
 const TRACKED_IN_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
+const TRACKED_IN_MAX_SOURCES: usize = 4096;
+const TRACKED_IN_MAX_OPCODES_PER_SOURCE: usize = 8;
 const SHAPER_PEER_STATE_TTL: Duration = Duration::from_secs(60 * 60);
 const SHAPER_PEER_STATE_MAX: usize = 8192;
 
@@ -224,7 +226,7 @@ pub struct KadService {
     shaper_peer_sent_in_window: HashMap<String, u32>,
     shaper_last_global_send: HashMap<OutboundClass, Instant>,
     shaper_last_peer_send: HashMap<String, Instant>,
-    shaper_jitter_seed: u64,
+    shaper_jitter_state: u64,
     crawl_round: u64,
     stats_window: KadServiceStats,
     stats_cumulative: KadServiceCumulative,
@@ -322,7 +324,7 @@ impl KadService {
             shaper_peer_sent_in_window: HashMap::new(),
             shaper_last_global_send: HashMap::new(),
             shaper_last_peer_send: HashMap::new(),
-            shaper_jitter_seed: now.elapsed().as_nanos() as u64 ^ 0x9e37_79b9_7f4a_7c15,
+            shaper_jitter_state: init_shaper_jitter_state(),
             crawl_round: 0,
             stats_window: KadServiceStats::default(),
             stats_cumulative: KadServiceCumulative::default(),
@@ -1581,17 +1583,21 @@ fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now
         return true;
     };
 
-    if now.saturating_duration_since(svc.tracked_in_last_cleanup) >= TRACKED_IN_CLEANUP_EVERY {
-        svc.tracked_in_requests.retain(|_, op_map| {
-            op_map.retain(|_, c| {
-                now.saturating_duration_since(c.first_added) <= TRACKED_IN_ENTRY_TTL
-            });
-            !op_map.is_empty()
-        });
-        svc.tracked_in_last_cleanup = now;
+    let force_cleanup = svc.tracked_in_requests.len() >= TRACKED_IN_MAX_SOURCES;
+    if force_cleanup
+        || now.saturating_duration_since(svc.tracked_in_last_cleanup) >= TRACKED_IN_CLEANUP_EVERY
+    {
+        cleanup_tracked_in_requests(svc, now);
+    }
+
+    if !svc.tracked_in_requests.contains_key(&from_hash)
+        && svc.tracked_in_requests.len() >= TRACKED_IN_MAX_SOURCES
+    {
+        evict_oldest_tracked_in_source(svc);
     }
 
     let per_dest = svc.tracked_in_requests.entry(from_hash).or_default();
+    enforce_tracked_in_opcode_cap(per_dest);
     let counter = per_dest
         .entry(canonical_opcode)
         .or_insert(TrackedInCounter {
@@ -1621,7 +1627,65 @@ fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now
         return false;
     }
 
+    enforce_tracked_in_opcode_cap(per_dest);
     true
+}
+
+fn cleanup_tracked_in_requests(svc: &mut KadService, now: Instant) {
+    svc.tracked_in_requests.retain(|_, op_map| {
+        op_map.retain(|_, c| now.saturating_duration_since(c.first_added) <= TRACKED_IN_ENTRY_TTL);
+        enforce_tracked_in_opcode_cap(op_map);
+        !op_map.is_empty()
+    });
+
+    while svc.tracked_in_requests.len() > TRACKED_IN_MAX_SOURCES {
+        evict_oldest_tracked_in_source(svc);
+    }
+    svc.tracked_in_last_cleanup = now;
+}
+
+fn enforce_tracked_in_opcode_cap(op_map: &mut HashMap<u8, TrackedInCounter>) {
+    if op_map.len() <= TRACKED_IN_MAX_OPCODES_PER_SOURCE {
+        return;
+    }
+
+    let mut by_recency = op_map
+        .iter()
+        .map(|(opcode, c)| (*opcode, c.first_added))
+        .collect::<Vec<_>>();
+    by_recency.sort_by_key(|(_, first_added)| std::cmp::Reverse(*first_added));
+    let keep = by_recency
+        .into_iter()
+        .take(TRACKED_IN_MAX_OPCODES_PER_SOURCE)
+        .map(|(opcode, _)| opcode)
+        .collect::<HashSet<_>>();
+    op_map.retain(|opcode, _| keep.contains(opcode));
+}
+
+fn evict_oldest_tracked_in_source(svc: &mut KadService) {
+    let Some((oldest_hash, oldest_at)) = svc
+        .tracked_in_requests
+        .iter()
+        .filter_map(|(hash, op_map)| {
+            op_map
+                .values()
+                .map(|c| c.first_added)
+                .min()
+                .map(|oldest| (*hash, oldest))
+        })
+        .min_by_key(|(_, oldest)| *oldest)
+    else {
+        return;
+    };
+    let _ = svc.tracked_in_requests.remove(&oldest_hash);
+    tracing::debug!(
+        from_hash = oldest_hash,
+        age_secs = Instant::now()
+            .saturating_duration_since(oldest_at)
+            .as_secs(),
+        cap = TRACKED_IN_MAX_SOURCES,
+        "evicted tracked inbound request source due to cap"
+    );
 }
 
 fn shaper_roll_window(svc: &mut KadService, now: Instant) {
@@ -1669,12 +1733,38 @@ fn shaper_jitter_ms(svc: &mut KadService, max_ms: u64) -> u64 {
     if max_ms == 0 {
         return 0;
     }
-    // Deterministic per-process jitter without external RNG dependency.
-    svc.shaper_jitter_seed = svc
-        .shaper_jitter_seed
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1);
-    svc.shaper_jitter_seed % (max_ms + 1)
+    // Non-crypto jitter from OS-seeded per-process state.
+    // xorshift64* keeps this lightweight while avoiding deterministic fixed-seed patterns.
+    let mut x = svc.shaper_jitter_state;
+    if x == 0 {
+        x = 0x9e37_79b9_7f4a_7c15;
+    }
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    svc.shaper_jitter_state = x;
+    let mixed = x.wrapping_mul(0x2545_F491_4F6C_DD1D);
+    mixed % (max_ms + 1)
+}
+
+fn init_shaper_jitter_state() -> u64 {
+    let mut raw = [0u8; 8];
+    if getrandom::getrandom(&mut raw).is_ok() {
+        let seeded = u64::from_le_bytes(raw);
+        if seeded != 0 {
+            return seeded;
+        }
+    }
+
+    let fallback = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x9e37_79b9_7f4a_7c15);
+    if fallback == 0 {
+        0x9e37_79b9_7f4a_7c15
+    } else {
+        fallback
+    }
 }
 
 fn shaper_policy(cfg: &KadServiceConfig, class: OutboundClass) -> ShaperClassPolicy {

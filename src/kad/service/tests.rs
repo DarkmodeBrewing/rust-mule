@@ -300,6 +300,63 @@ fn inbound_request_limit_drops_flood_after_threshold() {
 }
 
 #[test]
+fn inbound_request_tracker_caps_number_of_sources() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let now = Instant::now();
+
+    for i in 0..(TRACKED_IN_MAX_SOURCES + 128) {
+        assert!(inbound_request_allowed(
+            &mut svc,
+            (i as u32).saturating_add(1),
+            KADEMLIA2_REQ,
+            now
+        ));
+    }
+
+    assert!(
+        svc.tracked_in_requests.len() <= TRACKED_IN_MAX_SOURCES,
+        "tracked_in_requests exceeded source cap"
+    );
+}
+
+#[test]
+fn inbound_request_tracker_caps_opcodes_per_source() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let now = Instant::now();
+    let from_hash = 0xBEEF_u32;
+
+    let per_dest = svc.tracked_in_requests.entry(from_hash).or_default();
+    for op in 0..32u8 {
+        per_dest.insert(
+            op,
+            TrackedInCounter {
+                first_added: now,
+                count: 1,
+                warned: false,
+            },
+        );
+    }
+
+    assert!(inbound_request_allowed(
+        &mut svc,
+        from_hash,
+        KADEMLIA2_REQ,
+        now
+    ));
+    let per_dest_len = svc
+        .tracked_in_requests
+        .get(&from_hash)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert!(
+        per_dest_len <= TRACKED_IN_MAX_OPCODES_PER_SOURCE,
+        "per-source opcode tracker exceeded cap"
+    );
+}
+
+#[test]
 fn build_status_reports_source_store_totals() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);

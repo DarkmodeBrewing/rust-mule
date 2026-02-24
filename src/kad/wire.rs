@@ -273,6 +273,21 @@ pub struct Kad1Req {
     pub sender_id: KadId,
 }
 
+const KAD2_CONTACT_MIN_WIRE_BYTES: usize = 1 + 16 + I2P_DEST_LEN;
+const KAD2_SEARCH_RESULT_MIN_WIRE_BYTES: usize = 16 + 1; // answer + empty taglist
+const KAD2_PUBLISH_KEY_ENTRY_MIN_WIRE_BYTES: usize = 16 + 1; // file + empty taglist
+
+fn clamp_allocation_count_by_remaining(
+    declared_count: usize,
+    remaining_bytes: usize,
+    min_entry_wire_bytes: usize,
+) -> usize {
+    if min_entry_wire_bytes == 0 {
+        return declared_count;
+    }
+    declared_count.min(remaining_bytes / min_entry_wire_bytes)
+}
+
 pub fn decode_kad2_bootstrap_res(payload: &[u8]) -> Result<Kad2BootstrapRes> {
     let mut r = Reader::new(payload);
 
@@ -281,7 +296,12 @@ pub fn decode_kad2_bootstrap_res(payload: &[u8]) -> Result<Kad2BootstrapRes> {
     let sender_tcp_dest = r.read_i2p_dest()?;
 
     let count = r.read_u16_le()? as usize;
-    let mut contacts = Vec::with_capacity(count);
+    let alloc_count = clamp_allocation_count_by_remaining(
+        count,
+        payload.len().saturating_sub(r.i),
+        KAD2_CONTACT_MIN_WIRE_BYTES,
+    );
+    let mut contacts = Vec::with_capacity(alloc_count);
     for _ in 0..count {
         let kad_version = r.read_u8()?;
         let node_id = r.read_uint128_emule()?;
@@ -429,8 +449,12 @@ pub fn decode_kad2_res(payload: &[u8]) -> Result<Kad2Res> {
     let mut r = Reader::new(payload);
     let target = r.read_uint128_emule()?;
     let count = r.read_u8()? as usize;
-
-    let mut contacts = Vec::with_capacity(count);
+    let alloc_count = clamp_allocation_count_by_remaining(
+        count,
+        payload.len().saturating_sub(r.i),
+        KAD2_CONTACT_MIN_WIRE_BYTES,
+    );
+    let mut contacts = Vec::with_capacity(alloc_count);
     for _ in 0..count {
         let kad_version = r.read_u8()?;
         let node_id = r.read_uint128_emule()?;
@@ -511,7 +535,12 @@ pub fn decode_kad2_publish_key_req(payload: &[u8]) -> Result<Kad2PublishKeyReq> 
     let mut r = Reader::new(payload);
     let keyword = r.read_uint128_emule()?;
     let count = r.read_u16_le()? as usize;
-    let mut entries = Vec::with_capacity(count);
+    let alloc_count = clamp_allocation_count_by_remaining(
+        count,
+        payload.len().saturating_sub(r.i),
+        KAD2_PUBLISH_KEY_ENTRY_MIN_WIRE_BYTES,
+    );
+    let mut entries = Vec::with_capacity(alloc_count);
     for _ in 0..count {
         let file = r.read_uint128_emule()?;
         let tags = r.read_taglist_search_info()?;
@@ -1064,8 +1093,12 @@ pub fn decode_kad2_search_res(payload: &[u8]) -> Result<Kad2SearchRes> {
     let sender_id = r.read_uint128_emule()?;
     let key = r.read_uint128_emule()?;
     let count = r.read_u16_le()? as usize;
-
-    let mut results = Vec::with_capacity(count);
+    let alloc_count = clamp_allocation_count_by_remaining(
+        count,
+        payload.len().saturating_sub(r.i),
+        KAD2_SEARCH_RESULT_MIN_WIRE_BYTES,
+    );
+    let mut results = Vec::with_capacity(alloc_count);
     for _ in 0..count {
         let answer = r.read_uint128_emule()?;
         let tags = r.read_taglist_search_info()?;
@@ -1580,5 +1613,49 @@ mod tests {
         let parsed_min = decode_kad2_publish_source_req_min(&payload).unwrap();
         assert_eq!(parsed_min.file, file);
         assert_eq!(parsed_min.source, source);
+    }
+
+    #[test]
+    fn decode_kad2_bootstrap_res_rejects_truncated_large_count() {
+        let sender = KadId([1; 16]);
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&sender.to_crypt_bytes());
+        payload.push(8); // sender kad version
+        payload.extend_from_slice(&[0u8; I2P_DEST_LEN]);
+        payload.extend_from_slice(&u16::MAX.to_le_bytes()); // hostile count
+        // no contact entries
+        assert!(decode_kad2_bootstrap_res(&payload).is_err());
+    }
+
+    #[test]
+    fn decode_kad2_publish_key_req_rejects_truncated_large_count() {
+        let keyword = KadId([2; 16]);
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&keyword.to_crypt_bytes());
+        payload.extend_from_slice(&u16::MAX.to_le_bytes()); // hostile count
+        // no entries
+        assert!(decode_kad2_publish_key_req(&payload).is_err());
+    }
+
+    #[test]
+    fn decode_kad2_search_res_rejects_truncated_large_count() {
+        let sender = KadId([3; 16]);
+        let key = KadId([4; 16]);
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&sender.to_crypt_bytes());
+        payload.extend_from_slice(&key.to_crypt_bytes());
+        payload.extend_from_slice(&u16::MAX.to_le_bytes()); // hostile count
+        // no results
+        assert!(decode_kad2_search_res(&payload).is_err());
+    }
+
+    #[test]
+    fn decode_kad2_res_rejects_truncated_large_count() {
+        let target = KadId([5; 16]);
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&target.to_crypt_bytes());
+        payload.push(u8::MAX); // hostile count
+        // no contacts
+        assert!(decode_kad2_res(&payload).is_err());
     }
 }
