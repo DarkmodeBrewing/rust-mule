@@ -8,6 +8,37 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Added download pipeline reserve-denial observability counters and exposed them in `/api/v1/downloads`.
+  - `src/download/service.rs`:
+    - completed `DownloadCommand::Status` service path and status publishing wiring.
+    - added reserve denial counter tracking in `reserve_blocks(...)` for:
+      - cooldown denials,
+      - per-peer cap denials,
+      - per-download cap denials.
+    - ensured all status emissions include pipeline counters.
+  - `src/api/handlers/downloads.rs`:
+    - `/api/v1/downloads` now returns:
+      - `reserve_denied_cooldown_total`
+      - `reserve_denied_peer_cap_total`
+      - `reserve_denied_download_cap_total`
+    - response now sources `recovered_on_start` from service status snapshot.
+  - tests:
+    - updated API contract assertion for `/api/v1/downloads` to require new counter fields.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (140 passed)
+- Decisions:
+  - Keep reserve-denial counters cumulative in-memory service metrics for phase-2 tuning visibility.
+- Next steps:
+  - Use these counters in soak/gate evaluation to tune fairness caps and cooldown policy.
+  - Consider per-download/per-peer breakdown metrics if aggregate counters are insufficient for diagnosis.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Started download phase-2 pipeline hardening (fairness + retry cooldown).
   - `src/download/service.rs`:
     - added lease fairness caps:
