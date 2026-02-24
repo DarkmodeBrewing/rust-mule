@@ -10,6 +10,7 @@ pub use service::{
     DownloadServiceStatus, DownloadSummary, start_service,
 };
 pub use store::{
-    ByteRange, LoadedMetSource, PART_MET_VERSION, PartMet, PartState, RecoveredDownload,
+    ByteRange, KnownMetEntry, LoadedMetSource, PART_MET_VERSION, PartMet, PartState,
+    RecoveredDownload,
 };
 pub use types::DownloadId;

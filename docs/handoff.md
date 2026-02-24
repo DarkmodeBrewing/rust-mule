@@ -8,6 +8,39 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Implemented download `known.met` slice and wired finalize lifecycle in service runtime.
+  - `src/download/service.rs`:
+    - added `known_met_path` to `DownloadServiceConfig` (`data/known.met`).
+    - startup now loads known entries into an in-memory dedup key set.
+    - service now finalizes `Completing` downloads on tick and post-command paths:
+      - moves completed `.part` into `incoming/`,
+      - writes deduplicated known entries to `known.met`,
+      - removes finalized `.part.met` + `.bak` and queue entry.
+    - command-path finalization is non-fatal (`try_finalize_completed_downloads`) to prevent reply starvation.
+  - `src/download/store.rs`:
+    - added `KnownMetEntry`.
+    - added `load_known_met_entries(...)` and `append_known_met_entry(...)` with hash+size deduplication.
+    - added store regression test for known entry dedup/persistence.
+  - tests:
+    - compressed ingest now asserts finalize-to-incoming + known entry persisted.
+    - startup finalize regression ensures known dedup on restart recovery.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (137 passed)
+- Decisions:
+  - keep `known.met` Rust-native serialized structure for phase 0/1; wire-level/format parity can be handled as a later compatibility slice if needed.
+- Next steps:
+  - implement download phase 2 block scheduler/transfer reliability improvements.
+- Change log:
+  - Updated `src/download/errors.rs`.
+  - Updated `src/download/mod.rs`.
+  - Updated `src/download/service.rs`.
+  - Updated `src/download/store.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Addressed PR #29 review comments (Copilot) on API hardening branch.
   - `src/api/error.rs`:
     - `error_envelope_mw` now preserves original response parts/headers/extensions and only replaces body/content headers for the envelope response.

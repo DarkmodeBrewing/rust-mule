@@ -47,6 +47,14 @@ pub struct PartMet {
     pub updated_unix_secs: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KnownMetEntry {
+    pub file_name: String,
+    pub file_size: u64,
+    pub file_hash_md4_hex: String,
+    pub completed_unix_secs: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadedMetSource {
     Primary,
@@ -190,6 +198,55 @@ pub async fn scan_recoverable_downloads(download_dir: &Path) -> Result<Vec<Recov
     }
     out.sort_by_key(|r| r.met.part_number);
     Ok(out)
+}
+
+pub async fn load_known_met_entries(path: &Path) -> Result<Vec<KnownMetEntry>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|source| DownloadStoreError::ReadFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    serde_json::from_slice(&bytes).map_err(|source| DownloadStoreError::ParseKnown {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+pub async fn append_known_met_entry(path: &Path, entry: KnownMetEntry) -> Result<bool> {
+    let mut entries = load_known_met_entries(path).await?;
+    if entries
+        .iter()
+        .any(|e| e.file_hash_md4_hex == entry.file_hash_md4_hex && e.file_size == entry.file_size)
+    {
+        return Ok(false);
+    }
+    entries.push(entry);
+    save_known_met_entries(path, &entries).await?;
+    Ok(true)
+}
+
+async fn save_known_met_entries(path: &Path, entries: &[KnownMetEntry]) -> Result<()> {
+    let bytes = serde_json::to_vec_pretty(entries)
+        .map_err(|source| DownloadStoreError::Serialize { source })?;
+    let tmp = tmp_path(path);
+    tokio::fs::write(&tmp, &bytes)
+        .await
+        .map_err(|source| DownloadStoreError::WriteFile {
+            path: tmp.clone(),
+            source,
+        })?;
+    tokio::fs::rename(&tmp, path)
+        .await
+        .map_err(|source| DownloadStoreError::Rename {
+            from: tmp,
+            to: path.to_path_buf(),
+            source,
+        })?;
+    Ok(())
 }
 
 fn is_primary_part_met_file(path: &Path) -> bool {
@@ -377,6 +434,33 @@ mod tests {
 
         let n = allocate_next_part_number(&root).await.expect("alloc");
         assert_eq!(n, 1001);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[tokio::test]
+    async fn append_known_met_entry_persists_and_deduplicates_by_hash_and_size() {
+        let root = temp_dir("known-met");
+        tokio::fs::create_dir_all(&root).await.expect("mkdir");
+        let path = root.join("known.met");
+        let entry = KnownMetEntry {
+            file_name: "a.bin".to_string(),
+            file_size: 10,
+            file_hash_md4_hex: "0123456789abcdef0123456789abcdef".to_string(),
+            completed_unix_secs: 1,
+        };
+
+        let inserted = append_known_met_entry(&path, entry.clone())
+            .await
+            .expect("append");
+        assert!(inserted);
+        let inserted_again = append_known_met_entry(&path, entry)
+            .await
+            .expect("append again");
+        assert!(!inserted_again);
+
+        let loaded = load_known_met_entries(&path).await.expect("load");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].file_name, "a.bin");
         let _ = std::fs::remove_dir_all(root);
     }
 }

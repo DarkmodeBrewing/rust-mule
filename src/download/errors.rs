@@ -33,6 +33,10 @@ pub enum DownloadStoreError {
         path: std::path::PathBuf,
         source: serde_json::Error,
     },
+    ParseKnown {
+        path: std::path::PathBuf,
+        source: serde_json::Error,
+    },
 }
 
 impl std::fmt::Display for DownloadStoreError {
@@ -72,6 +76,11 @@ impl std::fmt::Display for DownloadStoreError {
                 "failed to parse part metadata '{}': {source}",
                 path.display()
             ),
+            Self::ParseKnown { path, source } => write!(
+                f,
+                "failed to parse known metadata '{}': {source}",
+                path.display()
+            ),
         }
     }
 }
@@ -87,6 +96,7 @@ impl std::error::Error for DownloadStoreError {
             Self::Copy { source, .. } => Some(source),
             Self::Serialize { source } => Some(source),
             Self::ParseMet { source, .. } => Some(source),
+            Self::ParseKnown { source, .. } => Some(source),
         }
     }
 }
