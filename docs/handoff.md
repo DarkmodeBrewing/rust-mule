@@ -8,6 +8,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Started KAD hostile-input hardening with allocation clamp slice (`feature/kad-hardening-count-clamps`).
+  - Hardened KAD wire decoders to clamp allocation size from untrusted counts based on remaining payload bytes before `Vec::with_capacity(...)`:
+    - `decode_kad2_bootstrap_res`
+    - `decode_kad2_res`
+    - `decode_kad2_publish_key_req`
+    - `decode_kad2_search_res`
+  - Added clamp helper/constants:
+    - `clamp_allocation_count_by_remaining(...)`
+    - `KAD2_CONTACT_MIN_WIRE_BYTES`
+    - `KAD2_SEARCH_RESULT_MIN_WIRE_BYTES`
+    - `KAD2_PUBLISH_KEY_ENTRY_MIN_WIRE_BYTES`
+  - Strict decoding behavior remains unchanged (declared entries still parsed; truncated payloads still error).
+  - Added hostile truncation regression tests with large declared counts:
+    - `decode_kad2_bootstrap_res_rejects_truncated_large_count`
+    - `decode_kad2_publish_key_req_rejects_truncated_large_count`
+    - `decode_kad2_search_res_rejects_truncated_large_count`
+- Decisions:
+  - Clamp allocation capacity only, not loop iteration count, to preserve protocol strictness while preventing allocation amplification.
+- Next steps:
+  - Continue KAD hardening pass with `tracked_in_requests` bounded growth + eviction policy.
+  - Then replace deterministic shaper jitter with OS-seeded non-crypto RNG jitter.
+- Change log:
+  - Updated `src/kad/wire.rs`.
+
 - Status (2026-02-24): Implemented first routing-tuning-v3 throughput-floor slice on crawl dispatch path.
   - `send_kad2_req(...)` now returns `bool` to indicate whether a request was actually sent (vs. shaper-dropped).
   - `crawl_once(...)` now:
