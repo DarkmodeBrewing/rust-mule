@@ -1648,4 +1648,14 @@ mod tests {
         // no results
         assert!(decode_kad2_search_res(&payload).is_err());
     }
+
+    #[test]
+    fn decode_kad2_res_rejects_truncated_large_count() {
+        let target = KadId([5; 16]);
+        let mut payload = Vec::new();
+        payload.extend_from_slice(&target.to_crypt_bytes());
+        payload.push(u8::MAX); // hostile count
+        // no contacts
+        assert!(decode_kad2_res(&payload).is_err());
+    }
 }

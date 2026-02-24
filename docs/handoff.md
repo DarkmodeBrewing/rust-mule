@@ -72,6 +72,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Change log:
   - Updated `src/kad/service.rs`.
 
+- Status (2026-02-24): Addressed PR review follow-up for decoder clamp test coverage.
+  - Added missing hostile truncation regression test:
+    - `decode_kad2_res_rejects_truncated_large_count`
+  - This closes the only Copilot-suggested follow-up on PR #25.
+- Decisions:
+  - Keep hostile count/truncation test coverage symmetric across all four decoders touched by allocation-clamp hardening.
+- Next steps:
+  - Merge PR #25 and continue to next hardening task (adversarial parser/fuzz targets).
+- Change log:
+  - Updated `src/kad/wire.rs`.
+
 - Status (2026-02-24): Implemented first routing-tuning-v3 throughput-floor slice on crawl dispatch path.
   - `send_kad2_req(...)` now returns `bool` to indicate whether a request was actually sent (vs. shaper-dropped).
   - `crawl_once(...)` now:
