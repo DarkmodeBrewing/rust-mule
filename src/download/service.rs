@@ -90,6 +90,9 @@ pub enum DownloadCommand {
     Status {
         reply: oneshot::Sender<DownloadServiceStatus>,
     },
+    Snapshot {
+        reply: oneshot::Sender<(DownloadServiceStatus, Vec<DownloadSummary>)>,
+    },
     CreateDownload {
         req: CreateDownloadRequest,
         reply: oneshot::Sender<Result<DownloadSummary>>,
@@ -187,6 +190,15 @@ impl DownloadServiceHandle {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(DownloadCommand::Status { reply: tx })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)
+    }
+
+    pub async fn snapshot(&self) -> Result<(DownloadServiceStatus, Vec<DownloadSummary>)> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::Snapshot { reply: tx })
             .await
             .map_err(|_| DownloadError::ChannelClosed)?;
         rx.await.map_err(|_| DownloadError::ChannelClosed)
@@ -399,6 +411,20 @@ impl DownloadServiceHandle {
                             started_at: Instant::now(),
                         });
                     }
+                    DownloadCommand::Snapshot { reply } => {
+                        let _ = reply.send((
+                            DownloadServiceStatus {
+                                running: false,
+                                queue_len: 0,
+                                recovered_on_start: 0,
+                                reserve_denied_cooldown_total: 0,
+                                reserve_denied_peer_cap_total: 0,
+                                reserve_denied_download_cap_total: 0,
+                                started_at: Instant::now(),
+                            },
+                            Vec::new(),
+                        ));
+                    }
                     DownloadCommand::CreateDownload { reply, .. } => {
                         let _ = reply.send(Err(DownloadError::ChannelClosed));
                     }
@@ -578,6 +604,18 @@ async fn run_service(
                             recovered_on_start,
                             started_at,
                             pipeline_stats,
+                        ));
+                    }
+                    DownloadCommand::Snapshot { reply } => {
+                        let _ = reply.send((
+                            make_status(
+                                true,
+                                downloads.len(),
+                                recovered_on_start,
+                                started_at,
+                                pipeline_stats,
+                            ),
+                            list_summaries(&downloads),
                         ));
                     }
                     DownloadCommand::CreateDownload { req, reply } => {
@@ -2120,6 +2158,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reserve_blocks_peer_cap_increments_denied_counter() {
+        let root = temp_dir("reserve-peer-cap-counter");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cap-peer-counter.bin".to_string(),
+                file_size: 10_000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        let first = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 128, 10)
+            .await
+            .expect("first reserve");
+        assert_eq!(first.len(), MAX_INFLIGHT_LEASES_PER_PEER);
+        let second = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-a".to_string(), 1, 10)
+            .await
+            .expect("second reserve");
+        assert!(second.is_empty());
+
+        let status = handle.status().await.expect("status");
+        assert_eq!(status.reserve_denied_peer_cap_total, 1);
+        assert_eq!(status.reserve_denied_cooldown_total, 0);
+        assert_eq!(status.reserve_denied_download_cap_total, 0);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn reserve_blocks_download_cap_increments_denied_counter() {
+        let root = temp_dir("reserve-download-cap-counter");
+        let cfg = DownloadServiceConfig::from_data_dir(&root);
+        let (handle, _status, join) = start_service(cfg).await.expect("start");
+        let d = handle
+            .create_download(CreateDownloadRequest {
+                file_name: "cap-download-counter.bin".to_string(),
+                file_size: 10_000,
+                file_hash_md4_hex: "00112233445566778899aabbccddeeff".to_string(),
+            })
+            .await
+            .expect("create");
+
+        for idx in 0..(MAX_INFLIGHT_LEASES_PER_DOWNLOAD / MAX_INFLIGHT_LEASES_PER_PEER) {
+            let peer = format!("peer-{idx}");
+            let lease_batch = handle
+                .reserve_blocks_for_peer(d.part_number, peer, 128, 1)
+                .await
+                .expect("fill reserve");
+            assert_eq!(lease_batch.len(), MAX_INFLIGHT_LEASES_PER_PEER);
+        }
+
+        let denied = handle
+            .reserve_blocks_for_peer(d.part_number, "peer-overflow".to_string(), 1, 1)
+            .await
+            .expect("overflow reserve");
+        assert!(denied.is_empty());
+
+        let status = handle.status().await.expect("status");
+        assert_eq!(status.reserve_denied_download_cap_total, 1);
+        assert_eq!(status.reserve_denied_cooldown_total, 0);
+        assert_eq!(status.reserve_denied_peer_cap_total, 0);
+
+        handle.shutdown().await.expect("shutdown");
+        join.await.expect("join").expect("svc");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
     async fn mark_block_failed_enforces_short_retry_cooldown() {
         let root = temp_dir("retry-cooldown");
         let cfg = DownloadServiceConfig::from_data_dir(&root);
@@ -2153,6 +2265,10 @@ mod tests {
             .await
             .expect("reserve immediate");
         assert!(immediate.is_empty());
+        let status = handle.status().await.expect("status");
+        assert_eq!(status.reserve_denied_cooldown_total, 1);
+        assert_eq!(status.reserve_denied_peer_cap_total, 0);
+        assert_eq!(status.reserve_denied_download_cap_total, 0);
 
         tokio::time::sleep(Duration::from_millis(RETRY_BACKOFF_BASE_MS + 75)).await;
         let after = handle

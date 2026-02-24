@@ -8,6 +8,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Addressed PR #34 review comments (snapshot consistency + counter regression tests).
+  - `src/download/service.rs`:
+    - added `DownloadCommand::Snapshot` and `DownloadServiceHandle::snapshot()` to return `(DownloadServiceStatus, Vec<DownloadSummary>)` from one service-loop snapshot.
+    - added regression tests for reserve-denial counters:
+      - peer-cap denial increments `reserve_denied_peer_cap_total`,
+      - download-cap denial increments `reserve_denied_download_cap_total`,
+      - cooldown denial increments `reserve_denied_cooldown_total`.
+  - `src/api/handlers/downloads.rs`:
+    - `/api/v1/downloads` now uses `download_handle.snapshot()` to avoid mixing status/list from separate awaits.
+  - `docs/handoff.md`:
+    - removed stale “add observable counters” next-step bullet from earlier entry (work already completed).
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (142 passed)
+- Decisions:
+  - Keep `/api/v1/downloads` response internally consistent by sourcing queue/status/list from a single service snapshot.
+- Next steps:
+  - Resolve PR #34 threads and merge when approved.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Added download pipeline reserve-denial observability counters and exposed them in `/api/v1/downloads`.
   - `src/download/service.rs`:
     - completed `DownloadCommand::Status` service path and status publishing wiring.
@@ -58,7 +82,6 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Decisions:
   - Keep cooldown transient/in-memory for this slice (no persistence yet) to avoid schema churn while we stabilize scheduler behavior.
 - Next steps:
-  - Add observable counters for cooldown rejections / peer-cap rejections.
   - Tune scheduler policy with soak data (per-peer cap, backoff constants).
 - Change log:
   - Updated `src/download/service.rs`.

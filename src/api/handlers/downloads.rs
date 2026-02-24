@@ -48,14 +48,9 @@ pub(crate) struct DownloadDeleteResponse {
 pub(crate) async fn downloads(
     State(state): State<ApiState>,
 ) -> Result<Json<DownloadListResponse>, StatusCode> {
-    let status = state
+    let (status, items) = state
         .download_handle
-        .status()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let items = state
-        .download_handle
-        .list()
+        .snapshot()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -76,7 +71,7 @@ pub(crate) async fn downloads(
         .collect::<Vec<_>>();
 
     Ok(Json(DownloadListResponse {
-        queue_len: downloads.len(),
+        queue_len: status.queue_len,
         recovered_on_start: status.recovered_on_start,
         reserve_denied_cooldown_total: status.reserve_denied_cooldown_total,
         reserve_denied_peer_cap_total: status.reserve_denied_peer_cap_total,
