@@ -8,6 +8,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Completed download phase 0/1 lifecycle follow-up implementation (`.part`/`.part.met`/startup recovery/finalize-to-incoming) and added regression coverage.
+  - `src/download/service.rs`:
+    - threaded `incoming_dir` through service runtime and invoked completion finalization on ticks and command paths.
+    - added finalization pipeline for `PartState::Completing`:
+      - validate terminal state (`missing_ranges`/`inflight_ranges` empty + size match),
+      - move `.part` to `incoming/` (rename with copy/remove fallback),
+      - mark completed and remove `.part.met` + `.bak` metadata artifacts.
+    - startup now finalizes stale `Completing` entries and removes metadata-only completed entries from active queue.
+  - tests:
+    - updated compressed ingest completion test to assert finalize-to-incoming behavior.
+    - added startup recovery/finalize regression test for stale `Completing` entries.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (136 passed)
+- Decisions:
+  - Keep finalize behavior in download service loop (single owner of lifecycle transitions) instead of spreading finalize calls across API/handlers.
+  - Treat known-file persistence (`known.met`) as the next explicit download follow-up slice.
+- Next steps:
+  - Implement `known.met` persistence/recovery and wire it into finalize path.
+  - Add tests for finalized-known-file entries and restart recovery behavior.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Addressed PR #29 review comments (Copilot) on API hardening branch.
   - `src/api/error.rs`:
     - `error_envelope_mw` now preserves original response parts/headers/extensions and only replaces body/content headers for the envelope response.
