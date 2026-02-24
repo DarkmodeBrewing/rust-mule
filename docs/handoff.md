@@ -8,6 +8,56 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Validated KAD parser/fuzz hardening branch before PR.
+  - Ran required validation:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (117 passed)
+- Decisions:
+  - Keep this branch scoped to KAD parser adversarial coverage + fuzz scaffold + backlog doc updates.
+- Next steps:
+  - Commit and push `feature/kad-parser-fuzz-hardening`.
+  - Open PR for review (no direct merge).
+- Change log:
+  - Verified current branch changes with full Rust validation suite.
+
+- Status (2026-02-24): Completed KAD hostile-input parser/fuzz tranche on `feature/kad-parser-fuzz-hardening`.
+  - Added adversarial parser tests:
+    - `src/kad/packed.rs`:
+      - `rejects_invalid_zlib_method`
+      - `rejects_header_check_bits_mismatch`
+      - `rejects_when_output_exceeds_max_out`
+    - `src/kad/wire.rs`:
+      - `kad_packet_decode_rejects_invalid_packed_payload`
+      - `decode_kad2_res_rejects_truncated_large_count` (review follow-up symmetry)
+  - Added fuzz scaffold (cargo-fuzz style) for immediate hostile-input fuzzing:
+    - `fuzz/Cargo.toml`
+    - `fuzz/fuzz_targets/kad_wire.rs`
+    - `fuzz/fuzz_targets/kad_packed.rs`
+    - `fuzz/.gitignore`
+  - Updated backlog status:
+    - marked KAD decoder clamp / inbound limiter cap / jitter RNG / parser+fuzz TODO items complete.
+    - promoted i2p/SAM hostile-input hardening to next priority in `docs/TASKS.md`.
+- Decisions:
+  - Keep fuzz setup isolated in `fuzz/` (not in main workspace) so normal `cargo`/CI flows are unaffected.
+  - Treat deterministic adversarial unit tests + fuzz targets as complementary coverage.
+- Next steps:
+  - Start i2p/SAM hostile-input hardening slice:
+    - bound HTTP body reads in `src/i2p/http.rs`
+    - control-line max-length guard in `src/i2p/sam/client.rs`
+    - chunked parser CRLF hardening
+    - outbound datagram payload cap
+    - hostile-input regression tests
+- Change log:
+  - Updated `src/kad/packed.rs`.
+  - Updated `src/kad/wire.rs`.
+  - Added `fuzz/Cargo.toml`.
+  - Added `fuzz/fuzz_targets/kad_wire.rs`.
+  - Added `fuzz/fuzz_targets/kad_packed.rs`.
+  - Added `fuzz/.gitignore`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+
 - Status (2026-02-24): Started KAD hostile-input hardening with allocation clamp slice (`feature/kad-hardening-count-clamps`).
   - Hardened KAD wire decoders to clamp allocation size from untrusted counts based on remaining payload bytes before `Vec::with_capacity(...)`:
     - `decode_kad2_bootstrap_res`
