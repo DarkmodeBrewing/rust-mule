@@ -103,6 +103,38 @@ fn closest_peers_with_fallback_prefers_stable_over_unreliable() {
 }
 
 #[test]
+fn crawl_send_goal_raises_floor_when_network_is_healthy() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let cfg = KadServiceConfig {
+        alpha: 1,
+        ..KadServiceConfig::default()
+    };
+    let now = Instant::now();
+
+    let node = make_node(7, 8);
+    let _ = svc.routing_mut().upsert(node.clone(), now);
+    svc.routing_mut()
+        .mark_seen_by_dest(&node.udp_dest_b64(), now);
+
+    assert_eq!(crawl_send_goal(&svc, &cfg, now), 2);
+}
+
+#[test]
+fn crawl_send_goal_does_not_raise_floor_without_live_peers() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let cfg = KadServiceConfig {
+        alpha: 1,
+        ..KadServiceConfig::default()
+    };
+    let now = Instant::now();
+
+    let _ = svc.routing_mut().upsert(make_node(9, 8), now);
+    assert_eq!(crawl_send_goal(&svc, &cfg, now), 1);
+}
+
+#[test]
 fn stop_keyword_search_disables_active_job() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);

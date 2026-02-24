@@ -8,6 +8,28 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-24): Implemented first routing-tuning-v3 throughput-floor slice on crawl dispatch path.
+  - `send_kad2_req(...)` now returns `bool` to indicate whether a request was actually sent (vs. shaper-dropped).
+  - `crawl_once(...)` now:
+    - computes a bounded send goal (`crawl_send_goal`) with a small healthy-network floor,
+    - uses an attempt budget (`crawl_attempt_budget`) to top up when shaper/candidate filtering drops sends,
+    - stops once `send_goal` is reached.
+  - Lookup dispatch path now respects actual send result:
+    - `tick_lookups_impl(...)` no longer marks peers queried/inflight when a request was not sent.
+  - Added unit coverage:
+    - `crawl_send_goal_raises_floor_when_network_is_healthy`
+    - `crawl_send_goal_does_not_raise_floor_without_live_peers`
+- Decisions:
+  - Keep this slice minimal and focused on preserving query throughput under shaping pressure without broad policy changes.
+  - Avoid new config surface in this step; use conservative internal heuristics first.
+- Next steps:
+  - Run `scripts/test/kad_phase0_gate.sh` (1800s) on this branch and compare against current `main` baseline.
+  - If gate is neutral-or-better, prepare PR with before/after gate artifacts.
+- Change log:
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/lookup.rs`.
+  - Updated `src/kad/service/tests.rs`.
+
 - Status (2026-02-24): Added an automated Phase-0 before/after gate wrapper on `feature/kad-routing-tuning-v2`.
   - New script:
     - `scripts/test/kad_phase0_gate.sh`
