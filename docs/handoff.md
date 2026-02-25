@@ -8,6 +8,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-25): Patched fixture propagation and validation for acceptance/resume flow.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - added explicit `DOWNLOAD_FIXTURES_FILE` + `FIXTURES_ONLY` forwarding into resume stage.
+    - added early validation:
+      - `FIXTURES_ONLY=1` requires `DOWNLOAD_FIXTURES_FILE` set and existing file.
+    - added startup fixture logging for run diagnostics.
+  - `scripts/test/download_resume_soak.sh`:
+    - explicitly forwards `DOWNLOAD_FIXTURES_FILE`/`FIXTURES_ONLY` to stack runner start path.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (143 passed)
+- Decisions:
+  - Make fixture propagation explicit instead of implicit env inheritance to avoid diagnostic ambiguity in long runs.
+- Next steps:
+  - Re-run acceptance with `RUN_RESUME_SOAK=1` + fixture env and inspect `band-fixtures` lines in stack logs if transfers still stay at zero.
+- Change log:
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-25): Added repository-level GitHub Copilot instruction file.
   - added `.github/copilot-instructions.md` with:
     - repository purpose and scope,

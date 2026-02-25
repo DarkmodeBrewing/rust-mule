@@ -25,6 +25,9 @@ set -euo pipefail
 #   COMPLETION_TIMEOUT_SECS=3600
 #   POLL_SECS=2
 #   RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>
+# Forwarded to stack/band runners:
+#   DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json
+#   FIXTURES_ONLY=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK_SCRIPT="${STACK_SCRIPT:-$SCRIPT_DIR/download_soak_stack_bg.sh}"
@@ -553,7 +556,9 @@ run_resume_soak() {
   fi
 
   log "starting stack soak via $STACK_SCRIPT"
-  "$STACK_SCRIPT" start
+  DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}" \
+    FIXTURES_ONLY="${FIXTURES_ONLY:-0}" \
+    "$STACK_SCRIPT" start
 
   wait_for_run_dir
   wait_for_status_file
