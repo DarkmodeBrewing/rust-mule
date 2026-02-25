@@ -17,7 +17,8 @@ set -euo pipefail
 # Optional overrides:
 #   STACK_SCRIPT=scripts/test/download_soak_stack_bg.sh
 #   STACK_ROOT=/tmp/rust-mule-download-stack
-#   API_PORT=17835
+#   STACK_API_PORT=17865
+#   STACK_BASE_URL=http://127.0.0.1:17865
 #   RESUME_SCENARIO=concurrency
 #   WAIT_TIMEOUT_SECS=21600
 #   HEALTH_TIMEOUT_SECS=300
@@ -34,8 +35,9 @@ STACK_SCRIPT="${STACK_SCRIPT:-$SCRIPT_DIR/download_soak_stack_bg.sh}"
 STACK_ROOT="${STACK_ROOT:-/tmp/rust-mule-download-stack}"
 CONTROL_DIR="$STACK_ROOT/control"
 
-API_PORT="${API_PORT:-17835}"
-BASE_URL="${BASE_URL:-http://127.0.0.1:${API_PORT}}"
+STACK_API_PORT="${STACK_API_PORT:-17865}"
+STACK_BASE_URL="${STACK_BASE_URL:-http://127.0.0.1:${STACK_API_PORT}}"
+BASE_URL="$STACK_BASE_URL"
 RESUME_SCENARIO="${RESUME_SCENARIO:-concurrency}"
 
 WAIT_TIMEOUT_SECS="${WAIT_TIMEOUT_SECS:-21600}"
@@ -556,7 +558,9 @@ run_resume_soak() {
   fi
 
   log "starting stack soak via $STACK_SCRIPT"
-  DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}" \
+  BASE_URL="$STACK_BASE_URL" \
+    API_PORT="$STACK_API_PORT" \
+    DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}" \
     FIXTURES_ONLY="${FIXTURES_ONLY:-0}" \
     "$STACK_SCRIPT" start
 

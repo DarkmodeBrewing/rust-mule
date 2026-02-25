@@ -8,6 +8,35 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-25): Fixed resume-soak false starts caused by API port collision with a pre-running local node.
+  - Root cause from acceptance artifacts:
+    - stack app failed API bind on `:17835` (`Address already in use`),
+    - soak scenarios then hit the existing app and got `403` on `/api/v1/downloads` readiness.
+  - `scripts/test/download_resume_soak.sh`:
+    - introduced dedicated stack endpoint defaults:
+      - `STACK_API_PORT=17865`
+      - `STACK_BASE_URL=http://127.0.0.1:17865`
+    - stack start now explicitly uses those values.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - resume stage no longer forwards external `BASE_URL`/`TOKEN_FILE` into stack resume soak.
+  - `scripts/test/download_soak_stack_bg.sh`:
+    - health readiness now requires authenticated `/api/v1/downloads` `200` using run-dir `api.token`.
+    - prevents false-ready on unrelated process health.
+  - docs:
+    - updated `scripts/test/README.md` with `STACK_API_PORT` / `STACK_BASE_URL`.
+- Decisions:
+  - Keep resume soak isolated from operator node endpoint by default.
+  - Treat stack readiness as auth-bound API readiness, not just `/health`.
+- Next steps:
+  - Re-run acceptance with `RUN_RESUME_SOAK=1` and fixture mode; verify transfers are created (no `downloads=0`).
+  - If still zero-transfer, inspect scenario tarball `logs/runner.log` for create/download API payload outcomes.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/download_soak_stack_bg.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-25): Patched fixture propagation and validation for acceptance/resume flow.
   - `scripts/test/download_phase0_acceptance.sh`:
     - added explicit `DOWNLOAD_FIXTURES_FILE` + `FIXTURES_ONLY` forwarding into resume stage.

@@ -157,7 +157,7 @@ cleanup_children() {
 }
 
 wait_for_health() {
-  local start now elapsed code token_file run_dir
+  local start now elapsed code token_file run_dir token auth downloads_code
   run_dir="$(read_run_dir)"
   token_file="$run_dir/data/api.token"
   start="$(date +%s)"
@@ -171,8 +171,18 @@ wait_for_health() {
     fi
     code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/health" || true)"
     if [[ "$code" == "200" && -s "$token_file" ]]; then
-      log "health-check-ok code=$code token_file=$token_file elapsed=${elapsed}s"
-      return 0
+      token="$(tr -d '\r\n' <"$token_file" 2>/dev/null || true)"
+      if [[ -n "$token" ]]; then
+        auth="Authorization: Bearer $token"
+        downloads_code="$(curl -s -o /dev/null -w '%{http_code}' -H "$auth" "$BASE_URL/api/v1/downloads" || true)"
+        if [[ "$downloads_code" == "200" ]]; then
+          log "health-check-ok code=$code downloads_code=$downloads_code token_file=$token_file elapsed=${elapsed}s"
+          return 0
+        fi
+        log "health-check-wait code=$code downloads_code=$downloads_code token_file=$token_file elapsed=${elapsed}s"
+      else
+        log "health-check-wait code=$code token_file=$token_file token=empty elapsed=${elapsed}s"
+      fi
     fi
     sleep "$POLL_SECS"
   done
