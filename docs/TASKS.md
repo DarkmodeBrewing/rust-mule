@@ -27,6 +27,10 @@
   - peer class transitions and reliability scoring with tests
   - bucket health model and eviction rationale metrics
   - transport-context latency thresholds and regression baselines
+- add build/release script hardening backlog:
+  - switch release scripts to explicit target triples instead of host-only `target/release` artifacts
+  - define first-class targets: `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `x86_64-apple-darwin`, `aarch64-apple-darwin`
+  - document target-specific prerequisites and native-runner requirements for CI release jobs
 
 ## Definition Of Done
 

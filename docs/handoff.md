@@ -8,6 +8,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-25): Build script review identified host-only builds mislabeled as platform builds.
+  - Findings:
+    - `scripts/build/build_linux_release.sh`, `scripts/build/build_macos_release.sh`, and `scripts/build/build_windows_release.ps1` all build from host default `target/release` without `--target`.
+    - Output bundle naming includes platform/arch labels, but build target is not explicitly enforced.
+  - Backlog updates added:
+    - `docs/TODO.md`: explicit target-triple adoption, Linux amd64/x86_64 support, Windows target matrix, macOS target matrix, prerequisite docs.
+    - `docs/TASKS.md`: release-script hardening scope with explicit target list and CI prerequisite documentation.
+- Decisions:
+  - Track this as a dedicated follow-up implementation slice; do not change release scripts in this pass.
+- Next steps:
+  - Implement target-aware build scripts and update `scripts/build/README.md` with supported targets + host/cross-build constraints.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-25): Fixed resume-soak false starts caused by API port collision with a pre-running local node.
   - Root cause from acceptance artifacts:
     - stack app failed API bind on `:17835` (`Address already in use`),

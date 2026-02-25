@@ -14,6 +14,11 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [ ] Ensure CI/CD build + release flow is fully tag-driven (triggered from Git tags with artifact publish and verification).
 - [ ] Naming refactor pass: replace `Imule*` type/module/function identifiers with neutral `Mule*` naming (or neutral equivalents) across codebase.
 - [ ] Comment text normalization: avoid explicit iMule/aMule/eMule wording in code comments; use compatibility-focused wording instead (keep protocol-compat details in docs/tests as needed).
+- [ ] Build scripts: stop platform-name-only packaging and add explicit Rust target triples (`cargo build --target ...`) for release outputs.
+- [ ] Build scripts: add Linux x86_64/amd64 release target support (`x86_64-unknown-linux-gnu`) alongside current host-arch output.
+- [ ] Build scripts: add Windows target support in unified release matrix (`x86_64-pc-windows-msvc`, optional `aarch64-pc-windows-msvc`).
+- [ ] Build scripts: add macOS target support in unified release matrix (`x86_64-apple-darwin`, `aarch64-apple-darwin`) with clear host/cross-build constraints.
+- [ ] Build docs: document per-target prerequisites (rustup targets, linker/toolchain needs, when native runners are required vs Linux cross-build).
 
 ## KAD
 
