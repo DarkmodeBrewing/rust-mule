@@ -119,25 +119,29 @@ capture_snapshots "pre"
 
 log "run gate (before/after consistency check)"
 GATE_RC=0
-if ! BASE_URL="$BASE_URL" \
+if BASE_URL="$BASE_URL" \
   TOKEN_FILE="$TOKEN_FILE" \
   DURATION_SECS="$GATE_DURATION_SECS" \
   INTERVAL_SECS="$GATE_INTERVAL_SECS" \
   READY_MAX_WAIT_SECS="$GATE_READY_MAX_WAIT_SECS" \
   OUT_DIR="$OUT_DIR/kad-gate" \
   bash "$GATE_SCRIPT"; then
+  GATE_RC=0
+else
   GATE_RC=$?
 fi
 
 RESUME_RC=0
 if [[ "$RUN_RESUME_SOAK" == "1" ]]; then
   log "run resume soak"
-  if ! BASE_URL="$BASE_URL" \
+  if BASE_URL="$BASE_URL" \
     TOKEN_FILE="$TOKEN_FILE" \
     ACTIVE_TRANSFER_TIMEOUT_SECS="$RESUME_ACTIVE_TRANSFER_TIMEOUT_SECS" \
     COMPLETION_TIMEOUT_SECS="$RESUME_COMPLETION_TIMEOUT_SECS" \
     RESUME_OUT_DIR="$OUT_DIR/resume-soak" \
     bash "$RESUME_SCRIPT"; then
+    RESUME_RC=0
+  else
     RESUME_RC=$?
   fi
 else
@@ -147,12 +151,14 @@ fi
 LONGRUN_RC=0
 if [[ "$RUN_KAD_LONGRUN" == "1" ]]; then
   log "run kad longrun"
-  if ! BASE_URL="$BASE_URL" \
+  if BASE_URL="$BASE_URL" \
     TOKEN_FILE="$TOKEN_FILE" \
     DURATION_SECS="$LONGRUN_DURATION_SECS" \
     INTERVAL_SECS="$LONGRUN_INTERVAL_SECS" \
     OUT_FILE="$OUT_DIR/kad-longrun.tsv" \
     bash "$LONGRUN_SCRIPT"; then
+    LONGRUN_RC=0
+  else
     LONGRUN_RC=$?
   fi
 else

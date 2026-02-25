@@ -170,6 +170,8 @@ Phase-0 acceptance runner:
   - `RUN_RESUME_SOAK=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak + longrun:
   - `RUN_RESUME_SOAK=1 RUN_KAD_LONGRUN=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- exit behavior:
+  - exits non-zero when any enabled stage fails (`kad_phase0_gate`, `download_resume_soak`, `kad_phase0_longrun`)
 
 ### 1) Single File E2E Lifecycle Soak
 

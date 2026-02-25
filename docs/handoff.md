@@ -27,6 +27,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - `cargo test --all-targets --all-features` (143 passed)
 - Decisions:
   - Keep hash-first flow additive via operator helper script for now; full API/UI workflow remains a separate feature slice.
+- Status (2026-02-25): Fixed acceptance-runner stage exit-code propagation.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - corrected stage result handling so non-zero exit from gate/resume/longrun stages is preserved.
+    - `overall_rc` now correctly returns non-zero when any enabled stage fails.
+  - `scripts/test/README.md`:
+    - documented non-zero exit behavior for failed enabled stages.
+  - validation:
+    - smoke-checked failure path with invalid base URL (`rc=1`, `overall_rc=1`).
 - Next steps:
   - Execute one full acceptance pass with `RUN_RESUME_SOAK=1` and archive the output directory.
   - Start dedicated implementation slice for full hash-first API/UI flow and deeper known-met compatibility semantics.
@@ -34,6 +42,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `src/download/service.rs`.
   - Added `scripts/docs/download_create_from_hash.sh`.
   - Updated `scripts/docs/README.md`.
+  - Updated `scripts/test/README.md`.
   - Updated `docs/TODO.md`.
   - Updated `docs/handoff.md`.
 
