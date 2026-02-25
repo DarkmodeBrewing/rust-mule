@@ -8,6 +8,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-25): Added repository-level GitHub Copilot instruction file.
+  - added `.github/copilot-instructions.md` with:
+    - repository purpose and scope,
+    - architecture and layering boundaries,
+    - hostile-input/security expectations,
+    - Rust coding/testing conventions,
+    - docs/workflow + PR/review priorities.
+- Decisions:
+  - Keep Copilot instructions concise and aligned with `AGENTS.md`/`README.md` conventions to reduce guidance drift.
+- Next steps:
+  - Keep `.github/copilot-instructions.md` updated when development rules or review gates evolve.
+- Change log:
+  - Added `.github/copilot-instructions.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Added known.met startup resilience regression coverage and hash-first operator helper.
   - `src/download/service.rs`:
     - added `startup_quarantines_corrupt_known_met_and_continues` test:
