@@ -146,6 +146,7 @@ These scripts target the current download API/control-plane behavior (`/api/v1/d
 For real transfer/resume validation (not random synthetic hashes), provide fixtures:
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1` to fail fast if fixture-backed creates cannot be used.
+- `CREATE_FAIL_LIMIT=10` (optional): in fixtures-only mode, fail scenario early after N repeated create responses without `download.part_number`.
 
 Generate fixture JSON from local files:
 - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`

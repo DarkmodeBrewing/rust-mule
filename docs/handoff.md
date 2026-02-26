@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-26): Added diagnostics + fail-fast for fixture-backed download create failures in soak runner.
+  - `scripts/test/download_soak_bg.sh`:
+    - logs detailed warning when create response has no `download.part_number` (includes error code/message + response excerpt).
+    - tracks repeated create failures (`CREATE_FAIL_STREAK`).
+    - in `FIXTURES_ONLY=1` mode, marks scenario failed after `CREATE_FAIL_LIMIT` consecutive no-part responses (default `10`).
+    - emits round-level `create_fail` detail entries for integrity/long_churn/concurrency; single_e2e `create` now includes error detail when part is missing.
+  - `scripts/test/README.md`:
+    - documented optional `CREATE_FAIL_LIMIT`.
+- Decisions:
+  - Keep failure gating script-level for now (no API behavior change) to make fixture/contract issues immediately visible in soak artifacts.
+- Next steps:
+  - Re-run acceptance with resume soak and inspect `create_fail` rows to identify precise API rejection reason if queue remains empty.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-25): Build script review identified host-only builds mislabeled as platform builds.
   - Findings:
     - `scripts/build/build_linux_release.sh`, `scripts/build/build_macos_release.sh`, and `scripts/build/build_windows_release.ps1` all build from host default `target/release` without `--target`.
