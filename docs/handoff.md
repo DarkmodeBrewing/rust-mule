@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-26): Added forced cleanup for resume-soak failures/interruption to prevent lingering stack clients.
+  - `scripts/test/download_resume_soak.sh`:
+    - added exit trap (`cleanup_on_exit`) that requests `download_soak_stack_bg.sh stop` whenever run exits abnormally.
+    - tracks stack start state (`STACK_STARTED`) and suppresses cleanup only on successful completion.
+  - Effect:
+    - failed/aborted resume runs now stop spawned stack/client processes instead of leaving them active.
+- Decisions:
+  - Prefer unconditional stack stop on resume-script error paths to avoid leaked background clients and held ports.
+- Next steps:
+  - Re-run acceptance + resume soak once with isolated `STACK_API_PORT`/`STACK_ROOT` and verify no lingering process after failure.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-26): Hardened soak create payload encoding to avoid malformed JSON in fixture-driven runs.
   - `scripts/test/download_soak_bg.sh`:
     - `downloads_create()` now builds request JSON with `jq -n` instead of string interpolation.

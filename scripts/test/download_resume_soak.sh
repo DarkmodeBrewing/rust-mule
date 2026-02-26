@@ -52,10 +52,24 @@ STATUS_TSV=""
 STACK_TARBALL=""
 CRASH_EPOCH=0
 RESTART_EPOCH=0
+STACK_STARTED=0
+STOP_ON_EXIT=1
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 log() { echo "$(ts) $*"; }
+
+cleanup_on_exit() {
+  local rc="$?"
+  if (( STOP_ON_EXIT == 0 )); then
+    return "$rc"
+  fi
+  if (( STACK_STARTED == 1 )); then
+    "$STACK_SCRIPT" stop >/dev/null 2>&1 || true
+    log "cleanup: stop requested for stack runner (exit_rc=$rc)"
+  fi
+  return "$rc"
+}
 
 is_pid_alive() {
   local pid="$1"
@@ -549,6 +563,7 @@ run_resume_soak() {
   local out status
   require_tools
   mkdir -p "$RESUME_OUT_DIR"
+  trap cleanup_on_exit EXIT INT TERM
 
   out="$(stack_status_raw)"
   status="$(status_field "$out" "status")"
@@ -563,6 +578,7 @@ run_resume_soak() {
     DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}" \
     FIXTURES_ONLY="${FIXTURES_ONLY:-0}" \
     "$STACK_SCRIPT" start
+  STACK_STARTED=1
 
   wait_for_run_dir
   wait_for_status_file
@@ -589,6 +605,7 @@ run_resume_soak() {
 
   collect_stack_bundle
   write_report
+  STOP_ON_EXIT=0
   log "resume-soak complete report=$RESUME_OUT_DIR/resume_report.txt"
 }
 
