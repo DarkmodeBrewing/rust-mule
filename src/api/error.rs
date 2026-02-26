@@ -4,6 +4,7 @@ use axum::{
     body::Bytes,
     extract::Request,
     http::StatusCode,
+    http::header::CONTENT_TYPE,
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -58,6 +59,15 @@ pub(crate) async fn error_envelope_mw(req: Request<Body>, next: Next) -> Respons
         return resp;
     }
     if resp.status().is_success() {
+        return resp;
+    }
+    let has_json_body = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .map(|ct| ct.to_ascii_lowercase().starts_with("application/json"))
+        .unwrap_or(false);
+    if has_json_body {
         return resp;
     }
 

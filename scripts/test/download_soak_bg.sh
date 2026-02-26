@@ -53,6 +53,7 @@ RUNNER_STATE_FILE="$RUN_ROOT/runner.state"
 STOP_FILE="$RUN_ROOT/stop.requested"
 FAIL_FILE="$RUN_ROOT/failed.flag"
 FIXTURE_INDEX_FILE="$RUN_ROOT/fixture.index"
+CREATE_FAIL_STREAK_FILE="$RUN_ROOT/create_fail_streak"
 FIXTURE_COUNT=0
 FIXTURE_NEXT=0
 CREATE_FAIL_STREAK=0
@@ -119,6 +120,8 @@ load_fixtures() {
   if ! f="$(fixtures_path)"; then
     FIXTURE_COUNT=0
     FIXTURE_NEXT=0
+    CREATE_FAIL_STREAK=0
+    printf '0\n' >"$CREATE_FAIL_STREAK_FILE"
     return 0
   fi
 
@@ -154,6 +157,16 @@ load_fixtures() {
     FIXTURE_NEXT="$(( FIXTURE_NEXT % FIXTURE_COUNT ))"
   else
     FIXTURE_NEXT=0
+  fi
+  if [[ -f "$CREATE_FAIL_STREAK_FILE" ]]; then
+    local streak_raw
+    streak_raw="$(tr -d ' \t\r\n' <"$CREATE_FAIL_STREAK_FILE" 2>/dev/null || true)"
+    if [[ "$streak_raw" =~ ^[0-9]+$ ]]; then
+      CREATE_FAIL_STREAK="$streak_raw"
+    fi
+  else
+    CREATE_FAIL_STREAK=0
+    printf '0\n' >"$CREATE_FAIL_STREAK_FILE"
   fi
 }
 
@@ -209,13 +222,22 @@ create_download() {
   part="$(echo "$resp" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
   if [[ -n "$part" ]]; then
     CREATE_FAIL_STREAK=0
+    printf '%s\n' "$CREATE_FAIL_STREAK" >"$CREATE_FAIL_STREAK_FILE"
     echo "$resp"
     return 0
   fi
 
+  if [[ -f "$CREATE_FAIL_STREAK_FILE" ]]; then
+    local persisted_streak
+    persisted_streak="$(tr -d ' \t\r\n' <"$CREATE_FAIL_STREAK_FILE" 2>/dev/null || true)"
+    if [[ "$persisted_streak" =~ ^[0-9]+$ ]]; then
+      CREATE_FAIL_STREAK="$persisted_streak"
+    fi
+  fi
   CREATE_FAIL_STREAK="$((CREATE_FAIL_STREAK + 1))"
-  err_code="$(echo "$resp" | jq -r '.error.code // empty' 2>/dev/null || true)"
-  err_msg="$(echo "$resp" | jq -r '.error.message // empty' 2>/dev/null || true)"
+  printf '%s\n' "$CREATE_FAIL_STREAK" >"$CREATE_FAIL_STREAK_FILE"
+  err_code="$(echo "$resp" | jq -r '.error.code // .code // empty' 2>/dev/null || true)"
+  err_msg="$(echo "$resp" | jq -r '.error.message // .message // empty' 2>/dev/null || true)"
   err_excerpt="$(clip_detail "$resp")"
   log "WARN: create returned no part source=$source_label streak=$CREATE_FAIL_STREAK error_code=${err_code:-none} error_message=${err_msg:-none} response=${err_excerpt:-empty}"
   if [[ "$FIXTURES_ONLY" == "1" ]] && (( CREATE_FAIL_STREAK >= CREATE_FAIL_LIMIT )); then

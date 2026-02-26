@@ -8,6 +8,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-26): Fixed resume-soak diagnostics and API error detail path for download create failures.
+  - `scripts/test/download_soak_bg.sh`:
+    - fixed create-failure streak persistence across command-substitution subshell calls by storing streak in `RUN_ROOT/create_fail_streak`.
+    - fail-fast in `FIXTURES_ONLY=1` mode now trips correctly after `CREATE_FAIL_LIMIT` consecutive create failures.
+    - create-failure log extraction now reads both nested (`error.*`) and top-level (`code`/`message`) API envelopes.
+  - `src/api/error.rs`:
+    - `error_envelope_mw` now preserves handler-provided JSON error bodies and only injects generic envelope when handler did not provide JSON.
+  - `src/api/handlers/downloads.rs`:
+    - `POST /api/v1/downloads` now returns detailed validation message for `DownloadError::InvalidInput` instead of generic `bad request`.
+    - added focused unit test for invalid-input mapping.
+- Decisions:
+  - Keep generic API error envelope middleware for bare status errors, but preserve explicit JSON error responses from handlers.
+  - Keep soak fail-fast script-level and now make it deterministic in subshell-heavy shell flows.
+- Next steps:
+  - Re-run acceptance + resume soak with fixtures and inspect first detailed create error message.
+  - If create still fails, patch fixture generation/shape or download create validation according to returned message.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `src/api/error.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-26): Added diagnostics + fail-fast for fixture-backed download create failures in soak runner.
   - `scripts/test/download_soak_bg.sh`:
     - logs detailed warning when create response has no `download.part_number` (includes error code/message + response excerpt).
