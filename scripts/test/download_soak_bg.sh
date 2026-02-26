@@ -308,7 +308,13 @@ downloads_create() {
   local name="$1"
   local size="$2"
   local md4="$3"
-  api_post "/api/v1/downloads" "{\"file_name\":\"$name\",\"file_size\":$size,\"file_hash_md4_hex\":\"$md4\"}"
+  local payload
+  payload="$(jq -nc \
+    --arg file_name "$name" \
+    --arg file_hash_md4_hex "$md4" \
+    --argjson file_size "$size" \
+    '{file_name:$file_name,file_size:$file_size,file_hash_md4_hex:$file_hash_md4_hex}')" || return 1
+  api_post "/api/v1/downloads" "$payload"
 }
 
 downloads_pause() { local part="$1"; api_post "/api/v1/downloads/$part/pause" "{}"; }

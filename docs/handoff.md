@@ -8,6 +8,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-26): Hardened soak create payload encoding to avoid malformed JSON in fixture-driven runs.
+  - `scripts/test/download_soak_bg.sh`:
+    - `downloads_create()` now builds request JSON with `jq -n` instead of string interpolation.
+    - avoids shell-escaping edge cases for fixture values and ensures valid JSON body for `POST /api/v1/downloads`.
+- Decisions:
+  - Keep fixture create payload construction deterministic and JSON-safe in script layer.
+- Next steps:
+  - Re-run acceptance with resume soak and verify create requests no longer fail with generic `400 bad request`.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-26): Fixed resume-soak diagnostics and API error detail path for download create failures.
   - `scripts/test/download_soak_bg.sh`:
     - fixed create-failure streak persistence across command-substitution subshell calls by storing streak in `RUN_ROOT/create_fail_streak`.
