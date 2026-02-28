@@ -138,6 +138,18 @@ impl SamCommand {
 
 fn encode_value(v: &str) -> String {
     // Most SAM values are unquoted tokens (no whitespace). MESSAGE commonly needs quoting.
+    // Strip CR/LF bytes before encoding: they would split the SAM command line and allow
+    // protocol injection (a newline inside a quoted value is still sent as a raw newline byte,
+    // which the SAM bridge treats as a command terminator).
+    let needs_strip = v.contains('\n') || v.contains('\r');
+    let stripped: String;
+    let v: &str = if needs_strip {
+        stripped = v.chars().filter(|&c| c != '\n' && c != '\r').collect();
+        &stripped
+    } else {
+        v
+    };
+
     let needs_quotes =
         v.bytes().any(|b| b.is_ascii_whitespace()) || v.contains('"') || v.contains('\\');
 

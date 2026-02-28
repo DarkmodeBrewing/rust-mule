@@ -18,6 +18,7 @@ toml = "0.9.11"
 tracing = "0.1.44"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+subtle = "2.6.1"
 
 [dev-dependencies]
 reqwest = { version = "0.12.23", default-features = false, features = ["json", "rustls-tls"] }

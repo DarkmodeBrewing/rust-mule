@@ -944,6 +944,15 @@ async fn create_download(
             "file_size must be > 0".to_string(),
         ));
     }
+    // Refuse implausibly large files to prevent disk exhaustion / integer overflow in
+    // range arithmetic.  100 GiB is well above any realistic eMule file size.
+    const MAX_FILE_SIZE: u64 = 100u64 * 1024 * 1024 * 1024; // 107_374_182_400
+    if req.file_size > MAX_FILE_SIZE {
+        return Err(DownloadError::InvalidInput(format!(
+            "file_size {0} exceeds maximum allowed size ({MAX_FILE_SIZE})",
+            req.file_size,
+        )));
+    }
 
     let part_number = allocate_next_part_number(download_dir).await?;
     let met_path = met_path_for_part(download_dir, part_number);

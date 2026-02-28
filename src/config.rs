@@ -81,7 +81,7 @@ fn default_api_port() -> u16 {
     17835
 }
 fn default_api_enable_debug_endpoints() -> bool {
-    true
+    false
 }
 fn default_api_auth_mode() -> ApiAuthMode {
     ApiAuthMode::LocalUi

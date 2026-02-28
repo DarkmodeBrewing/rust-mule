@@ -7,6 +7,7 @@ use std::{
     net::SocketAddr,
     time::{Duration, Instant},
 };
+use subtle::ConstantTimeEq as _;
 
 use axum::http::{HeaderMap, Method, StatusCode, header};
 
@@ -46,7 +47,7 @@ pub(crate) async fn auth_mw(
         }
         let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
         let current_token = state.token.read().await.clone();
-        if provided != current_token {
+        if !bool::from(provided.as_bytes().ct_eq(current_token.as_bytes())) {
             return Err(StatusCode::FORBIDDEN);
         }
         return Ok(next.run(req).await);

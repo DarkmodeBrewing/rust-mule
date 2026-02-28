@@ -940,6 +940,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "subtle",
  "tokio",
  "tokio-stream",
  "toml",
