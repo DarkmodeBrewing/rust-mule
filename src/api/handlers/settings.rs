@@ -139,7 +139,10 @@ pub(crate) fn validate_settings(cfg: &Config) -> Result<(), StatusCode> {
     if !(1..=65535).contains(&cfg.sam.port) {
         return Err(StatusCode::BAD_REQUEST);
     }
-    if cfg.sam.session_name.trim().is_empty() {
+    if cfg.sam.session_name.trim().is_empty()
+        || cfg.sam.session_name.contains('\n')
+        || cfg.sam.session_name.contains('\r')
+    {
         return Err(StatusCode::BAD_REQUEST);
     }
 

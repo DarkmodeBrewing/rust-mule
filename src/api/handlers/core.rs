@@ -97,6 +97,10 @@ pub(crate) async fn create_session(
     {
         let mut sessions = state.sessions.lock().await;
         cleanup_expired_sessions(&mut sessions, Instant::now());
+        // Reject after cleanup: allows up to MAX_SESSIONS live sessions total.
+        if sessions.len() >= crate::api::MAX_SESSIONS {
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
         sessions.insert(session_id, Instant::now() + SESSION_TTL);
     }
 

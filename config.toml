@@ -61,7 +61,7 @@ auto_open_ui = true
 # API bind port.
 port = 17835
 # Enable operational/debug endpoints under /api/v1/debug/*.
-enable_debug_endpoints = true
+enable_debug_endpoints = false
 # Auth mode: `local_ui` enables token bootstrap endpoint (`/api/v1/auth/bootstrap`), `headless_remote` disables it.
 auth_mode = "local_ui"
 # Basic fixed-window rate limiting for high-value endpoints.

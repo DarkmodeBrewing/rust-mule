@@ -72,20 +72,29 @@ pub async fn rotate_token(path: &Path) -> Result<String> {
     let token = hex_lower(&raw);
 
     let tmp = path.with_extension("tmp");
-    tokio::fs::write(&tmp, token.as_bytes())
-        .await
-        .map_err(TokenError::WriteTemp)?;
+
+    // Apply restrictive permissions to the temp file *before* the atomic rename so that
+    // the final file is never visible to other users, even briefly.
+    #[cfg(unix)]
+    {
+        let mut opts = tokio::fs::OpenOptions::new();
+        opts.write(true).create(true).truncate(true).mode(0o600);
+        let mut f = opts.open(&tmp).await.map_err(TokenError::WriteTemp)?;
+        use tokio::io::AsyncWriteExt as _;
+        f.write_all(token.as_bytes())
+            .await
+            .map_err(TokenError::WriteTemp)?;
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::fs::write(&tmp, token.as_bytes())
+            .await
+            .map_err(TokenError::WriteTemp)?;
+    }
+
     tokio::fs::rename(&tmp, path)
         .await
         .map_err(TokenError::Rename)?;
-
-    // Best-effort to restrict secrets on Unix; ignore failures (still portable).
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let perm = std::fs::Permissions::from_mode(0o600);
-        let _ = std::fs::set_permissions(path, perm);
-    }
 
     Ok(token)
 }
