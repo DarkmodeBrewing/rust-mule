@@ -62,13 +62,14 @@ log() { echo "$(ts) $*"; }
 cleanup_on_exit() {
   local rc="$?"
   if (( STOP_ON_EXIT == 0 )); then
-    return "$rc"
+    return
   fi
   if (( STACK_STARTED == 1 )); then
     "$STACK_SCRIPT" stop >/dev/null 2>&1 || true
     log "cleanup: stop requested for stack runner (exit_rc=$rc)"
   fi
-  return "$rc"
+  STOP_ON_EXIT=0
+  trap - EXIT INT TERM
 }
 
 is_pid_alive() {

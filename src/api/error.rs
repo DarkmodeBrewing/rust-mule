@@ -49,7 +49,16 @@ pub(crate) fn parse_json_with_limit<T: serde::de::DeserializeOwned>(
     if bytes.len() > max_bytes {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
-    serde_json::from_slice::<T>(&bytes).map_err(|_| StatusCode::BAD_REQUEST)
+    serde_json::from_slice::<T>(&bytes).map_err(|err| {
+        let excerpt = String::from_utf8_lossy(&bytes[..bytes.len().min(160)]);
+        tracing::warn!(
+            error = %err,
+            body_len = bytes.len(),
+            body_excerpt = %excerpt,
+            "json parse failed"
+        );
+        StatusCode::BAD_REQUEST
+    })
 }
 
 pub(crate) async fn error_envelope_mw(req: Request<Body>, next: Next) -> Response {

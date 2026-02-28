@@ -117,11 +117,11 @@ fixtures_path() {
 
 load_fixtures() {
   local f
+  CREATE_FAIL_STREAK=0
+  printf '0\n' >"$CREATE_FAIL_STREAK_FILE"
   if ! f="$(fixtures_path)"; then
     FIXTURE_COUNT=0
     FIXTURE_NEXT=0
-    CREATE_FAIL_STREAK=0
-    printf '0\n' >"$CREATE_FAIL_STREAK_FILE"
     return 0
   fi
 
@@ -157,16 +157,6 @@ load_fixtures() {
     FIXTURE_NEXT="$(( FIXTURE_NEXT % FIXTURE_COUNT ))"
   else
     FIXTURE_NEXT=0
-  fi
-  if [[ -f "$CREATE_FAIL_STREAK_FILE" ]]; then
-    local streak_raw
-    streak_raw="$(tr -d ' \t\r\n' <"$CREATE_FAIL_STREAK_FILE" 2>/dev/null || true)"
-    if [[ "$streak_raw" =~ ^[0-9]+$ ]]; then
-      CREATE_FAIL_STREAK="$streak_raw"
-    fi
-  else
-    CREATE_FAIL_STREAK=0
-    printf '0\n' >"$CREATE_FAIL_STREAK_FILE"
   fi
 }
 

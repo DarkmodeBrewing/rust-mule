@@ -8,6 +8,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-28): Added diagnostics for JSON parse `400` and stabilized soak fail-streak/reset behavior.
+  - `src/api/error.rs`:
+    - `parse_json_with_limit` now logs `json parse failed` with serde error + body length + body excerpt (first 160 bytes) before returning `400`.
+    - enables direct triage of generic `bad request` in stack `rust-mule.out`.
+  - `scripts/test/download_soak_bg.sh`:
+    - reset `CREATE_FAIL_STREAK` at start of each run (`load_fixtures`), while still persisting within-run increments across command-substitution subshell boundaries.
+    - prevents cross-run streak carry-over noise.
+  - `scripts/test/download_resume_soak.sh`:
+    - trap cleanup no longer returns nonzero status from EXIT path; disables trap after cleanup.
+    - avoids `pop_var_context` shell error observed after termination.
+- Decisions:
+  - Prefer runtime diagnostics in API parser over guessing script-side causes for 400.
+- Next steps:
+  - Re-run acceptance with isolated stack port/root and inspect stack `rust-mule.out` for `json parse failed` line if 400 persists.
+- Change log:
+  - Updated `src/api/error.rs`.
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-26): Added forced cleanup for resume-soak failures/interruption to prevent lingering stack clients.
   - `scripts/test/download_resume_soak.sh`:
     - added exit trap (`cleanup_on_exit`) that requests `download_soak_stack_bg.sh stop` whenever run exits abnormally.
