@@ -1,7 +1,10 @@
 use axum::{Json, body::Bytes, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::api::{ApiState, error::parse_json_with_limit};
+use crate::api::{
+    ApiState,
+    error::{ApiErrorEnvelope, parse_json_with_limit, status_with_message},
+};
 use crate::download::{CreateDownloadRequest, DownloadError};
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,8 +86,9 @@ pub(crate) async fn downloads(
 pub(crate) async fn downloads_create(
     State(state): State<ApiState>,
     body: Bytes,
-) -> Result<(StatusCode, Json<DownloadActionResponse>), StatusCode> {
-    let req: CreateDownloadRequestBody = parse_json_with_limit(body, 8 * 1024)?;
+) -> Result<(StatusCode, Json<DownloadActionResponse>), (StatusCode, Json<ApiErrorEnvelope>)> {
+    let req: CreateDownloadRequestBody =
+        parse_json_with_limit(body, 8 * 1024).map_err(status_with_message)?;
     let summary = state
         .download_handle
         .create_download(CreateDownloadRequest {
@@ -93,7 +97,7 @@ pub(crate) async fn downloads_create(
             file_hash_md4_hex: req.file_hash_md4_hex,
         })
         .await
-        .map_err(map_download_error)?;
+        .map_err(map_download_error_envelope)?;
 
     Ok((
         StatusCode::CREATED,
@@ -210,5 +214,33 @@ fn map_download_error(err: DownloadError) -> StatusCode {
         DownloadError::Store(_) | DownloadError::ServiceJoin(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
+    }
+}
+
+fn map_download_error_envelope(err: DownloadError) -> (StatusCode, Json<ApiErrorEnvelope>) {
+    match err {
+        DownloadError::InvalidInput(msg) => (
+            StatusCode::BAD_REQUEST,
+            Json(ApiErrorEnvelope {
+                code: StatusCode::BAD_REQUEST.as_u16(),
+                message: msg,
+            }),
+        ),
+        other => status_with_message(map_download_error(other)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invalid_input_error_preserves_detail_message() {
+        let (status, body) = map_download_error_envelope(DownloadError::InvalidInput(
+            "file hash must be 32 hex chars".to_string(),
+        ));
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(body.0.code, StatusCode::BAD_REQUEST.as_u16());
+        assert_eq!(body.0.message, "file hash must be 32 hex chars");
     }
 }

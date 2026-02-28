@@ -17,7 +17,8 @@ set -euo pipefail
 # Optional overrides:
 #   STACK_SCRIPT=scripts/test/download_soak_stack_bg.sh
 #   STACK_ROOT=/tmp/rust-mule-download-stack
-#   API_PORT=17835
+#   STACK_API_PORT=17865
+#   STACK_BASE_URL=http://127.0.0.1:17865
 #   RESUME_SCENARIO=concurrency
 #   WAIT_TIMEOUT_SECS=21600
 #   HEALTH_TIMEOUT_SECS=300
@@ -25,14 +26,18 @@ set -euo pipefail
 #   COMPLETION_TIMEOUT_SECS=3600
 #   POLL_SECS=2
 #   RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>
+# Forwarded to stack/band runners:
+#   DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json
+#   FIXTURES_ONLY=1
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK_SCRIPT="${STACK_SCRIPT:-$SCRIPT_DIR/download_soak_stack_bg.sh}"
 STACK_ROOT="${STACK_ROOT:-/tmp/rust-mule-download-stack}"
 CONTROL_DIR="$STACK_ROOT/control"
 
-API_PORT="${API_PORT:-17835}"
-BASE_URL="${BASE_URL:-http://127.0.0.1:${API_PORT}}"
+STACK_API_PORT="${STACK_API_PORT:-17865}"
+STACK_BASE_URL="${STACK_BASE_URL:-http://127.0.0.1:${STACK_API_PORT}}"
+BASE_URL="$STACK_BASE_URL"
 RESUME_SCENARIO="${RESUME_SCENARIO:-concurrency}"
 
 WAIT_TIMEOUT_SECS="${WAIT_TIMEOUT_SECS:-21600}"
@@ -47,10 +52,25 @@ STATUS_TSV=""
 STACK_TARBALL=""
 CRASH_EPOCH=0
 RESTART_EPOCH=0
+STACK_STARTED=0
+STOP_ON_EXIT=1
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 log() { echo "$(ts) $*"; }
+
+cleanup_on_exit() {
+  local rc="$?"
+  if (( STOP_ON_EXIT == 0 )); then
+    return
+  fi
+  if (( STACK_STARTED == 1 )); then
+    "$STACK_SCRIPT" stop >/dev/null 2>&1 || true
+    log "cleanup: stop requested for stack runner (exit_rc=$rc)"
+  fi
+  STOP_ON_EXIT=0
+  trap - EXIT INT TERM
+}
 
 is_pid_alive() {
   local pid="$1"
@@ -544,6 +564,7 @@ run_resume_soak() {
   local out status
   require_tools
   mkdir -p "$RESUME_OUT_DIR"
+  trap cleanup_on_exit EXIT INT TERM
 
   out="$(stack_status_raw)"
   status="$(status_field "$out" "status")"
@@ -553,7 +574,12 @@ run_resume_soak() {
   fi
 
   log "starting stack soak via $STACK_SCRIPT"
-  "$STACK_SCRIPT" start
+  BASE_URL="$STACK_BASE_URL" \
+    API_PORT="$STACK_API_PORT" \
+    DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}" \
+    FIXTURES_ONLY="${FIXTURES_ONLY:-0}" \
+    "$STACK_SCRIPT" start
+  STACK_STARTED=1
 
   wait_for_run_dir
   wait_for_status_file
@@ -580,6 +606,7 @@ run_resume_soak() {
 
   collect_stack_bundle
   write_report
+  STOP_ON_EXIT=0
   log "resume-soak complete report=$RESUME_OUT_DIR/resume_report.txt"
 }
 

@@ -8,6 +8,239 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-02-28): Added diagnostics for JSON parse `400` and stabilized soak fail-streak/reset behavior.
+  - `src/api/error.rs`:
+    - `parse_json_with_limit` now logs `json parse failed` with serde error + body length + body excerpt (first 160 bytes) before returning `400`.
+    - enables direct triage of generic `bad request` in stack `rust-mule.out`.
+  - `scripts/test/download_soak_bg.sh`:
+    - reset `CREATE_FAIL_STREAK` at start of each run (`load_fixtures`), while still persisting within-run increments across command-substitution subshell boundaries.
+    - prevents cross-run streak carry-over noise.
+  - `scripts/test/download_resume_soak.sh`:
+    - trap cleanup no longer returns nonzero status from EXIT path; disables trap after cleanup.
+    - avoids `pop_var_context` shell error observed after termination.
+- Decisions:
+  - Prefer runtime diagnostics in API parser over guessing script-side causes for 400.
+- Next steps:
+  - Re-run acceptance with isolated stack port/root and inspect stack `rust-mule.out` for `json parse failed` line if 400 persists.
+- Change log:
+  - Updated `src/api/error.rs`.
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-26): Added forced cleanup for resume-soak failures/interruption to prevent lingering stack clients.
+  - `scripts/test/download_resume_soak.sh`:
+    - added exit trap (`cleanup_on_exit`) that requests `download_soak_stack_bg.sh stop` whenever run exits abnormally.
+    - tracks stack start state (`STACK_STARTED`) and suppresses cleanup only on successful completion.
+  - Effect:
+    - failed/aborted resume runs now stop spawned stack/client processes instead of leaving them active.
+- Decisions:
+  - Prefer unconditional stack stop on resume-script error paths to avoid leaked background clients and held ports.
+- Next steps:
+  - Re-run acceptance + resume soak once with isolated `STACK_API_PORT`/`STACK_ROOT` and verify no lingering process after failure.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-26): Hardened soak create payload encoding to avoid malformed JSON in fixture-driven runs.
+  - `scripts/test/download_soak_bg.sh`:
+    - `downloads_create()` now builds request JSON with `jq -n` instead of string interpolation.
+    - avoids shell-escaping edge cases for fixture values and ensures valid JSON body for `POST /api/v1/downloads`.
+- Decisions:
+  - Keep fixture create payload construction deterministic and JSON-safe in script layer.
+- Next steps:
+  - Re-run acceptance with resume soak and verify create requests no longer fail with generic `400 bad request`.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-26): Fixed resume-soak diagnostics and API error detail path for download create failures.
+  - `scripts/test/download_soak_bg.sh`:
+    - fixed create-failure streak persistence across command-substitution subshell calls by storing streak in `RUN_ROOT/create_fail_streak`.
+    - fail-fast in `FIXTURES_ONLY=1` mode now trips correctly after `CREATE_FAIL_LIMIT` consecutive create failures.
+    - create-failure log extraction now reads both nested (`error.*`) and top-level (`code`/`message`) API envelopes.
+  - `src/api/error.rs`:
+    - `error_envelope_mw` now preserves handler-provided JSON error bodies and only injects generic envelope when handler did not provide JSON.
+  - `src/api/handlers/downloads.rs`:
+    - `POST /api/v1/downloads` now returns detailed validation message for `DownloadError::InvalidInput` instead of generic `bad request`.
+    - added focused unit test for invalid-input mapping.
+- Decisions:
+  - Keep generic API error envelope middleware for bare status errors, but preserve explicit JSON error responses from handlers.
+  - Keep soak fail-fast script-level and now make it deterministic in subshell-heavy shell flows.
+- Next steps:
+  - Re-run acceptance + resume soak with fixtures and inspect first detailed create error message.
+  - If create still fails, patch fixture generation/shape or download create validation according to returned message.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `src/api/error.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-26): Added diagnostics + fail-fast for fixture-backed download create failures in soak runner.
+  - `scripts/test/download_soak_bg.sh`:
+    - logs detailed warning when create response has no `download.part_number` (includes error code/message + response excerpt).
+    - tracks repeated create failures (`CREATE_FAIL_STREAK`).
+    - in `FIXTURES_ONLY=1` mode, marks scenario failed after `CREATE_FAIL_LIMIT` consecutive no-part responses (default `10`).
+    - emits round-level `create_fail` detail entries for integrity/long_churn/concurrency; single_e2e `create` now includes error detail when part is missing.
+  - `scripts/test/README.md`:
+    - documented optional `CREATE_FAIL_LIMIT`.
+- Decisions:
+  - Keep failure gating script-level for now (no API behavior change) to make fixture/contract issues immediately visible in soak artifacts.
+- Next steps:
+  - Re-run acceptance with resume soak and inspect `create_fail` rows to identify precise API rejection reason if queue remains empty.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-25): Build script review identified host-only builds mislabeled as platform builds.
+  - Findings:
+    - `scripts/build/build_linux_release.sh`, `scripts/build/build_macos_release.sh`, and `scripts/build/build_windows_release.ps1` all build from host default `target/release` without `--target`.
+    - Output bundle naming includes platform/arch labels, but build target is not explicitly enforced.
+  - Backlog updates added:
+    - `docs/TODO.md`: explicit target-triple adoption, Linux amd64/x86_64 support, Windows target matrix, macOS target matrix, prerequisite docs.
+    - `docs/TASKS.md`: release-script hardening scope with explicit target list and CI prerequisite documentation.
+- Decisions:
+  - Track this as a dedicated follow-up implementation slice; do not change release scripts in this pass.
+- Next steps:
+  - Implement target-aware build scripts and update `scripts/build/README.md` with supported targets + host/cross-build constraints.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-25): Fixed resume-soak false starts caused by API port collision with a pre-running local node.
+  - Root cause from acceptance artifacts:
+    - stack app failed API bind on `:17835` (`Address already in use`),
+    - soak scenarios then hit the existing app and got `403` on `/api/v1/downloads` readiness.
+  - `scripts/test/download_resume_soak.sh`:
+    - introduced dedicated stack endpoint defaults:
+      - `STACK_API_PORT=17865`
+      - `STACK_BASE_URL=http://127.0.0.1:17865`
+    - stack start now explicitly uses those values.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - resume stage no longer forwards external `BASE_URL`/`TOKEN_FILE` into stack resume soak.
+  - `scripts/test/download_soak_stack_bg.sh`:
+    - health readiness now requires authenticated `/api/v1/downloads` `200` using run-dir `api.token`.
+    - prevents false-ready on unrelated process health.
+  - docs:
+    - updated `scripts/test/README.md` with `STACK_API_PORT` / `STACK_BASE_URL`.
+- Decisions:
+  - Keep resume soak isolated from operator node endpoint by default.
+  - Treat stack readiness as auth-bound API readiness, not just `/health`.
+- Next steps:
+  - Re-run acceptance with `RUN_RESUME_SOAK=1` and fixture mode; verify transfers are created (no `downloads=0`).
+  - If still zero-transfer, inspect scenario tarball `logs/runner.log` for create/download API payload outcomes.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/download_soak_stack_bg.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-25): Patched fixture propagation and validation for acceptance/resume flow.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - added explicit `DOWNLOAD_FIXTURES_FILE` + `FIXTURES_ONLY` forwarding into resume stage.
+    - added early validation:
+      - `FIXTURES_ONLY=1` requires `DOWNLOAD_FIXTURES_FILE` set and existing file.
+    - added startup fixture logging for run diagnostics.
+  - `scripts/test/download_resume_soak.sh`:
+    - explicitly forwards `DOWNLOAD_FIXTURES_FILE`/`FIXTURES_ONLY` to stack runner start path.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (143 passed)
+- Decisions:
+  - Make fixture propagation explicit instead of implicit env inheritance to avoid diagnostic ambiguity in long runs.
+- Next steps:
+  - Re-run acceptance with `RUN_RESUME_SOAK=1` + fixture env and inspect `band-fixtures` lines in stack logs if transfers still stay at zero.
+- Change log:
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-25): Added repository-level GitHub Copilot instruction file.
+  - added `.github/copilot-instructions.md` with:
+    - repository purpose and scope,
+    - architecture and layering boundaries,
+    - hostile-input/security expectations,
+    - Rust coding/testing conventions,
+    - docs/workflow + PR/review priorities.
+- Decisions:
+  - Keep Copilot instructions concise and aligned with `AGENTS.md`/`README.md` conventions to reduce guidance drift.
+- Next steps:
+  - Keep `.github/copilot-instructions.md` updated when development rules or review gates evolve.
+- Change log:
+  - Added `.github/copilot-instructions.md`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-24): Added known.met startup resilience regression coverage and hash-first operator helper.
+  - `src/download/service.rs`:
+    - added `startup_quarantines_corrupt_known_met_and_continues` test:
+      - validates service startup does not fail on corrupt `known.met`,
+      - validates corrupt file quarantine behavior (`known.met.corrupt.<ts>`),
+      - validates service continues with an empty known set.
+  - `scripts/docs/download_create_from_hash.sh`:
+    - new hash-first helper script to:
+      - optionally queue `POST /api/v1/kad/search_sources`,
+      - create download via `POST /api/v1/downloads` using MD4 hash input.
+  - docs:
+    - updated `scripts/docs/README.md` with helper mention.
+    - updated `docs/TODO.md` with helper completion marker.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (143 passed)
+- Decisions:
+  - Keep hash-first flow additive via operator helper script for now; full API/UI workflow remains a separate feature slice.
+- Status (2026-02-25): Fixed acceptance-runner stage exit-code propagation.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - corrected stage result handling so non-zero exit from gate/resume/longrun stages is preserved.
+    - `overall_rc` now correctly returns non-zero when any enabled stage fails.
+  - `scripts/test/README.md`:
+    - documented non-zero exit behavior for failed enabled stages.
+  - validation:
+    - smoke-checked failure path with invalid base URL (`rc=1`, `overall_rc=1`).
+- Next steps:
+  - Execute one full acceptance pass with `RUN_RESUME_SOAK=1` and archive the output directory.
+  - Start dedicated implementation slice for full hash-first API/UI flow and deeper known-met compatibility semantics.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Added `scripts/docs/download_create_from_hash.sh`.
+  - Updated `scripts/docs/README.md`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/handoff.md`.
+
+- Status (2026-02-24): Added phase-0 acceptance runner and aligned task backlog for next download slices.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - new one-command acceptance orchestration for download/KAD phase-0:
+      - captures pre/post `/api/v1/health`, `/api/v1/status`, `/api/v1/downloads` snapshots,
+      - runs `kad_phase0_gate.sh`,
+      - optionally runs `download_resume_soak.sh` and `kad_phase0_longrun.sh`,
+      - writes run summary (`summary.txt`) under a single out directory.
+  - docs:
+    - `scripts/test/README.md` updated with usage examples.
+    - `docs/TASKS.md` and `docs/TODO.md` updated with explicit next slices:
+      - `known.met` compatibility + resume robustness,
+      - hash-first discovery/initiation path.
+  - validation rerun:
+    - `cargo fmt`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features` (142 passed)
+- Decisions:
+  - Keep acceptance orchestration script-only in this slice so existing soak/gate scripts remain reusable primitives.
+- Next steps:
+  - Execute `scripts/test/download_phase0_acceptance.sh` with `RUN_RESUME_SOAK=1` (and optional `RUN_KAD_LONGRUN=1`) on current main binary and archive artifacts.
+  - Start implementation slice for `known.met` compatibility + restart/resume robustness.
+- Change log:
+  - Added `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/TASKS.md`.
+  - Updated `docs/TODO.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-24): Addressed PR #34 review comments (snapshot consistency + counter regression tests).
   - `src/download/service.rs`:
     - added `DownloadCommand::Snapshot` and `DownloadServiceHandle::snapshot()` to return `(DownloadServiceStatus, Vec<DownloadSummary>)` from one service-loop snapshot.

@@ -14,6 +14,9 @@
 ## Scope (Current Iteration)
 
 - continue download phase 2 transfer work on top of merged phase 0/1 lifecycle + `known.met`
+- complete download phase-0 acceptance runbook execution and artifact capture (`scripts/test/download_phase0_acceptance.sh`)
+- next download slice: `known.met` compatibility depth + restart/resume robustness assertions
+- next user-value slice: hash-first discovery/initiation path (direct MD4/file-hash driven flow)
 - keep KAD reliability tracking and UI/API contract checks updated as fields evolve
 - keep behavior-contract documentation authoritative for all network/protocol changes
 - phase 0 baseline instrumentation is in place; gather before/after baseline artifacts for upcoming KAD shaper work
@@ -24,6 +27,10 @@
   - peer class transitions and reliability scoring with tests
   - bucket health model and eviction rationale metrics
   - transport-context latency thresholds and regression baselines
+- add build/release script hardening backlog:
+  - switch release scripts to explicit target triples instead of host-only `target/release` artifacts
+  - define first-class targets: `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `x86_64-apple-darwin`, `aarch64-apple-darwin`
+  - document target-specific prerequisites and native-runner requirements for CI release jobs
 
 ## Definition Of Done
 

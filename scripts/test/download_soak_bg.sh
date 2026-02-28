@@ -53,12 +53,20 @@ RUNNER_STATE_FILE="$RUN_ROOT/runner.state"
 STOP_FILE="$RUN_ROOT/stop.requested"
 FAIL_FILE="$RUN_ROOT/failed.flag"
 FIXTURE_INDEX_FILE="$RUN_ROOT/fixture.index"
+CREATE_FAIL_STREAK_FILE="$RUN_ROOT/create_fail_streak"
 FIXTURE_COUNT=0
 FIXTURE_NEXT=0
+CREATE_FAIL_STREAK=0
+CREATE_FAIL_LIMIT="${CREATE_FAIL_LIMIT:-10}"
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
+clip_detail() {
+  local text="${1:-}"
+  text="$(echo "$text" | tr '\r\n\t' '   ')"
+  printf '%.160s' "$text"
+}
 
 ensure_dirs() {
   mkdir -p "$RUN_ROOT" "$LOG_DIR"
@@ -109,6 +117,8 @@ fixtures_path() {
 
 load_fixtures() {
   local f
+  CREATE_FAIL_STREAK=0
+  printf '0\n' >"$CREATE_FAIL_STREAK_FILE"
   if ! f="$(fixtures_path)"; then
     FIXTURE_COUNT=0
     FIXTURE_NEXT=0
@@ -180,25 +190,51 @@ create_download() {
   local fallback_name="$1"
   local fallback_size="$2"
   local fallback_md4="$3"
-  local rec name size md4 resp
+  local rec name size md4 resp source_label part err_code err_msg err_excerpt
 
+  source_label="fallback"
   if rec="$(next_fixture_record)"; then
     name="$(echo "$rec" | jq -r '.file_name')"
     size="$(echo "$rec" | jq -r '.file_size')"
     md4="$(echo "$rec" | jq -r '.file_hash_md4_hex')"
+    source_label="fixture"
     resp="$(downloads_create "$name" "$size" "$md4" || true)"
     advance_fixture_index
+  else
+    if [[ "$FIXTURES_ONLY" == "1" ]]; then
+      log "ERROR: fixtures_only enabled but no valid fixture available"
+      touch "$FAIL_FILE"
+      return 1
+    fi
+    resp="$(downloads_create "$fallback_name" "$fallback_size" "$fallback_md4" || true)"
+  fi
+
+  part="$(echo "$resp" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+  if [[ -n "$part" ]]; then
+    CREATE_FAIL_STREAK=0
+    printf '%s\n' "$CREATE_FAIL_STREAK" >"$CREATE_FAIL_STREAK_FILE"
     echo "$resp"
     return 0
   fi
 
-  if [[ "$FIXTURES_ONLY" == "1" ]]; then
-    log "ERROR: fixtures_only enabled but no valid fixture available"
-    touch "$FAIL_FILE"
-    return 1
+  if [[ -f "$CREATE_FAIL_STREAK_FILE" ]]; then
+    local persisted_streak
+    persisted_streak="$(tr -d ' \t\r\n' <"$CREATE_FAIL_STREAK_FILE" 2>/dev/null || true)"
+    if [[ "$persisted_streak" =~ ^[0-9]+$ ]]; then
+      CREATE_FAIL_STREAK="$persisted_streak"
+    fi
   fi
-
-  downloads_create "$fallback_name" "$fallback_size" "$fallback_md4" || true
+  CREATE_FAIL_STREAK="$((CREATE_FAIL_STREAK + 1))"
+  printf '%s\n' "$CREATE_FAIL_STREAK" >"$CREATE_FAIL_STREAK_FILE"
+  err_code="$(echo "$resp" | jq -r '.error.code // .code // empty' 2>/dev/null || true)"
+  err_msg="$(echo "$resp" | jq -r '.error.message // .message // empty' 2>/dev/null || true)"
+  err_excerpt="$(clip_detail "$resp")"
+  log "WARN: create returned no part source=$source_label streak=$CREATE_FAIL_STREAK error_code=${err_code:-none} error_message=${err_msg:-none} response=${err_excerpt:-empty}"
+  if [[ "$FIXTURES_ONLY" == "1" ]] && (( CREATE_FAIL_STREAK >= CREATE_FAIL_LIMIT )); then
+    log "ERROR: repeated create failures in fixtures-only mode streak=$CREATE_FAIL_STREAK limit=$CREATE_FAIL_LIMIT"
+    touch "$FAIL_FILE"
+  fi
+  echo "$resp"
 }
 
 api_get() {
@@ -262,7 +298,13 @@ downloads_create() {
   local name="$1"
   local size="$2"
   local md4="$3"
-  api_post "/api/v1/downloads" "{\"file_name\":\"$name\",\"file_size\":$size,\"file_hash_md4_hex\":\"$md4\"}"
+  local payload
+  payload="$(jq -nc \
+    --arg file_name "$name" \
+    --arg file_hash_md4_hex "$md4" \
+    --argjson file_size "$size" \
+    '{file_name:$file_name,file_size:$file_size,file_hash_md4_hex:$file_hash_md4_hex}')" || return 1
+  api_post "/api/v1/downloads" "$payload"
 }
 
 downloads_pause() { local part="$1"; api_post "/api/v1/downloads/$part/pause" "{}"; }
@@ -317,13 +359,18 @@ scenario_single_e2e_round() {
 
   part="$(downloads_random_part)"
   if [[ -z "$part" ]]; then
-    local name size md4 create_json
+    local name size md4 create_json create_err
     name="single-e2e-${round}.bin"
     size="$(( (RANDOM % 20000000) + 1000000 ))"
     md4="$(rand_md4_hex)"
     create_json="$(create_download "$name" "$size" "$md4" || true)"
     part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
-    write_round_row "$round" "create" "part=${part:-none}"
+    if [[ -z "$part" ]]; then
+      create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+      write_round_row "$round" "create" "part=none error=$(clip_detail "$create_err")"
+    else
+      write_round_row "$round" "create" "part=$part"
+    fi
     return 0
   fi
 
@@ -345,13 +392,18 @@ scenario_single_e2e_round() {
 
 scenario_long_churn_round() {
   local round part action queue_len
-  local name size md4
+  local name size md4 create_json create_part create_err
   round="$1"
 
   name="churn-${round}-$(rand_hex16).bin"
   size="$(( (RANDOM % 10000000) + 500000 ))"
   md4="$(rand_md4_hex)"
-  create_download "$name" "$size" "$md4" >/dev/null || true
+  create_json="$(create_download "$name" "$size" "$md4" || true)"
+  create_part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+  if [[ -z "$create_part" ]]; then
+    create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+    write_round_row "$round" "create_fail" "error=$(clip_detail "$create_err")"
+  fi
 
   part="$(downloads_random_part)"
   if [[ -n "$part" ]]; then
@@ -378,14 +430,19 @@ scenario_long_churn_round() {
 
 scenario_integrity_round() {
   local round list_json violations
-  local name size md4
+  local name size md4 create_json create_part create_err
   round="$1"
 
   if (( round <= 3 )); then
     name="integrity-${round}.bin"
     size="$(( (RANDOM % 5000000) + 2000000 ))"
     md4="$(rand_md4_hex)"
-    create_download "$name" "$size" "$md4" >/dev/null || true
+    create_json="$(create_download "$name" "$size" "$md4" || true)"
+    create_part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+    if [[ -z "$create_part" ]]; then
+      create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+      write_round_row "$round" "create_fail" "error=$(clip_detail "$create_err")"
+    fi
   fi
 
   list_json="$(downloads_list || echo '{}')"
@@ -422,7 +479,7 @@ scenario_integrity_round() {
 }
 
 scenario_concurrency_round() {
-  local round queue_len i target name size md4 part
+  local round queue_len i target name size md4 part create_json create_part create_err
   round="$1"
   target="$CONCURRENCY_TARGET"
   queue_len="$(downloads_list | jq -r '.queue_len // 0' 2>/dev/null || echo 0)"
@@ -431,7 +488,12 @@ scenario_concurrency_round() {
     name="concurrency-${round}-$(rand_hex16).bin"
     size="$(( (RANDOM % 15000000) + 500000 ))"
     md4="$(rand_md4_hex)"
-    create_download "$name" "$size" "$md4" >/dev/null || true
+    create_json="$(create_download "$name" "$size" "$md4" || true)"
+    create_part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+    if [[ -z "$create_part" ]]; then
+      create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+      write_round_row "$round" "create_fail" "error=$(clip_detail "$create_err")"
+    fi
     queue_len="$((queue_len + 1))"
   done
 

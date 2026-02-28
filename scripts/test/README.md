@@ -13,6 +13,7 @@ Scenario and soak test scripts.
 - `download_soak_band.sh`: sequential runner that executes all four download soaks in one command and auto-collects tarballs.
 - `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
 - `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
+- `download_phase0_acceptance.sh`: one-command phase-0 acceptance runner (captures pre/post snapshots, runs KAD gate, optional resume soak and optional longrun).
 - `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
 - `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
 - `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
@@ -145,6 +146,7 @@ These scripts target the current download API/control-plane behavior (`/api/v1/d
 For real transfer/resume validation (not random synthetic hashes), provide fixtures:
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1` to fail fast if fixture-backed creates cannot be used.
+- `CREATE_FAIL_LIMIT=10` (optional): in fixtures-only mode, fail scenario early after N repeated create responses without `download.part_number`.
 
 Generate fixture JSON from local files:
 - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`
@@ -161,6 +163,16 @@ Pre-check:
 - Defaults:
   - `BASE_URL=http://127.0.0.1:17835`
   - `TOKEN_FILE=data/api.token`
+
+Phase-0 acceptance runner:
+- default (gate + snapshots):
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak:
+  - `RUN_RESUME_SOAK=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak + longrun:
+  - `RUN_RESUME_SOAK=1 RUN_KAD_LONGRUN=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- exit behavior:
+  - exits non-zero when any enabled stage fails (`kad_phase0_gate`, `download_resume_soak`, `kad_phase0_longrun`)
 
 ### 1) Single File E2E Lifecycle Soak
 
@@ -311,7 +323,8 @@ Run:
 Common overrides:
 - `RESUME_SCENARIO=concurrency`
 - `STACK_ROOT=/tmp/rust-mule-download-stack`
-- `API_PORT=17835`
+- `STACK_API_PORT=17865`
+- `STACK_BASE_URL=http://127.0.0.1:17865`
 - `WAIT_TIMEOUT_SECS=21600`
 - `HEALTH_TIMEOUT_SECS=300`
 - `ACTIVE_TRANSFER_TIMEOUT_SECS=1800`
@@ -329,6 +342,7 @@ Outputs:
 Notes:
 - Crash validation is process-based (killed app PID + no remaining run-dir `rust-mule` process), not strictly `health=000`.
 - This avoids false failures when another process is already serving the same API port.
+- Resume stack now defaults to its own API endpoint (`http://127.0.0.1:17865`) to avoid colliding with an already-running local node on `:17835`.
 - Resume restart now hard-checks `/proc` for any remaining run-dir `rust-mule` process (`cwd`/`cmdline`), and fails early with PID details if single-instance lock would still be held.
 - Crash step now force-kills all run-dir-owned `rust-mule` PIDs found via `/proc` (not only `control/app.pid`) to handle wrapper-PID vs child-PID mismatches.
 - Resume now waits for an active transfer before crash (`downloaded_bytes>0` and `inflight_ranges>0`) so the run validates true in-flight resume behavior.
