@@ -23,6 +23,7 @@ set -euo pipefail
 #   API_MAX_TIME_SECS=8
 #   DOWNLOAD_FIXTURES_FILE=scripts/test/download_fixtures.example.json
 #   FIXTURES_ONLY=0
+#   DEBUG_CREATE_PAYLOADS=0
 
 SCENARIO="${SCENARIO:-}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:17835}"
@@ -38,6 +39,7 @@ API_CONNECT_TIMEOUT_SECS="${API_CONNECT_TIMEOUT_SECS:-3}"
 API_MAX_TIME_SECS="${API_MAX_TIME_SECS:-8}"
 DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}"
 FIXTURES_ONLY="${FIXTURES_ONLY:-0}"
+DEBUG_CREATE_PAYLOADS="${DEBUG_CREATE_PAYLOADS:-0}"
 
 if [[ -z "$SCENARIO" ]]; then
   echo "ERROR: SCENARIO is required (single_e2e|long_churn|integrity|concurrency)" >&2
@@ -298,13 +300,29 @@ downloads_create() {
   local name="$1"
   local size="$2"
   local md4="$3"
-  local payload
+  local payload resp rc
   payload="$(jq -nc \
     --arg file_name "$name" \
     --arg file_hash_md4_hex "$md4" \
     --argjson file_size "$size" \
     '{file_name:$file_name,file_size:$file_size,file_hash_md4_hex:$file_hash_md4_hex}')" || return 1
-  api_post "/api/v1/downloads" "$payload"
+
+  if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
+    log "create-debug stage=request target=${BASE_URL}/api/v1/downloads token_file=${TOKEN_FILE} payload_len=${#payload} payload=${payload}"
+  fi
+
+  if ! resp="$(api_post "/api/v1/downloads" "$payload")"; then
+    rc=$?
+    if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
+      log "create-debug stage=response target=${BASE_URL}/api/v1/downloads rc=${rc} response_len=0 response="
+    fi
+    return "$rc"
+  fi
+
+  if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
+    log "create-debug stage=response target=${BASE_URL}/api/v1/downloads rc=0 response_len=${#resp} response=${resp}"
+  fi
+  printf '%s' "$resp"
 }
 
 downloads_pause() { local part="$1"; api_post "/api/v1/downloads/$part/pause" "{}"; }

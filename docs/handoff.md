@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-01): Added download create payload debug tracing to soak scripts for malformed JSON triage.
+  - `scripts/test/download_soak_bg.sh`:
+    - new `DEBUG_CREATE_PAYLOADS=1` toggle logs exact `/api/v1/downloads` request payloads (with target URL and token file path) and raw responses for each create call.
+  - `scripts/test/download_soak_stack_bg.sh`:
+    - forwards `DEBUG_CREATE_PAYLOADS` into staged stack runs so debug logging works in background soak orchestration.
+  - `scripts/test/README.md`:
+    - documented `DEBUG_CREATE_PAYLOADS=1` in download soak usage/overrides.
+- Decisions:
+  - Keep create payload/response tracing opt-in to avoid noisy default logs while preserving precise diagnostics when parse failures occur.
+- Next steps:
+  - Re-run acceptance/resume soak with `DEBUG_CREATE_PAYLOADS=1` and inspect `create-debug` lines in staged runner logs for any malformed body source.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `scripts/test/download_soak_stack_bg.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-01): Added session-creation resource-cap hardening task to backlog.
   - `docs/TODO.md`:
     - added API fix item for `POST /api/v1/session` to cap concurrent active sessions (target `MAX_SESSIONS = 1024`) after pruning expired entries.

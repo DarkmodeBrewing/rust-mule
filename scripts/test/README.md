@@ -147,6 +147,7 @@ For real transfer/resume validation (not random synthetic hashes), provide fixtu
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1` to fail fast if fixture-backed creates cannot be used.
 - `CREATE_FAIL_LIMIT=10` (optional): in fixtures-only mode, fail scenario early after N repeated create responses without `download.part_number`.
+- `DEBUG_CREATE_PAYLOADS=1` (optional): logs exact `/api/v1/downloads` request payload and response in soak runner logs.
 
 Generate fixture JSON from local files:
 - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`
@@ -260,6 +261,7 @@ Optional overrides:
 - `API_MAX_TIME_SECS=8`
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1`
+- `DEBUG_CREATE_PAYLOADS=1`
 
 ## Full Background Pipeline (Build + Run + Soak)
 
@@ -295,6 +297,7 @@ Common overrides:
 - `LONG_CHURN_SECS=7200`
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1`
+- `DEBUG_CREATE_PAYLOADS=1`
 
 Troubleshooting:
 - If status is `failed` immediately, inspect `/tmp/rust-mule-download-stack/logs/stack.out`.
