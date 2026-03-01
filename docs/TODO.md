@@ -70,6 +70,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [x] Post-current longrun + merge: emit warning/metric when SSE status serialization falls back to `{}`.
 - [x] Post-current longrun + merge: standardize typed API error envelope for non-2xx responses (code + human message).
 - [ ] Use constant-time bearer token comparison in `src/api/auth.rs` (e.g., `subtle::ConstantTimeEq`) instead of short-circuit string equality to reduce local timing side-channel exposure.
+- [ ] Enforce hard cap on active session count in `POST /api/v1/session` (e.g., `MAX_SESSIONS = 1024`) after pruning expired sessions; return `503 Service Unavailable` when cap is reached.
 - [ ] Consider tiered API command timeouts (shared baseline exists; tune by endpoint class if needed).
 - [x] Evaluate optional typed API error response envelope consistency for all non-2xx responses.
 - [x] Add human-friendly messages for HTTP error status responses (consistent, user-facing text alongside status code).
