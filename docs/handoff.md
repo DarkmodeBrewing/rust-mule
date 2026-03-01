@@ -8,6 +8,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-01): Added API auth constant-time compare hardening task to backlog.
+  - `docs/TODO.md`:
+    - added explicit API task to replace short-circuit bearer token equality with constant-time comparison in `src/api/auth.rs`.
+- Decisions:
+  - Treat loopback-local timing leakage as in-scope hardening risk (compromised local process threat model).
+- Next steps:
+  - Implement constant-time token comparison with `subtle::ConstantTimeEq` (or equivalent).
+  - Add/update auth tests to preserve current behavior while using constant-time comparison.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-01): Added SAM protocol/settings injection hardening task to backlog.
   - `docs/TODO.md`:
     - added explicit fix item for CR/LF/control-char handling in SAM value encoding and settings validation.
