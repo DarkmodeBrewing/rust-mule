@@ -82,6 +82,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 
 ## SAM / Runtime
 
+- [ ] Prevent SAM command-line injection via settings/protocol hardening: reject `\r`/`\n` (and control chars) in `sam.session_name` at API validation and enforce no CR/LF emission in `i2p::sam::protocol::encode_value`.
 - [x] Post-current longrun + merge: bound `src/i2p/http.rs` response reads (replace unbounded `read_to_end` with capped read loop).
 - [x] Post-current longrun + merge: add SAM control line max-length guard in `src/i2p/sam/client.rs` (align with `datagram_tcp` framing limits).
 - [x] Post-current longrun + merge: harden chunked HTTP parsing with explicit per-chunk CRLF validation and malformed-input rejection tests.

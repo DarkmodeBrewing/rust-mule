@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-01): Added SAM protocol/settings injection hardening task to backlog.
+  - `docs/TODO.md`:
+    - added explicit fix item for CR/LF/control-char handling in SAM value encoding and settings validation.
+    - scope: reject newline/control chars in `sam.session_name` (API validation) and prevent CR/LF emission from `i2p::sam::protocol::encode_value`.
+- Decisions:
+  - Treat this as a security hardening fix (command-line injection class) and prioritize in upcoming SAM/runtime work.
+- Next steps:
+  - Implement CR/LF + control-char validation in `src/api/handlers/settings.rs`.
+  - Update `src/i2p/sam/protocol.rs` to return error/reject values containing line breaks.
+  - Add regression tests for injected `sam.session_name` payloads.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-01): Added KAD crypto-compatibility backlog item for MD5 constants.
   - `docs/TODO.md`:
     - added task to replace runtime-derived MD5 round constants with fixed RFC 1321 constants in UDP crypto path.
