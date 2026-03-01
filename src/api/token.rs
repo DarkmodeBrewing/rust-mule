@@ -8,6 +8,7 @@ pub enum TokenError {
     GetRandom(String),
     WriteTemp(std::io::Error),
     Rename(std::io::Error),
+    InvalidPath(String),
 }
 
 impl std::fmt::Display for TokenError {
@@ -16,6 +17,7 @@ impl std::fmt::Display for TokenError {
             Self::GetRandom(msg) => write!(f, "getrandom failed: {msg}"),
             Self::WriteTemp(_) => write!(f, "failed to write temporary token file"),
             Self::Rename(_) => write!(f, "failed to atomically rename temporary token file"),
+            Self::InvalidPath(msg) => write!(f, "invalid token path: {msg}"),
         }
     }
 }
@@ -26,12 +28,62 @@ impl std::error::Error for TokenError {
             Self::WriteTemp(source) => Some(source),
             Self::Rename(source) => Some(source),
             Self::GetRandom(_) => None,
+            Self::InvalidPath(_) => None,
         }
     }
 }
 
+/// Sanitize and constrain the token path to live under a controlled base directory.
+fn sanitize_token_path(path: &Path) -> Result<std::path::PathBuf> {
+    use std::env;
+    use std::path::{PathBuf};
+
+    // Allow overriding the base directory via environment for flexibility; default to CWD.
+    let base = env::var("TOKEN_BASE_DIR").unwrap_or_else(|_| String::from("."));
+    let base_path = PathBuf::from(base);
+
+    // Join the potentially untrusted path to the base directory.
+    let candidate = base_path.join(path);
+
+    // Canonicalize to eliminate any `..` components, symlinks, etc.
+    let canonical = candidate
+        .canonicalize()
+        .or_else(|_| {
+            // If the file does not yet exist, canonicalize the parent directory instead.
+            if let Some(parent) = candidate.parent() {
+                let parent_canon = parent.canonicalize()?;
+                Ok(parent_canon.join(
+                    candidate
+                        .file_name()
+                        .ok_or_else(|| {
+                            std::io::Error::new(
+                                std::io::ErrorKind::Other,
+                                "token path has no file name",
+                            )
+                        })?,
+                ))
+            } else {
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "token path has no parent directory",
+                ))
+            }
+        })
+        .map_err(|e| TokenError::InvalidPath(e.to_string()))?;
+
+    if !canonical.starts_with(&base_path) {
+        return Err(TokenError::InvalidPath(
+            "resolved path escapes TOKEN_BASE_DIR".to_string(),
+        ));
+    }
+
+    Ok(canonical)
+}
+
 pub async fn load_or_create_token(path: &Path) -> Result<String> {
-    if let Ok(bytes) = tokio::fs::read(path).await {
+    let safe_path = sanitize_token_path(path)?;
+
+    if let Ok(bytes) = tokio::fs::read(&safe_path).await {
         match String::from_utf8(bytes) {
             Ok(s) => {
                 let s = s.trim().to_string();
@@ -46,11 +98,11 @@ pub async fn load_or_create_token(path: &Path) -> Result<String> {
         }
     }
 
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = safe_path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
 
-    rotate_token(path).await
+    rotate_token(&safe_path).await
 }
 
 fn is_valid_token(s: &str) -> bool {
@@ -59,6 +111,8 @@ fn is_valid_token(s: &str) -> bool {
 
 fn hex_lower(b: &[u8]) -> String {
     use std::fmt::Write as _;
+    let safe_path = sanitize_token_path(path)?;
+
     let mut out = String::with_capacity(b.len() * 2);
     for v in b {
         let _ = write!(&mut out, "{v:02x}");
@@ -71,7 +125,7 @@ pub async fn rotate_token(path: &Path) -> Result<String> {
     getrandom(&mut raw).map_err(|e| TokenError::GetRandom(format!("{e:?}")))?;
     let token = hex_lower(&raw);
 
-    let tmp = path.with_extension("tmp");
+    let tmp = safe_path.with_extension("tmp");
 
     // Apply restrictive permissions to the temp file *before* the atomic rename so that
     // the final file is never visible to other users, even briefly.
@@ -92,7 +146,7 @@ pub async fn rotate_token(path: &Path) -> Result<String> {
             .map_err(TokenError::WriteTemp)?;
     }
 
-    tokio::fs::rename(&tmp, path)
+    tokio::fs::rename(&tmp, &safe_path)
         .await
         .map_err(TokenError::Rename)?;
 
