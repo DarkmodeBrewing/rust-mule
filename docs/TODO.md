@@ -22,6 +22,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 
 ## KAD
 
+- [ ] Replace runtime-derived MD5 round constants in UDP crypto with the 64 fixed RFC 1321 constants to avoid platform-specific floating-point drift and preserve cross-node compatibility.
 - [x] Post-current longrun + merge: harden KAD wire decoders against allocation amplification by clamping untrusted `count` fields before `Vec::with_capacity(...)`.
 - [x] Post-current longrun + merge: cap `tracked_in_requests` growth with explicit max entries + eviction policy (hostile source churn protection).
 - [x] Post-current longrun + merge: replace deterministic LCG shaper jitter with OS-seeded non-crypto RNG jitter.

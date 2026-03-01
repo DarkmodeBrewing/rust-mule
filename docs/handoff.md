@@ -8,6 +8,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-01): Added KAD crypto-compatibility backlog item for MD5 constants.
+  - `docs/TODO.md`:
+    - added task to replace runtime-derived MD5 round constants with fixed RFC 1321 constants in UDP crypto path.
+    - rationale: avoid platform-specific floating-point rounding drift and ensure cross-node decryption compatibility.
+- Decisions:
+  - Track as a dedicated KAD hardening/compatibility fix item before further UDP crypto tuning.
+- Next steps:
+  - Implement fixed `T[64]` constants in `src/kad/udp_crypto.rs` and remove runtime `sin()` derivation.
+  - Add/extend regression tests to assert constant table matches RFC values.
+- Change log:
+  - Updated `docs/TODO.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-02-28): Added diagnostics for JSON parse `400` and stabilized soak fail-streak/reset behavior.
   - `src/api/error.rs`:
     - `parse_json_with_limit` now logs `json parse failed` with serde error + body length + body excerpt (first 160 bytes) before returning `400`.
