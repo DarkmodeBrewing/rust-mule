@@ -148,6 +148,7 @@ For real transfer/resume validation (not random synthetic hashes), provide fixtu
 - `FIXTURES_ONLY=1` to fail fast if fixture-backed creates cannot be used.
 - `CREATE_FAIL_LIMIT=10` (optional): in fixtures-only mode, fail scenario early after N repeated create responses without `download.part_number`.
 - `DEBUG_CREATE_PAYLOADS=1` (optional): logs exact `/api/v1/downloads` request payload and response in soak runner logs.
+- `LOCK_ROOT=/tmp/rust-mule-download-soak-locks` (optional): lock directory for per-`BASE_URL` runner ownership.
 
 Generate fixture JSON from local files:
 - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`
@@ -303,6 +304,7 @@ Troubleshooting:
 - If status is `failed` immediately, inspect `/tmp/rust-mule-download-stack/logs/stack.out`.
 - The stack runner now attempts to add `~/.cargo/bin` to `PATH` automatically when `cargo` is not found.
 - `stop` now kills the full stack process tree (runner group + per-scenario soak runners + run-dir processes) to avoid orphaned `rust-mule`/soak processes.
+- Per-scenario soak runners now take a `BASE_URL` ownership lock; starting another runner on the same API URL fails fast with lock-owner details.
 
 ## Resume Soak Automation (Crash + Restart)
 

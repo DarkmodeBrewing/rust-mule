@@ -24,6 +24,7 @@ set -euo pipefail
 #   DOWNLOAD_FIXTURES_FILE=scripts/test/download_fixtures.example.json
 #   FIXTURES_ONLY=0
 #   DEBUG_CREATE_PAYLOADS=0
+#   LOCK_ROOT=/tmp/rust-mule-download-soak-locks
 
 SCENARIO="${SCENARIO:-}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:17835}"
@@ -40,6 +41,7 @@ API_MAX_TIME_SECS="${API_MAX_TIME_SECS:-8}"
 DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}"
 FIXTURES_ONLY="${FIXTURES_ONLY:-0}"
 DEBUG_CREATE_PAYLOADS="${DEBUG_CREATE_PAYLOADS:-0}"
+LOCK_ROOT="${LOCK_ROOT:-/tmp/rust-mule-download-soak-locks}"
 
 if [[ -z "$SCENARIO" ]]; then
   echo "ERROR: SCENARIO is required (single_e2e|long_churn|integrity|concurrency)" >&2
@@ -60,6 +62,9 @@ FIXTURE_COUNT=0
 FIXTURE_NEXT=0
 CREATE_FAIL_STREAK=0
 CREATE_FAIL_LIMIT="${CREATE_FAIL_LIMIT:-10}"
+BASE_URL_LOCK_KEY=""
+BASE_URL_LOCK_DIR=""
+BASE_URL_LOCK_HELD=0
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
@@ -68,6 +73,96 @@ clip_detail() {
   local text="${1:-}"
   text="$(echo "$text" | tr '\r\n\t' '   ')"
   printf '%.160s' "$text"
+}
+
+base_url_lock_key() {
+  printf '%s' "$BASE_URL" | tr -c '[:alnum:]' '_'
+}
+
+init_base_url_lock_paths() {
+  BASE_URL_LOCK_KEY="$(base_url_lock_key)"
+  BASE_URL_LOCK_DIR="${LOCK_ROOT}/${BASE_URL_LOCK_KEY}"
+}
+
+read_lock_owner_pid() {
+  local owner_file="$1"
+  awk -F= '$1=="pid"{print $2}' "$owner_file" 2>/dev/null | head -n1
+}
+
+write_lock_owner_file() {
+  local owner_file="$1"
+  {
+    printf 'pid=%s\n' "$$"
+    printf 'scenario=%s\n' "$SCENARIO"
+    printf 'base_url=%s\n' "$BASE_URL"
+    printf 'run_root=%s\n' "$RUN_ROOT"
+    printf 'started_at=%s\n' "$(ts)"
+  } >"$owner_file"
+}
+
+base_url_lock_conflict() {
+  init_base_url_lock_paths
+  mkdir -p "$LOCK_ROOT"
+  if [[ ! -d "$BASE_URL_LOCK_DIR" ]]; then
+    return 1
+  fi
+
+  local owner_file owner_pid
+  owner_file="$BASE_URL_LOCK_DIR/owner"
+  owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+  if [[ -n "$owner_pid" && "$owner_pid" =~ ^[0-9]+$ ]] && is_pid_alive "$owner_pid"; then
+    return 0
+  fi
+
+  rm -rf "$BASE_URL_LOCK_DIR" 2>/dev/null || true
+  return 1
+}
+
+acquire_base_url_lock() {
+  init_base_url_lock_paths
+  mkdir -p "$LOCK_ROOT"
+
+  if mkdir "$BASE_URL_LOCK_DIR" 2>/dev/null; then
+    write_lock_owner_file "$BASE_URL_LOCK_DIR/owner"
+    BASE_URL_LOCK_HELD=1
+    return 0
+  fi
+
+  local owner_file owner_pid
+  owner_file="$BASE_URL_LOCK_DIR/owner"
+  owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+  if [[ -n "$owner_pid" && "$owner_pid" =~ ^[0-9]+$ ]] && is_pid_alive "$owner_pid"; then
+    log "ERROR: base_url lock held base_url=$BASE_URL lock_dir=$BASE_URL_LOCK_DIR owner_pid=$owner_pid owner_file=$owner_file"
+    return 1
+  fi
+
+  rm -rf "$BASE_URL_LOCK_DIR" 2>/dev/null || true
+  if mkdir "$BASE_URL_LOCK_DIR" 2>/dev/null; then
+    write_lock_owner_file "$BASE_URL_LOCK_DIR/owner"
+    BASE_URL_LOCK_HELD=1
+    return 0
+  fi
+
+  log "ERROR: failed to acquire base_url lock base_url=$BASE_URL lock_dir=$BASE_URL_LOCK_DIR"
+  return 1
+}
+
+release_base_url_lock() {
+  if [[ "$BASE_URL_LOCK_HELD" != "1" ]]; then
+    return 0
+  fi
+  if [[ -z "$BASE_URL_LOCK_DIR" ]]; then
+    BASE_URL_LOCK_HELD=0
+    return 0
+  fi
+
+  local owner_file owner_pid
+  owner_file="$BASE_URL_LOCK_DIR/owner"
+  owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+  if [[ "$owner_pid" == "$$" ]]; then
+    rm -rf "$BASE_URL_LOCK_DIR" 2>/dev/null || true
+  fi
+  BASE_URL_LOCK_HELD=0
 }
 
 ensure_dirs() {
@@ -565,7 +660,14 @@ run_foreground() {
   rm -f "$STOP_FILE" "$FAIL_FILE"
   load_fixtures
 
-  trap 'log "runner interrupted"; echo "stopped" > "$RUNNER_STATE_FILE"; rm -f "$RUNNER_PID_FILE"; exit 0' INT TERM
+  if ! acquire_base_url_lock; then
+    echo "failed" >"$RUNNER_STATE_FILE"
+    rm -f "$RUNNER_PID_FILE"
+    exit 1
+  fi
+
+  trap 'release_base_url_lock' EXIT
+  trap 'log "runner interrupted"; echo "stopped" > "$RUNNER_STATE_FILE"; rm -f "$RUNNER_PID_FILE"; release_base_url_lock; exit 0' INT TERM
 
   deadline="$(( $(ts_epoch) + duration_secs ))"
   log "download-soak-start scenario=$SCENARIO duration_secs=$duration_secs deadline_epoch=$deadline base_url=$BASE_URL"
@@ -573,6 +675,7 @@ run_foreground() {
   if ! wait_ready; then
     echo "failed" >"$RUNNER_STATE_FILE"
     rm -f "$RUNNER_PID_FILE"
+    release_base_url_lock
     exit 1
   fi
 
@@ -598,17 +701,28 @@ run_foreground() {
     log "download-soak-finished rounds=$round result=failed"
     echo "failed" >"$RUNNER_STATE_FILE"
     rm -f "$RUNNER_PID_FILE"
+    release_base_url_lock
     exit 1
   fi
 
   log "download-soak-finished rounds=$round result=completed"
   echo "completed" >"$RUNNER_STATE_FILE"
   rm -f "$RUNNER_PID_FILE"
+  release_base_url_lock
 }
 
 start_background() {
   local duration_secs="${1:-1800}"
   ensure_dirs
+
+  if base_url_lock_conflict; then
+    local owner_file owner_pid
+    init_base_url_lock_paths
+    owner_file="$BASE_URL_LOCK_DIR/owner"
+    owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+    log "ERROR: refusing start due to active base_url lock base_url=$BASE_URL owner_pid=${owner_pid:-unknown} lock_dir=$BASE_URL_LOCK_DIR"
+    return 1
+  fi
 
   if [[ -f "$RUNNER_PID_FILE" ]]; then
     local pid
@@ -620,7 +734,7 @@ start_background() {
     rm -f "$RUNNER_PID_FILE"
   fi
 
-  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' READY_PATH='$READY_PATH' READY_HTTP_CODES='$READY_HTTP_CODES' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' DOWNLOAD_FIXTURES_FILE='$DOWNLOAD_FIXTURES_FILE' FIXTURES_ONLY='$FIXTURES_ONLY' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' READY_PATH='$READY_PATH' READY_HTTP_CODES='$READY_HTTP_CODES' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' DOWNLOAD_FIXTURES_FILE='$DOWNLOAD_FIXTURES_FILE' FIXTURES_ONLY='$FIXTURES_ONLY' DEBUG_CREATE_PAYLOADS='$DEBUG_CREATE_PAYLOADS' LOCK_ROOT='$LOCK_ROOT' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
   echo $! >"$RUNNER_PID_FILE"
   log "runner started pid=$(cat "$RUNNER_PID_FILE") scenario=$SCENARIO duration_secs=$duration_secs"
 }

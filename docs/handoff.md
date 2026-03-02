@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-01): Added fail-fast `BASE_URL` ownership lock for download soak runners and fixed debug flag propagation.
+  - `scripts/test/download_soak_bg.sh`:
+    - added per-`BASE_URL` lock under `LOCK_ROOT` (default `/tmp/rust-mule-download-soak-locks`).
+    - `start` now refuses to launch when another live runner already owns the same API target, and reports owner PID/lock path.
+    - lock is acquired in `run` and released on exit/interrupt (stale dead-owner locks are auto-cleaned on next start).
+    - `DEBUG_CREATE_PAYLOADS` is now propagated in background `start`, matching foreground behavior.
+  - `scripts/test/README.md`:
+    - documented `LOCK_ROOT` and new base-URL lock behavior.
+- Decisions:
+  - Treat concurrent soak runners on one API target as invalid test setup and fail immediately to avoid cross-run contamination.
+- Next steps:
+  - Re-run acceptance/resume soak; verify no unexpected malformed create payload source remains once conflicting runners are blocked.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-01): Added download create payload debug tracing to soak scripts for malformed JSON triage.
   - `scripts/test/download_soak_bg.sh`:
     - new `DEBUG_CREATE_PAYLOADS=1` toggle logs exact `/api/v1/downloads` request payloads (with target URL and token file path) and raw responses for each create call.
