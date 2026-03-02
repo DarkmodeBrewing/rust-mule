@@ -68,7 +68,12 @@ BASE_URL_LOCK_HELD=0
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
-log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
+log() {
+  local line
+  line="$(ts) $*"
+  echo "$line" >>"$RUNNER_LOG_FILE"
+  echo "$line" >&2
+}
 clip_detail() {
   local text="${1:-}"
   text="$(echo "$text" | tr '\r\n\t' '   ')"
@@ -348,15 +353,20 @@ api_get() {
 api_post() {
   local path="$1"
   local json="${2:-{}}"
-  local auth
+  local auth payload_file rc
   auth="$(auth_header)" || return 1
+  payload_file="$(mktemp "$RUN_ROOT/payload.XXXXXX.json")"
+  printf '%s' "$json" >"$payload_file"
+  rc=0
   curl -sS \
     --connect-timeout "$API_CONNECT_TIMEOUT_SECS" \
     --max-time "$API_MAX_TIME_SECS" \
     -H "$auth" \
     -H "content-type: application/json" \
-    -d "$json" \
-    "$BASE_URL$path"
+    --data-binary "@$payload_file" \
+    "$BASE_URL$path" || rc=$?
+  rm -f "$payload_file"
+  return "$rc"
 }
 
 api_delete() {

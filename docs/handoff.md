@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-02): Hardened soak create request path to avoid stdout contamination and payload mutation.
+  - `scripts/test/download_soak_bg.sh`:
+    - `log()` no longer uses `tee`; logs now append to runner log and emit to stderr only.
+    - `api_post()` now writes JSON to a temp file and sends via `curl --data-binary @file` for exact byte-for-byte body delivery.
+- Decisions:
+  - Treat command-substitution/stdout coupling as a test harness bug; logging must never share stdout with function return channels.
+  - Treat `--data-binary @file` as the canonical way to send scripted JSON payloads in soak harnesses.
+- Next steps:
+  - Re-run `download_phase0_acceptance.sh` with `RUN_RESUME_SOAK=1` and inspect `/tmp/rustmule-run-*/rust-mule.out` for any remaining `json parse failed`.
+  - If parse errors persist, capture and compare request body byte dumps client/server side for the same request id.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-01): Added fail-fast `BASE_URL` ownership lock for download soak runners and fixed debug flag propagation.
   - `scripts/test/download_soak_bg.sh`:
     - added per-`BASE_URL` lock under `LOCK_ROOT` (default `/tmp/rust-mule-download-soak-locks`).
