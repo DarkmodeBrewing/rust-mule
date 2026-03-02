@@ -333,6 +333,7 @@ Common overrides:
 - `WAIT_TIMEOUT_SECS=21600`
 - `HEALTH_TIMEOUT_SECS=300`
 - `ACTIVE_TRANSFER_TIMEOUT_SECS=1800`
+- `FIXTURE_SOURCE_TIMEOUT_SECS=300` (only with `FIXTURES_ONLY=1`)
 - `COMPLETION_TIMEOUT_SECS=3600`
 - `RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>`
 
@@ -348,6 +349,7 @@ Notes:
 - Crash validation is process-based (killed app PID + no remaining run-dir `rust-mule` process), not strictly `health=000`.
 - This avoids false failures when another process is already serving the same API port.
 - Resume stack now defaults to its own API endpoint (`http://127.0.0.1:17865`) to avoid colliding with an already-running local node on `:17835`.
+- With `FIXTURES_ONLY=1`, the resume script now verifies fixture source availability (`/api/v1/kad/sources/:file_id_hex`) before waiting for active transfer and fails fast with KAD status diagnostics when sources never appear.
 - Resume restart now hard-checks `/proc` for any remaining run-dir `rust-mule` process (`cwd`/`cmdline`), and fails early with PID details if single-instance lock would still be held.
 - Crash step now force-kills all run-dir-owned `rust-mule` PIDs found via `/proc` (not only `control/app.pid`) to handle wrapper-PID vs child-PID mismatches.
 - Resume now waits for an active transfer before crash (`downloaded_bytes>0` and `inflight_ranges>0`) so the run validates true in-flight resume behavior.

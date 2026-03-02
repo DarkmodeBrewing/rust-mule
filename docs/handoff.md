@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-02): Added fixture-source readiness gate to resume soak to fail fast on source-unavailable runs.
+  - `scripts/test/download_resume_soak.sh`:
+    - added `wait_for_fixture_sources()` (enabled when `FIXTURES_ONLY=1`) to trigger/search and poll `/api/v1/kad/sources/:file_id_hex` for each fixture before transfer wait.
+    - new `FIXTURE_SOURCE_TIMEOUT_SECS` (default 300) for this preflight gate.
+    - on timeout, emits focused KAD status diagnostics (`sent/recv search source reqs`, `source_store_*`, `live`, `routing`) and exits early.
+  - `scripts/test/README.md`:
+    - documented `FIXTURE_SOURCE_TIMEOUT_SECS` and the new fail-fast fixture source gate behavior.
+- Decisions:
+  - Treat “downloads created but always queued/inflight=0” under fixtures-only mode as a source availability/setup issue; fail early instead of waiting for active-transfer timeout.
+- Next steps:
+  - Re-run acceptance/resume with fixtures; if fixture-source gate fails, publish those fixture hashes to reachable peers first (or automate publish pre-step).
+  - If fixture-source gate passes but inflight remains zero, investigate download scheduler/reservation path (post-source acquisition).
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-02): Refactored soak POST path so create requests are generated and sent file-first (no JSON string transport path).
   - `scripts/test/download_soak_bg.sh`:
     - added `api_post_file(path, payload_file)` and kept `api_post(path, json)` as wrapper.

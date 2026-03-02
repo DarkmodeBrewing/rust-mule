@@ -29,6 +29,7 @@ set -euo pipefail
 # Forwarded to stack/band runners:
 #   DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json
 #   FIXTURES_ONLY=1
+#   FIXTURE_SOURCE_TIMEOUT_SECS=300
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK_SCRIPT="${STACK_SCRIPT:-$SCRIPT_DIR/download_soak_stack_bg.sh}"
@@ -44,6 +45,7 @@ WAIT_TIMEOUT_SECS="${WAIT_TIMEOUT_SECS:-21600}"
 HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-300}"
 ACTIVE_TRANSFER_TIMEOUT_SECS="${ACTIVE_TRANSFER_TIMEOUT_SECS:-1800}"
 COMPLETION_TIMEOUT_SECS="${COMPLETION_TIMEOUT_SECS:-3600}"
+FIXTURE_SOURCE_TIMEOUT_SECS="${FIXTURE_SOURCE_TIMEOUT_SECS:-300}"
 POLL_SECS="${POLL_SECS:-2}"
 RESUME_OUT_DIR="${RESUME_OUT_DIR:-/tmp/rust-mule-download-resume-$(date +%Y%m%d_%H%M%S)}"
 
@@ -87,6 +89,81 @@ require_tools() {
     echo "ERROR: jq is required" >&2
     exit 1
   }
+}
+
+valid_fixture_filter='
+  .[]? |
+  select(
+    (type == "object")
+    and ((.file_hash_md4_hex? | type) == "string")
+    and ((.file_size? | type) == "number")
+    and (.file_size > 0)
+  )
+'
+
+stack_token() {
+  local token_file
+  token_file="$RUN_DIR/data/api.token"
+  [[ -s "$token_file" ]] || return 1
+  tr -d '\r\n' <"$token_file"
+}
+
+stack_auth_get() {
+  local path="$1"
+  local token
+  token="$(stack_token)" || return 1
+  curl -sS -H "Authorization: Bearer $token" "$BASE_URL$path"
+}
+
+stack_auth_post() {
+  local path="$1"
+  local json="$2"
+  local token
+  token="$(stack_token)" || return 1
+  curl -sS -H "Authorization: Bearer $token" -H "content-type: application/json" \
+    -d "$json" "$BASE_URL$path"
+}
+
+wait_for_fixture_sources() {
+  local fixture_file rec file_id_hex file_size search_payload start now elapsed sources_json sources_count status_json
+
+  if [[ "${FIXTURES_ONLY:-0}" != "1" ]]; then
+    return 0
+  fi
+  fixture_file="${DOWNLOAD_FIXTURES_FILE:-}"
+  if [[ -z "$fixture_file" || ! -f "$fixture_file" ]]; then
+    echo "ERROR: FIXTURES_ONLY=1 but DOWNLOAD_FIXTURES_FILE is missing: $fixture_file" >&2
+    exit 1
+  fi
+
+  while IFS= read -r rec; do
+    [[ -n "$rec" ]] || continue
+    file_id_hex="$(printf '%s\n' "$rec" | jq -r '.file_hash_md4_hex')"
+    file_size="$(printf '%s\n' "$rec" | jq -r '.file_size')"
+    search_payload="$(jq -nc --arg id "$file_id_hex" --argjson size "$file_size" '{file_id_hex:$id,file_size:$size}')"
+    stack_auth_post "/api/v1/kad/search_sources" "$search_payload" >/dev/null || true
+
+    start="$(ts_epoch)"
+    while true; do
+      sources_json="$(stack_auth_get "/api/v1/kad/sources/$file_id_hex" || echo '{}')"
+      sources_count="$(printf '%s\n' "$sources_json" | jq -r '(.sources // []) | length' 2>/dev/null || echo 0)"
+      if [[ "$sources_count" =~ ^[0-9]+$ ]] && (( sources_count > 0 )); then
+        log "fixture-sources-ready file_id=$file_id_hex count=$sources_count"
+        break
+      fi
+
+      now="$(ts_epoch)"
+      elapsed="$((now - start))"
+      if (( elapsed > FIXTURE_SOURCE_TIMEOUT_SECS )); then
+        status_json="$(stack_auth_get "/api/v1/status" || echo '{}')"
+        echo "ERROR: fixture source discovery timeout file_id=$file_id_hex elapsed=${elapsed}s count=$sources_count" >&2
+        echo "$status_json" | jq -r '{sent_search_source_reqs,recv_search_source_reqs,source_store_files,source_store_entries_total,live,routing}' >&2 || true
+        exit 1
+      fi
+      sleep "$POLL_SECS"
+      stack_auth_post "/api/v1/kad/search_sources" "$search_payload" >/dev/null || true
+    done
+  done < <(jq -cr "$valid_fixture_filter" "$fixture_file")
 }
 
 stack_status_raw() {
@@ -586,6 +663,7 @@ run_resume_soak() {
   log "run_dir=$RUN_DIR status_tsv=$STATUS_TSV"
 
   wait_for_scenario_running "$RESUME_SCENARIO" "$WAIT_TIMEOUT_SECS"
+  wait_for_fixture_sources
   wait_for_active_transfer "$ACTIVE_TRANSFER_TIMEOUT_SECS"
   snapshot_downloads "pre"
 
