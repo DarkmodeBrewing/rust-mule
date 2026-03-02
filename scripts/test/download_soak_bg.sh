@@ -350,13 +350,11 @@ api_get() {
     "$BASE_URL$path"
 }
 
-api_post() {
+api_post_file() {
   local path="$1"
-  local json="${2:-{}}"
-  local auth payload_file rc
+  local payload_file="$2"
+  local auth rc
   auth="$(auth_header)" || return 1
-  payload_file="$(mktemp "$RUN_ROOT/payload.XXXXXX.json")"
-  printf '%s' "$json" >"$payload_file"
   rc=0
   curl -sS \
     --connect-timeout "$API_CONNECT_TIMEOUT_SECS" \
@@ -365,8 +363,21 @@ api_post() {
     -H "content-type: application/json" \
     --data-binary "@$payload_file" \
     "$BASE_URL$path" || rc=$?
-  rm -f "$payload_file"
   return "$rc"
+}
+
+api_post() {
+  local path="$1"
+  local json="${2:-{}}"
+  local payload_file rc
+  payload_file="$(mktemp "$RUN_ROOT/payload.XXXXXX.json")"
+  printf '%s' "$json" >"$payload_file"
+  if ! api_post_file "$path" "$payload_file"; then
+    rc=$?
+    rm -f "$payload_file"
+    return "$rc"
+  fi
+  rm -f "$payload_file"
 }
 
 api_delete() {
@@ -405,24 +416,33 @@ downloads_create() {
   local name="$1"
   local size="$2"
   local md4="$3"
-  local payload resp rc
-  payload="$(jq -nc \
+  local payload_file payload payload_len payload_bytes resp rc
+  payload_file="$(mktemp "$RUN_ROOT/create-payload.XXXXXX.json")"
+  if ! jq -nc \
     --arg file_name "$name" \
     --arg file_hash_md4_hex "$md4" \
     --argjson file_size "$size" \
-    '{file_name:$file_name,file_size:$file_size,file_hash_md4_hex:$file_hash_md4_hex}')" || return 1
+    '{file_name:$file_name,file_size:$file_size,file_hash_md4_hex:$file_hash_md4_hex}' >"$payload_file"; then
+    rm -f "$payload_file"
+    return 1
+  fi
+  payload="$(cat "$payload_file")"
+  payload_len="${#payload}"
+  payload_bytes="$(wc -c <"$payload_file" | tr -d ' ')"
 
   if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
-    log "create-debug stage=request target=${BASE_URL}/api/v1/downloads token_file=${TOKEN_FILE} payload_len=${#payload} payload=${payload}"
+    log "create-debug stage=request target=${BASE_URL}/api/v1/downloads token_file=${TOKEN_FILE} payload_len=${payload_len} payload_bytes=${payload_bytes} payload=${payload}"
   fi
 
-  if ! resp="$(api_post "/api/v1/downloads" "$payload")"; then
+  if ! resp="$(api_post_file "/api/v1/downloads" "$payload_file")"; then
     rc=$?
+    rm -f "$payload_file"
     if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
       log "create-debug stage=response target=${BASE_URL}/api/v1/downloads rc=${rc} response_len=0 response="
     fi
     return "$rc"
   fi
+  rm -f "$payload_file"
 
   if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
     log "create-debug stage=response target=${BASE_URL}/api/v1/downloads rc=0 response_len=${#resp} response=${resp}"

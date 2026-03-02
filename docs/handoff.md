@@ -8,6 +8,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-02): Refactored soak POST path so create requests are generated and sent file-first (no JSON string transport path).
+  - `scripts/test/download_soak_bg.sh`:
+    - added `api_post_file(path, payload_file)` and kept `api_post(path, json)` as wrapper.
+    - `downloads_create()` now writes payload JSON directly to temp file via `jq` and posts that file.
+    - debug output now reports both `payload_len` (string) and `payload_bytes` (file byte count).
+- Decisions:
+  - Remove string-to-curl conversion from download create path to eliminate any remaining shell quoting/expansion ambiguity.
+- Next steps:
+  - Re-run acceptance with `DEBUG_CREATE_PAYLOADS=1` and compare `payload_bytes` vs API `body_len` for first 400 parse failures.
+  - If API still reports trailing-character parse errors, instrument API parser to log raw last-byte hex for failing requests.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-02): Hardened soak create request path to avoid stdout contamination and payload mutation.
   - `scripts/test/download_soak_bg.sh`:
     - `log()` no longer uses `tee`; logs now append to runner log and emit to stderr only.
