@@ -11,6 +11,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-03): Updated docs entrypoint to match restructured docs tree.
+  - `docs/index.md`:
+    - replaced legacy flat links with sectioned navigation for `00_overview`, `10_architecture`, `20_protocol`, `30_operations`, `governance`, `rfcs`, and `90_archive`.
+- Decisions:
+  - Keep `docs/index.md` as the canonical, human-readable navigation hub aligned with the on-disk folder hierarchy.
+- Next steps:
+  - Optionally align `docs/README.md` wording to the same section naming to avoid drift between entrypoint docs.
+- Change log:
+  - Updated `docs/index.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-03): Added optional fixture publish pre-step to phase-0 acceptance runner.
   - `scripts/test/download_phase0_acceptance.sh`:
     - new env controls: `PUBLISH_FIXTURES`, `PUBLISH_BASE_URL`, `PUBLISH_TOKEN_FILE`.
