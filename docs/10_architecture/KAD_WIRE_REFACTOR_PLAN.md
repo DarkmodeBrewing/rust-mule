@@ -1,3 +1,6 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # KAD/Wire Behavioral Alignment Plan
 
 This plan captures the required refactor work to align KAD/wire behavior with:

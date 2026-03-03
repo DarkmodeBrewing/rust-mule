@@ -1,3 +1,6 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # rust-mule UI Design Specification
 
 **Chat-style Search Dashboard**
