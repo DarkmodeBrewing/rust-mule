@@ -49,20 +49,22 @@ if [[ -z "$FILE_ID_HEX" || -z "$FILE_SIZE" || -z "$FILE_NAME" ]]; then
 fi
 
 if [[ -z "$TOKEN" ]]; then
-  TOKEN="$(cat "$TOKEN_FILE")"
+  TOKEN="$(tr -d '\r\n' <"$TOKEN_FILE")"
 fi
 
 if [[ "$SEARCH_FIRST" == "1" ]]; then
+  search_payload="$(jq -nc --arg file_id_hex "$FILE_ID_HEX" --argjson file_size "$FILE_SIZE" '{file_id_hex:$file_id_hex,file_size:$file_size}')"
   curl -sS \
     -H "Authorization: Bearer $TOKEN" \
     -H "Content-Type: application/json" \
-    -d "{\"file_id_hex\":\"$FILE_ID_HEX\",\"file_size\":$FILE_SIZE}" \
+    --data-binary "$search_payload" \
     "$BASE_URL/api/v1/kad/search_sources"
   echo
 fi
 
+create_payload="$(jq -nc --arg file_name "$FILE_NAME" --argjson file_size "$FILE_SIZE" --arg file_hash_md4_hex "$FILE_ID_HEX" '{file_name:$file_name,file_size:$file_size,file_hash_md4_hex:$file_hash_md4_hex}')"
 curl -sS \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d "{\"file_name\":\"$FILE_NAME\",\"file_size\":$FILE_SIZE,\"file_hash_md4_hex\":\"$FILE_ID_HEX\"}" \
+  --data-binary "$create_payload" \
   "$BASE_URL/api/v1/downloads"

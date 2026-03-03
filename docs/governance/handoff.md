@@ -11,6 +11,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-03): Addressed Copilot PR review findings on acceptance/soak scripts and API parse logging.
+  - `scripts/test/download_soak_bg.sh`:
+    - fixed exit-code capture in `api_post` and `downloads_create` by removing `! cmd; rc=$?` patterns that masked nonzero failures.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - token load now trims CR/LF (`tr -d '\r\n'`) before auth header use.
+  - `scripts/docs/download_create_from_hash.sh`:
+    - switched JSON payload construction to `jq -nc` + `--data-binary` for both search and create requests.
+    - token load now trims CR/LF.
+  - `src/api/error.rs`:
+    - added control-character sanitization for logged JSON parse body excerpts.
+    - added unit test for excerpt sanitizer behavior.
+- Decisions:
+  - Treat script exit-code capture and shell-JSON interpolation as correctness issues to fix immediately.
+  - Keep parse-failure logging at warn level, but sanitize excerpt to avoid control-char log injection.
+- Next steps:
+  - Re-run phase0 acceptance/resume soak and verify create-failure handling/diagnostics are now accurate on real failures.
+- Change log:
+  - Updated `scripts/test/download_soak_bg.sh`.
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/docs/download_create_from_hash.sh`.
+  - Updated `src/api/error.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-03): Added stack-local fixture publish pre-step in resume-soak path.
   - `scripts/test/download_resume_soak.sh`:
     - new env controls: `STACK_PUBLISH_FIXTURES` (default `1`), `STACK_PUBLISH_BASE_URL`, `STACK_PUBLISH_TOKEN_FILE`.

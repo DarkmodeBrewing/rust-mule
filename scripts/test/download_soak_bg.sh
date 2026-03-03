@@ -372,12 +372,13 @@ api_post() {
   local payload_file rc
   payload_file="$(mktemp "$RUN_ROOT/payload.XXXXXX.json")"
   printf '%s' "$json" >"$payload_file"
-  if ! api_post_file "$path" "$payload_file"; then
+  if api_post_file "$path" "$payload_file"; then
+    rc=0
+  else
     rc=$?
-    rm -f "$payload_file"
-    return "$rc"
   fi
   rm -f "$payload_file"
+  return "$rc"
 }
 
 api_delete() {
@@ -434,7 +435,9 @@ downloads_create() {
     log "create-debug stage=request target=${BASE_URL}/api/v1/downloads token_file=${TOKEN_FILE} payload_len=${payload_len} payload_bytes=${payload_bytes} payload=${payload}"
   fi
 
-  if ! resp="$(api_post_file "/api/v1/downloads" "$payload_file")"; then
+  if resp="$(api_post_file "/api/v1/downloads" "$payload_file")"; then
+    rc=0
+  else
     rc=$?
     rm -f "$payload_file"
     if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then

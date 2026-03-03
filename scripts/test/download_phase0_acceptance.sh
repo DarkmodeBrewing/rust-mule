@@ -162,7 +162,7 @@ if [[ "$PUBLISH_FIXTURES" == "1" ]]; then
   require_file "$PUBLISH_TOKEN_FILE"
 fi
 
-TOKEN="$(cat "$TOKEN_FILE")"
+TOKEN="$(tr -d '\r\n' <"$TOKEN_FILE")"
 mkdir -p "$OUT_DIR"
 
 if [[ "$FIXTURES_ONLY" == "1" && -z "$DOWNLOAD_FIXTURES_FILE" ]]; then
