@@ -1,3 +1,6 @@
+Status: ACTIVE
+Last Reviewed: 2026-03-03
+
 # API Curl Cheat Sheet
 
 This file collects `curl` commands for testing the local rust-mule HTTP API.

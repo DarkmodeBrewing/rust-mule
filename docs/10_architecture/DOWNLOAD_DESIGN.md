@@ -1,3 +1,6 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # Download Subsystem Design (iMule-Compatible, Rust-Native)
 
 ## Goal
@@ -112,32 +115,38 @@ Notes:
 ## Delivery Phases
 
 1. Phase 0: scaffolding + typed errors
+
 - Create `src/download/*` modules and typed errors.
 - Add config defaults for `download/` and `incoming/` subdirs under `data_dir`.
 - No wire traffic yet.
 
 2. Phase 1: local partfile lifecycle
+
 - Create/load/save `.part.met` and `.part`.
 - Persist gap map and requested ranges.
 - Add queue operations: add/pause/resume/cancel/delete.
 - Add unit tests for persistence and gap math.
 
 3. Phase 2: block transfer receive path
+
 - Implement incoming block packet validation and write pipeline.
 - Buffer + flush behavior, part completion detection, MD4 verification.
 - Add deterministic tests for range matching, duplicate packets, and boundary checks.
 
 4. Phase 3: block request scheduler
+
 - Implement rarity/completion-aware part selection compatible with iMule intent.
 - Add per-peer pending block windows and timeout/retry handling.
 - Add tests for selection fairness and starvation avoidance.
 
 5. Phase 4: finalize + known files
+
 - Move completed files to `data/incoming/`.
 - Persist known entries to `known.met`.
 - Phase-gated AICH/`known2_64.met` integration.
 
 6. Phase 5: API + UI integration
+
 - Add REST endpoints for download lifecycle and progress.
 - Surface queue details in UI (active, paused, completed, errored).
 

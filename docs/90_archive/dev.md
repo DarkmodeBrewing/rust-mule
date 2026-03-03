@@ -1,3 +1,6 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # Dev Notes (SAM + KAD Over I2P)
 
 This repo is currently focused on bootstrapping an iMule-compatible Kademlia (KAD) overlay over I2P using SAM v3.
@@ -56,14 +59,17 @@ cargo run --bin imule_nodes_inspect -- assets/nodes.initseed.dat
 ## Remote SAM Bridging (Docker Scenario)
 
 If the SAM bridge is on a different machine than the `rust-mule` process, SAM UDP forwarding must be configured so that:
+
 - The SAM bridge can send UDP packets to the host+port you provide in `SESSION CREATE ... HOST=<forward_host> PORT=<forward_port>`.
 - That UDP host+port ultimately reaches the `rust-mule` UDP socket.
 
 Example topology used during development:
+
 - SAM bridge: `10.99.0.2`
 - This dev environment: Docker container on host `10.99.0.1`
 
 Recommended `config.toml` values for that topology:
+
 - `sam.host = "10.99.0.2"` (SAM TCP control)
 - `sam.port = 7656`
 - `sam.udp_port = 7655` (SAM UDP datagrams)
@@ -71,6 +77,7 @@ Recommended `config.toml` values for that topology:
 - `sam.forward_port = 40000` (fixed UDP port, so Docker/firewalls can be configured)
 
 Docker requirements (choose one):
+
 - Use host networking (`--network host`), or
 - Publish UDP port mapping (`-p 40000:40000/udp`).
 
@@ -79,5 +86,6 @@ If you leave `sam.forward_port = 0` (ephemeral), it is usually hard to forward t
 ## Obsolete Code Cleanup
 
 As part of the KAD-over-I2P alignment, the following obsolete/unused modules were removed:
+
 - `src/net/` (TCP probe helpers)
 - The older IPv4-centric `nodes.dat` parser in `src/nodes/parse.rs` and `src/nodes/detect.rs`

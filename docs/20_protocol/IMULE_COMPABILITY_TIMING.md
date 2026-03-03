@@ -1,4 +1,8 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # iMule Compatibility vs Anonymity Contract
+
 ## Timing & Scheduling Guidance for rust-mule
 
 This document defines how rust-mule balances **iMule protocol compatibility**
@@ -13,7 +17,7 @@ timing, scheduling, retries, and maintenance.
 > Honor iMule compatibility within the contract’s safe envelope.**
 
 rust-mule is **iMule-compatible**, not an iMule clone.
-We match protocol semantics and timing *expectations*, not exact schedules.
+We match protocol semantics and timing _expectations_, not exact schedules.
 
 ---
 
@@ -32,6 +36,7 @@ We match protocol semantics and timing *expectations*, not exact schedules.
   - indistinguishable across nodes
 
 If there is a conflict:
+
 > **Compatibility adapts to the contract, not the other way around.**
 
 ---
@@ -39,17 +44,20 @@ If there is a conflict:
 ## Three Layers of Timing (Mental Model)
 
 ### 1. Semantic Deadlines (Hard Constraints)
+
 These exist for interoperability.
 
 Examples:
+
 - request timeouts
 - retry windows
 - bucket refresh intervals
 - cooldown / ban periods
 
 **Rules:**
-- Keep the same *order of magnitude* as iMule
-- Match retry *shape* (e.g. exponential backoff), not exact spacing
+
+- Keep the same _order of magnitude_ as iMule
+- Match retry _shape_ (e.g. exponential backoff), not exact spacing
 - Never exceed peer patience expectations
 
 These define the **outer envelope**.
@@ -57,9 +65,11 @@ These define the **outer envelope**.
 ---
 
 ### 2. Scheduling Policy (Non-Negotiable)
+
 All outbound traffic MUST pass through a centralized scheduling layer.
 
 This layer enforces:
+
 - base delay + jitter
 - randomized ordering
 - per-peer rate caps
@@ -72,19 +82,23 @@ This is the core anonymity defense.
 ---
 
 ### 3. Distribution Shaping (Compatibility Accent)
+
 Within the allowed envelope, rust-mule MAY resemble iMule statistically.
 
 Allowed:
+
 - similar delay ranges
 - similar retry cadence on average
-- similar maintenance frequency *with drift*
+- similar maintenance frequency _with drift_
 
 Forbidden:
+
 - exact delays
 - exact periodicity
 - deterministic retry spacing
 
 Goal:
+
 > Long-term observers conclude  
 > “This looks like a normal node,”  
 > not “this is a specific implementation.”
@@ -94,12 +108,14 @@ Goal:
 ## Concrete Guidance
 
 ### What MUST match iMule
-- Timeout *ranges*
-- Retry *counts*
-- Backoff *shape*
-- Maintenance *frequency order of magnitude*
+
+- Timeout _ranges_
+- Retry _counts_
+- Backoff _shape_
+- Maintenance _frequency order of magnitude_
 
 ### What MUST NOT match exactly
+
 - Absolute delays
 - Retry spacing
 - Refresh timestamps
@@ -111,6 +127,7 @@ Goal:
 ## Conflict Resolution Rule
 
 If changing a timing value could cause peers to:
+
 - give up before we respond
 - retry excessively
 - blacklist us as unresponsive
@@ -126,13 +143,16 @@ Otherwise:
 ## Implementation Rules (Normative)
 
 ### Central Traffic Shaper
+
 All outbound messages MUST:
+
 - be delayed
 - be jittered
 - be rate-limited
 - be shuffled
 
 Applies to:
+
 - requests
 - responses
 - maintenance traffic
@@ -159,7 +179,8 @@ Instead of message-type special cases, define urgency classes:
   - extra relays
 
 Each class:
-- has different delay *ranges*
+
+- has different delay _ranges_
 - still obeys randomness, caps, and ordering rules
 
 ---
@@ -176,9 +197,11 @@ Each class:
 ### Maintenance Scheduling
 
 Forbidden:
+
 - fixed intervals (e.g. “every 30 minutes exactly”)
 
 Required:
+
 - jittered intervals
 - slow drift
 - event-triggered maintenance that still goes through the shaper
@@ -194,7 +217,7 @@ Required:
 - Fast failures with distinct behavior
 - Consistently lower latency than peers
 
-Any of the above makes a node *observable*.
+Any of the above makes a node _observable_.
 
 ---
 
@@ -207,7 +230,7 @@ rust-mule aims to be:
 - **Statistically plausible**
 - **Behaviorally interchangeable**
 
-We emulate the *behavioral envelope* of iMule,
+We emulate the _behavioral envelope_ of iMule,
 not its stopwatch.
 
 ---

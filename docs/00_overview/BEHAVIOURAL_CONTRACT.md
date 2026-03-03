@@ -1,3 +1,6 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # rust-mule Behavior Contract
 
 ## Anonymity-Preserving Invariants for KAD over I2P

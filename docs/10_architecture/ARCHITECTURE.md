@@ -1,3 +1,6 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # Architecture Notes
 
 ## Goal
@@ -159,7 +162,7 @@ Notes:
 - `POST /api/v1/kad/publish_source`
   - Auth required.
   - Body: `{ "file_id_hex": "<32 hex chars>", "file_size": 123 }`
-  - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_SOURCE_REQ` advertising *this node* as a source.
+  - Enqueues a conservative Kad2 `KADEMLIA2_PUBLISH_SOURCE_REQ` advertising _this node_ as a source.
 
 - `POST /api/v1/kad/search_keyword`
   - Auth required.

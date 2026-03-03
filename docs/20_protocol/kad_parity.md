@@ -1,3 +1,6 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # KAD Parity Notes (iMule vs rust-mule)
 
 This document is a **sanity-check map** between iMule's Kademlia-over-I2P implementation and
@@ -57,7 +60,7 @@ Primary files in `source_ref/iMule-2.3.1.5-src/`:
   - rust-mule: `encode_kad2_res()` / `decode_kad2_res()` match.
 
 - **Kad1 (deprecated) REQ/RES + HELLO**
-  - iMule uses the *same* request payload for Kad1+Kad2 searches:
+  - iMule uses the _same_ request payload for Kad1+Kad2 searches:
     `<contactCount u8><target u128><check(receiver_id) u128><sender(my_id) u128>`; opcode differs.
   - rust-mule: `decode_kad1_req()` matches; Kad1 HELLO_RES now uses contact type `3` (matches iMule `WriteToKad1Contact` default).
 

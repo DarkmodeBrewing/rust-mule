@@ -20,3 +20,4 @@ Use this as the entrypoint for project documentation.
 - `../scripts/docs/`: endpoint-focused API helper scripts.
 - `../scripts/test/`: scenario/soak test harness scripts.
 - `../scripts/build/`: platform build/release bundle scripts.
+- `rfcs/*`: KAD3 documentation
