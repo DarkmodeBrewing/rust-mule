@@ -13,6 +13,9 @@ RESUME_ACTIVE_TRANSFER_TIMEOUT_SECS="${RESUME_ACTIVE_TRANSFER_TIMEOUT_SECS:-1800
 RESUME_COMPLETION_TIMEOUT_SECS="${RESUME_COMPLETION_TIMEOUT_SECS:-3600}"
 DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}"
 FIXTURES_ONLY="${FIXTURES_ONLY:-0}"
+PUBLISH_FIXTURES="${PUBLISH_FIXTURES:-0}"
+PUBLISH_BASE_URL="${PUBLISH_BASE_URL:-$BASE_URL}"
+PUBLISH_TOKEN_FILE="${PUBLISH_TOKEN_FILE:-$TOKEN_FILE}"
 
 RUN_KAD_LONGRUN="${RUN_KAD_LONGRUN:-0}"
 LONGRUN_DURATION_SECS="${LONGRUN_DURATION_SECS:-21600}"
@@ -24,6 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATE_SCRIPT="$SCRIPT_DIR/kad_phase0_gate.sh"
 LONGRUN_SCRIPT="$SCRIPT_DIR/kad_phase0_longrun.sh"
 RESUME_SCRIPT="$SCRIPT_DIR/download_resume_soak.sh"
+PUBLISH_SOURCE_SCRIPT="$SCRIPT_DIR/../docs/kad_publish_source.sh"
 
 usage() {
   cat <<'USAGE'
@@ -38,6 +42,9 @@ Optional env:
   RUN_RESUME_SOAK=0|1
   RESUME_ACTIVE_TRANSFER_TIMEOUT_SECS=1800
   RESUME_COMPLETION_TIMEOUT_SECS=3600
+  PUBLISH_FIXTURES=0|1
+  PUBLISH_BASE_URL=http://127.0.0.1:17835
+  PUBLISH_TOKEN_FILE=data/api.token
   RUN_KAD_LONGRUN=0|1
   LONGRUN_DURATION_SECS=21600
   LONGRUN_INTERVAL_SECS=5
@@ -78,6 +85,38 @@ log() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"
 }
 
+publish_fixture_sources() {
+  local fixture_file="$1"
+  local publish_base_url="$2"
+  local publish_token_file="$3"
+  local rec file_hash file_size
+
+  log "publish-fixtures-start file=$fixture_file base_url=$publish_base_url token_file=$publish_token_file"
+  while IFS= read -r rec; do
+    [[ -n "$rec" ]] || continue
+    file_hash="$(printf '%s\n' "$rec" | jq -r '.file_hash_md4_hex')"
+    file_size="$(printf '%s\n' "$rec" | jq -r '.file_size')"
+    log "publish-fixture file_hash=$file_hash file_size=$file_size"
+    if ! "$PUBLISH_SOURCE_SCRIPT" \
+      --file-id-hex "$file_hash" \
+      --file-size "$file_size" \
+      --base-url "$publish_base_url" \
+      --token-file "$publish_token_file" >/dev/null; then
+      echo "ERROR: failed to publish fixture source file_hash=$file_hash base_url=$publish_base_url" >&2
+      exit 1
+    fi
+  done < <(jq -cr '
+    .[]? |
+    select(
+      (type == "object")
+      and ((.file_hash_md4_hex? | type) == "string")
+      and ((.file_size? | type) == "number")
+      and (.file_size > 0)
+    )
+  ' "$fixture_file")
+  log "publish-fixtures-done file=$fixture_file"
+}
+
 auth_get_to_file() {
   local path="$1"
   local out_file="$2"
@@ -107,10 +146,15 @@ TSV
 }
 
 require_tool curl
+require_tool jq
 require_file "$TOKEN_FILE"
 require_exec "$GATE_SCRIPT"
 require_exec "$LONGRUN_SCRIPT"
 require_exec "$RESUME_SCRIPT"
+if [[ "$PUBLISH_FIXTURES" == "1" ]]; then
+  require_exec "$PUBLISH_SOURCE_SCRIPT"
+  require_file "$PUBLISH_TOKEN_FILE"
+fi
 
 TOKEN="$(cat "$TOKEN_FILE")"
 mkdir -p "$OUT_DIR"
@@ -123,10 +167,21 @@ if [[ "$FIXTURES_ONLY" == "1" && ! -f "$DOWNLOAD_FIXTURES_FILE" ]]; then
   echo "ERROR: fixture file does not exist: $DOWNLOAD_FIXTURES_FILE" >&2
   exit 1
 fi
+if [[ "$PUBLISH_FIXTURES" == "1" && -z "$DOWNLOAD_FIXTURES_FILE" ]]; then
+  echo "ERROR: PUBLISH_FIXTURES=1 requires DOWNLOAD_FIXTURES_FILE to be set" >&2
+  exit 1
+fi
+if [[ "$PUBLISH_FIXTURES" == "1" && ! -f "$DOWNLOAD_FIXTURES_FILE" ]]; then
+  echo "ERROR: fixture file does not exist: $DOWNLOAD_FIXTURES_FILE" >&2
+  exit 1
+fi
 
 log "phase0-accept-start out_dir=$OUT_DIR base_url=$BASE_URL token_file=$TOKEN_FILE"
 if [[ -n "$DOWNLOAD_FIXTURES_FILE" ]]; then
   log "fixtures file=$DOWNLOAD_FIXTURES_FILE fixtures_only=$FIXTURES_ONLY"
+fi
+if [[ "$PUBLISH_FIXTURES" == "1" ]]; then
+  publish_fixture_sources "$DOWNLOAD_FIXTURES_FILE" "$PUBLISH_BASE_URL" "$PUBLISH_TOKEN_FILE"
 fi
 
 capture_snapshots "pre"

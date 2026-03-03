@@ -8,6 +8,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-03): Added optional fixture publish pre-step to phase-0 acceptance runner.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - new env controls: `PUBLISH_FIXTURES`, `PUBLISH_BASE_URL`, `PUBLISH_TOKEN_FILE`.
+    - when enabled, iterates fixture hashes and publishes each via `scripts/docs/kad_publish_source.sh` before snapshots/gate/resume stages.
+    - validates required fixture/publisher inputs when publish mode is enabled.
+  - `scripts/test/README.md`:
+    - documented fixture pre-publish usage and publish env controls in acceptance section.
+- Decisions:
+  - Keep publish pre-step opt-in so acceptance remains usable in both passive-observe and actively-seeded environments.
+- Next steps:
+  - Re-run acceptance with `PUBLISH_FIXTURES=1` and `RUN_RESUME_SOAK=1`.
+  - If fixture-source gate still fails, investigate KAD publish propagation from publisher node to stack node (network topology/version/filtering).
+- Change log:
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/handoff.md`.
+
 - Status (2026-03-02): Added fixture-source readiness gate to resume soak to fail fast on source-unavailable runs.
   - `scripts/test/download_resume_soak.sh`:
     - added `wait_for_fixture_sources()` (enabled when `FIXTURES_ONLY=1`) to trigger/search and poll `/api/v1/kad/sources/:file_id_hex` for each fixture before transfer wait.

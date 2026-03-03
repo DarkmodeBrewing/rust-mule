@@ -169,12 +169,17 @@ Pre-check:
 Phase-0 acceptance runner:
 - default (gate + snapshots):
   - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with fixture pre-publish (recommended for `FIXTURES_ONLY=1`):
+  - `PUBLISH_FIXTURES=1 DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json PUBLISH_BASE_URL=http://127.0.0.1:17835 PUBLISH_TOKEN_FILE=data/api.token BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak:
   - `RUN_RESUME_SOAK=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak + longrun:
   - `RUN_RESUME_SOAK=1 RUN_KAD_LONGRUN=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - exit behavior:
   - exits non-zero when any enabled stage fails (`kad_phase0_gate`, `download_resume_soak`, `kad_phase0_longrun`)
+- publish controls:
+  - `PUBLISH_FIXTURES=1` enables fixture-source publish pre-step.
+  - `PUBLISH_BASE_URL` and `PUBLISH_TOKEN_FILE` select publisher node/API token.
 
 ### 1) Single File E2E Lifecycle Soak
 
