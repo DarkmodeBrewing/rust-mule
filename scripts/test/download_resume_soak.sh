@@ -47,6 +47,7 @@ RESUME_SCENARIO="${RESUME_SCENARIO:-concurrency}"
 WAIT_TIMEOUT_SECS="${WAIT_TIMEOUT_SECS:-21600}"
 HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-300}"
 ACTIVE_TRANSFER_TIMEOUT_SECS="${ACTIVE_TRANSFER_TIMEOUT_SECS:-1800}"
+NO_RESERVE_ACTIVITY_TIMEOUT_SECS="${NO_RESERVE_ACTIVITY_TIMEOUT_SECS:-300}"
 COMPLETION_TIMEOUT_SECS="${COMPLETION_TIMEOUT_SECS:-3600}"
 FIXTURE_SOURCE_TIMEOUT_SECS="${FIXTURE_SOURCE_TIMEOUT_SECS:-300}"
 STACK_PUBLISH_FIXTURES="${STACK_PUBLISH_FIXTURES:-1}"
@@ -511,7 +512,7 @@ has_active_transfer_in_file() {
 
 wait_for_active_transfer() {
   local timeout_secs="$1"
-  local start now elapsed last_log tmp_json
+  local start now elapsed last_log tmp_json downloads_count reserve_calls reserve_granted
   tmp_json="$RESUME_OUT_DIR/active_probe.json"
   start="$(ts_epoch)"
   last_log=0
@@ -523,9 +524,22 @@ wait_for_active_transfer() {
     fi
     now="$(ts_epoch)"
     elapsed="$((now - start))"
+    downloads_count="$(jq -r '(.downloads // []) | length' "$tmp_json" 2>/dev/null || echo 0)"
+    reserve_calls="$(jq -r '.reserve_calls_total // 0' "$tmp_json" 2>/dev/null || echo 0)"
+    reserve_granted="$(jq -r '.reserve_granted_blocks_total // 0' "$tmp_json" 2>/dev/null || echo 0)"
+
     if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
-      log "active-transfer-wait elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s downloads=$(jq -r '(.downloads // []) | length' "$tmp_json" 2>/dev/null || echo 0)"
+      log "active-transfer-wait elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s downloads=$downloads_count reserve_calls_total=$reserve_calls reserve_granted_blocks_total=$reserve_granted"
       last_log="$elapsed"
+    fi
+    if (( elapsed > NO_RESERVE_ACTIVITY_TIMEOUT_SECS )) \
+      && [[ "$downloads_count" =~ ^[0-9]+$ ]] \
+      && [[ "$reserve_calls" =~ ^[0-9]+$ ]] \
+      && (( downloads_count > 0 )) \
+      && (( reserve_calls == 0 )); then
+      echo "ERROR: no reserve activity observed within ${NO_RESERVE_ACTIVITY_TIMEOUT_SECS}s (downloads=$downloads_count reserve_calls_total=$reserve_calls)" >&2
+      dump_download_diagnostics "no_reserve_activity"
+      exit 1
     fi
     if (( elapsed > timeout_secs )); then
       echo "ERROR: no active transfer observed within ${timeout_secs}s" >&2

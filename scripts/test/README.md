@@ -345,6 +345,7 @@ Common overrides:
 - `WAIT_TIMEOUT_SECS=21600`
 - `HEALTH_TIMEOUT_SECS=300`
 - `ACTIVE_TRANSFER_TIMEOUT_SECS=1800`
+- `NO_RESERVE_ACTIVITY_TIMEOUT_SECS=300` (fail fast when downloads exist but `reserve_calls_total` never increments)
 - `FIXTURE_SOURCE_TIMEOUT_SECS=300` (only with `FIXTURES_ONLY=1`)
 - `COMPLETION_TIMEOUT_SECS=3600`
 - `RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>`
@@ -370,5 +371,6 @@ Notes:
 - Resume restart now hard-checks `/proc` for any remaining run-dir `rust-mule` process (`cwd`/`cmdline`), and fails early with PID details if single-instance lock would still be held.
 - Crash step now force-kills all run-dir-owned `rust-mule` PIDs found via `/proc` (not only `control/app.pid`) to handle wrapper-PID vs child-PID mismatches.
 - Resume now waits for an active transfer before crash (`downloaded_bytes>0` and `inflight_ranges>0`) so the run validates true in-flight resume behavior.
+- Resume now fails fast on scheduler inactivity when downloads exist but `reserve_calls_total` stays `0` for `NO_RESERVE_ACTIVITY_TIMEOUT_SECS`.
 - Resume now fails if any pre-existing download has lower `downloaded_bytes` after restart.
 - Resume now requires at least one completed download post-restart within `COMPLETION_TIMEOUT_SECS`.

@@ -38,6 +38,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - If `active_transfer_timeout` recurs, inspect `active_transfer_timeout_downloads_diag.json` for reserve counters:
     - if `reserve_calls_total` stays near zero: scheduler/dispatch is not invoking reserve.
     - if `reserve_calls_total` rises but `reserve_granted_blocks_total` stays zero: examine denial counters and download states.
+- Status (2026-03-03): Added fail-fast no-reserve-activity gate to resume soak.
+  - `scripts/test/download_resume_soak.sh`:
+    - new `NO_RESERVE_ACTIVITY_TIMEOUT_SECS` (default `300`).
+    - in active-transfer wait, fails early when downloads exist but `reserve_calls_total` remains `0` past timeout.
+    - writes `no_reserve_activity_downloads_diag.json` / `no_reserve_activity_status_diag.json` on fail-fast trigger.
+  - `scripts/test/README.md`:
+    - documented `NO_RESERVE_ACTIVITY_TIMEOUT_SECS` and fail-fast behavior.
+- Decisions:
+  - Treat prolonged zero reserve-call activity as a structural pipeline condition; fail quickly to reduce soak feedback latency.
+- Next steps:
+  - Run acceptance again and verify fast-fail triggers within 5 minutes when reserve remains unwired.
+  - Then prioritize wiring runtime transfer scheduler to issue `ReserveBlocks` for discovered sources.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/governance/handoff.md`.
 - Change log:
   - Updated `src/download/service.rs`.
   - Updated `src/api/handlers/downloads.rs`.
