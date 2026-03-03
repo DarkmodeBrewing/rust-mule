@@ -11,6 +11,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-03): Synced docs directory guide with restructured layout and canonical index policy.
+  - `docs/README.md`:
+    - converted from legacy file-by-file list to folder-level structure guide.
+    - explicitly marks `docs/index.md` as canonical docs navigation entrypoint.
+- Decisions:
+  - Keep `docs/index.md` as navigation source of truth; keep `docs/README.md` as concise directory-orientation doc.
+- Next steps:
+  - Keep both files in sync whenever docs folders are renamed or moved.
+- Change log:
+  - Updated `docs/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-03): Updated docs entrypoint to match restructured docs tree.
   - `docs/index.md`:
     - replaced legacy flat links with sectioned navigation for `00_overview`, `10_architecture`, `20_protocol`, `30_operations`, `governance`, `rfcs`, and `90_archive`.
