@@ -173,6 +173,8 @@ Phase-0 acceptance runner:
   - `PUBLISH_FIXTURES=1 DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json PUBLISH_BASE_URL=http://127.0.0.1:17835 PUBLISH_TOKEN_FILE=data/api.token BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak:
   - `RUN_RESUME_SOAK=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak + stack-local fixture publish controls:
+  - `RUN_RESUME_SOAK=1 FIXTURES_ONLY=1 DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json STACK_PUBLISH_FIXTURES=1 STACK_PUBLISH_BASE_URL=http://127.0.0.1:17965 STACK_PUBLISH_TOKEN_FILE=/tmp/rustmule-run-<ts>/data/api.token BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak + longrun:
   - `RUN_RESUME_SOAK=1 RUN_KAD_LONGRUN=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - exit behavior:
@@ -335,6 +337,9 @@ Common overrides:
 - `STACK_ROOT=/tmp/rust-mule-download-stack`
 - `STACK_API_PORT=17865`
 - `STACK_BASE_URL=http://127.0.0.1:17865`
+- `STACK_PUBLISH_FIXTURES=1` (default; only applied when `FIXTURES_ONLY=1`)
+- `STACK_PUBLISH_BASE_URL=http://127.0.0.1:17865` (defaults to `STACK_BASE_URL`)
+- `STACK_PUBLISH_TOKEN_FILE=/path/to/publisher/api.token` (optional; defaults to stack run token when publishing to `STACK_BASE_URL`)
 - `WAIT_TIMEOUT_SECS=21600`
 - `HEALTH_TIMEOUT_SECS=300`
 - `ACTIVE_TRANSFER_TIMEOUT_SECS=1800`
@@ -354,6 +359,7 @@ Notes:
 - Crash validation is process-based (killed app PID + no remaining run-dir `rust-mule` process), not strictly `health=000`.
 - This avoids false failures when another process is already serving the same API port.
 - Resume stack now defaults to its own API endpoint (`http://127.0.0.1:17865`) to avoid colliding with an already-running local node on `:17835`.
+- With `FIXTURES_ONLY=1`, resume now publishes fixture sources on the stack node after startup (before source-discovery polling) to avoid cross-topology publish/discovery drift.
 - With `FIXTURES_ONLY=1`, the resume script now verifies fixture source availability (`/api/v1/kad/sources/:file_id_hex`) before waiting for active transfer and fails fast with KAD status diagnostics when sources never appear.
 - Resume restart now hard-checks `/proc` for any remaining run-dir `rust-mule` process (`cwd`/`cmdline`), and fails early with PID details if single-instance lock would still be held.
 - Crash step now force-kills all run-dir-owned `rust-mule` PIDs found via `/proc` (not only `control/app.pid`) to handle wrapper-PID vs child-PID mismatches.

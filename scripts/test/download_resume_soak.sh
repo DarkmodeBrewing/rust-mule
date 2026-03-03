@@ -30,6 +30,9 @@ set -euo pipefail
 #   DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json
 #   FIXTURES_ONLY=1
 #   FIXTURE_SOURCE_TIMEOUT_SECS=300
+#   STACK_PUBLISH_FIXTURES=1
+#   STACK_PUBLISH_BASE_URL=http://127.0.0.1:17865
+#   STACK_PUBLISH_TOKEN_FILE=/path/to/publisher/api.token
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK_SCRIPT="${STACK_SCRIPT:-$SCRIPT_DIR/download_soak_stack_bg.sh}"
@@ -46,6 +49,9 @@ HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-300}"
 ACTIVE_TRANSFER_TIMEOUT_SECS="${ACTIVE_TRANSFER_TIMEOUT_SECS:-1800}"
 COMPLETION_TIMEOUT_SECS="${COMPLETION_TIMEOUT_SECS:-3600}"
 FIXTURE_SOURCE_TIMEOUT_SECS="${FIXTURE_SOURCE_TIMEOUT_SECS:-300}"
+STACK_PUBLISH_FIXTURES="${STACK_PUBLISH_FIXTURES:-1}"
+STACK_PUBLISH_BASE_URL="${STACK_PUBLISH_BASE_URL:-$BASE_URL}"
+STACK_PUBLISH_TOKEN_FILE="${STACK_PUBLISH_TOKEN_FILE:-}"
 POLL_SECS="${POLL_SECS:-2}"
 RESUME_OUT_DIR="${RESUME_OUT_DIR:-/tmp/rust-mule-download-resume-$(date +%Y%m%d_%H%M%S)}"
 
@@ -122,6 +128,51 @@ stack_auth_post() {
   token="$(stack_token)" || return 1
   curl -sS -H "Authorization: Bearer $token" -H "content-type: application/json" \
     -d "$json" "$BASE_URL$path"
+}
+
+publish_auth_post() {
+  local path="$1"
+  local json="$2"
+  local publish_base_url="$3"
+  local publish_token_file="$4"
+  local token
+
+  if [[ "$publish_base_url" == "$BASE_URL" && -z "$publish_token_file" ]]; then
+    stack_auth_post "$path" "$json"
+    return
+  fi
+
+  if [[ -z "$publish_token_file" || ! -s "$publish_token_file" ]]; then
+    echo "ERROR: publish token file missing or empty: $publish_token_file" >&2
+    exit 1
+  fi
+  token="$(tr -d '\r\n' <"$publish_token_file")"
+  curl -sS -H "Authorization: Bearer $token" -H "content-type: application/json" \
+    -d "$json" "$publish_base_url$path"
+}
+
+publish_fixture_sources_on_stack() {
+  local fixture_file rec file_id_hex file_size payload
+
+  if [[ "${FIXTURES_ONLY:-0}" != "1" || "${STACK_PUBLISH_FIXTURES:-1}" != "1" ]]; then
+    return 0
+  fi
+  fixture_file="${DOWNLOAD_FIXTURES_FILE:-}"
+  if [[ -z "$fixture_file" || ! -f "$fixture_file" ]]; then
+    echo "ERROR: stack fixture publish requires DOWNLOAD_FIXTURES_FILE: $fixture_file" >&2
+    exit 1
+  fi
+
+  log "fixture-publish-start file=$fixture_file base_url=$STACK_PUBLISH_BASE_URL token_file=${STACK_PUBLISH_TOKEN_FILE:-<stack>}"
+  while IFS= read -r rec; do
+    [[ -n "$rec" ]] || continue
+    file_id_hex="$(printf '%s\n' "$rec" | jq -r '.file_hash_md4_hex')"
+    file_size="$(printf '%s\n' "$rec" | jq -r '.file_size')"
+    payload="$(jq -nc --arg id "$file_id_hex" --argjson size "$file_size" '{file_id_hex:$id,file_size:$size}')"
+    publish_auth_post "/api/v1/kad/publish_source" "$payload" "$STACK_PUBLISH_BASE_URL" "$STACK_PUBLISH_TOKEN_FILE" >/dev/null
+    log "fixture-publish file_id=$file_id_hex file_size=$file_size"
+  done < <(jq -cr "$valid_fixture_filter" "$fixture_file")
+  log "fixture-publish-done file=$fixture_file"
 }
 
 wait_for_fixture_sources() {
@@ -662,6 +713,7 @@ run_resume_soak() {
   wait_for_status_file
   log "run_dir=$RUN_DIR status_tsv=$STATUS_TSV"
 
+  publish_fixture_sources_on_stack
   wait_for_scenario_running "$RESUME_SCENARIO" "$WAIT_TIMEOUT_SECS"
   wait_for_fixture_sources
   wait_for_active_transfer "$ACTIVE_TRANSFER_TIMEOUT_SECS"

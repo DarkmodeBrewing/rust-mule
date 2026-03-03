@@ -11,6 +11,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-03): Added stack-local fixture publish pre-step in resume-soak path.
+  - `scripts/test/download_resume_soak.sh`:
+    - new env controls: `STACK_PUBLISH_FIXTURES` (default `1`), `STACK_PUBLISH_BASE_URL`, `STACK_PUBLISH_TOKEN_FILE`.
+    - when `FIXTURES_ONLY=1`, publishes fixture hashes to stack publisher after stack startup and before fixture source-discovery polling.
+    - defaults to publishing against `STACK_BASE_URL` with stack run token.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - forwards `STACK_PUBLISH_*` env controls into resume-soak stage.
+  - `scripts/test/README.md`:
+    - documented new stack-local publish controls and behavior.
+- Decisions:
+  - Make stack-local publish the default fixture path for resume soaks to remove cross-topology dependency on external pre-publish.
+- Next steps:
+  - Re-run phase-0 acceptance with `RUN_RESUME_SOAK=1`, `FIXTURES_ONLY=1`, and stack-local publish defaults.
+  - If fixture-source gate still fails, capture `live/routing/source_store_*` on stack publisher and consumer for topology diagnosis.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-03): Synced docs directory guide with restructured layout and canonical index policy.
   - `docs/README.md`:
     - converted from legacy file-by-file list to folder-level structure guide.
