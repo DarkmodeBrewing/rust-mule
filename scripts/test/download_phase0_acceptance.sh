@@ -25,6 +25,7 @@ LONGRUN_DURATION_SECS="${LONGRUN_DURATION_SECS:-21600}"
 LONGRUN_INTERVAL_SECS="${LONGRUN_INTERVAL_SECS:-5}"
 
 OUT_DIR="${OUT_DIR:-/tmp/rust-mule-download-phase0-accept-$(date +%Y%m%d_%H%M%S)}"
+PROGRESS_LOG_SECS="${PROGRESS_LOG_SECS:-30}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATE_SCRIPT="$SCRIPT_DIR/kad_phase0_gate.sh"
@@ -89,6 +90,38 @@ require_tool() {
 
 log() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"
+}
+
+eta_utc() {
+  local secs="$1"
+  date -u -d "@$secs" +%Y-%m-%dT%H:%M:%SZ
+}
+
+accept_start_epoch=0
+accept_expected_secs=0
+
+init_accept_progress() {
+  accept_start_epoch="$(date +%s)"
+  accept_expected_secs="$((GATE_DURATION_SECS * 2))"
+  if [[ "$RUN_RESUME_SOAK" == "1" ]]; then
+    accept_expected_secs="$((accept_expected_secs + RESUME_ACTIVE_TRANSFER_TIMEOUT_SECS + RESUME_COMPLETION_TIMEOUT_SECS))"
+  fi
+  if [[ "$RUN_KAD_LONGRUN" == "1" ]]; then
+    accept_expected_secs="$((accept_expected_secs + LONGRUN_DURATION_SECS))"
+  fi
+}
+
+log_accept_progress() {
+  local stage="$1"
+  local now elapsed remaining eta
+  now="$(date +%s)"
+  elapsed="$((now - accept_start_epoch))"
+  remaining="$((accept_expected_secs - elapsed))"
+  if (( remaining < 0 )); then
+    remaining=0
+  fi
+  eta="$((now + remaining))"
+  log "phase0-accept-progress stage=$stage elapsed=${elapsed}s remaining_est=${remaining}s eta_utc=$(eta_utc "$eta")"
 }
 
 publish_fixture_sources() {
@@ -183,6 +216,8 @@ if [[ "$PUBLISH_FIXTURES" == "1" && ! -f "$DOWNLOAD_FIXTURES_FILE" ]]; then
 fi
 
 log "phase0-accept-start out_dir=$OUT_DIR base_url=$BASE_URL token_file=$TOKEN_FILE"
+init_accept_progress
+log "phase0-accept-estimate total_estimated_secs=$accept_expected_secs"
 if [[ -n "$DOWNLOAD_FIXTURES_FILE" ]]; then
   log "fixtures file=$DOWNLOAD_FIXTURES_FILE fixtures_only=$FIXTURES_ONLY"
 fi
@@ -193,6 +228,7 @@ fi
 capture_snapshots "pre"
 
 log "run gate (before/after consistency check)"
+log_accept_progress "gate:start"
 GATE_RC=0
 if BASE_URL="$BASE_URL" \
   TOKEN_FILE="$TOKEN_FILE" \
@@ -205,10 +241,12 @@ if BASE_URL="$BASE_URL" \
 else
   GATE_RC=$?
 fi
+log_accept_progress "gate:done"
 
 RESUME_RC=0
 if [[ "$RUN_RESUME_SOAK" == "1" ]]; then
   log "run resume soak"
+  log_accept_progress "resume:start"
   if ACTIVE_TRANSFER_TIMEOUT_SECS="$RESUME_ACTIVE_TRANSFER_TIMEOUT_SECS" \
     COMPLETION_TIMEOUT_SECS="$RESUME_COMPLETION_TIMEOUT_SECS" \
     STACK_PUBLISH_FIXTURES="$STACK_PUBLISH_FIXTURES" \
@@ -222,6 +260,7 @@ if [[ "$RUN_RESUME_SOAK" == "1" ]]; then
   else
     RESUME_RC=$?
   fi
+  log_accept_progress "resume:done"
 else
   log "skip resume soak (RUN_RESUME_SOAK=$RUN_RESUME_SOAK)"
 fi
@@ -229,6 +268,7 @@ fi
 LONGRUN_RC=0
 if [[ "$RUN_KAD_LONGRUN" == "1" ]]; then
   log "run kad longrun"
+  log_accept_progress "longrun:start"
   if BASE_URL="$BASE_URL" \
     TOKEN_FILE="$TOKEN_FILE" \
     DURATION_SECS="$LONGRUN_DURATION_SECS" \
@@ -239,6 +279,7 @@ if [[ "$RUN_KAD_LONGRUN" == "1" ]]; then
   else
     LONGRUN_RC=$?
   fi
+  log_accept_progress "longrun:done"
 else
   log "skip kad longrun (RUN_KAD_LONGRUN=$RUN_KAD_LONGRUN)"
 fi

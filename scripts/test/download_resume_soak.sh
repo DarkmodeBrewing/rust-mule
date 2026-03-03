@@ -53,6 +53,7 @@ STACK_PUBLISH_FIXTURES="${STACK_PUBLISH_FIXTURES:-1}"
 STACK_PUBLISH_BASE_URL="${STACK_PUBLISH_BASE_URL:-$BASE_URL}"
 STACK_PUBLISH_TOKEN_FILE="${STACK_PUBLISH_TOKEN_FILE:-}"
 POLL_SECS="${POLL_SECS:-2}"
+PROGRESS_LOG_SECS="${PROGRESS_LOG_SECS:-30}"
 RESUME_OUT_DIR="${RESUME_OUT_DIR:-/tmp/rust-mule-download-resume-$(date +%Y%m%d_%H%M%S)}"
 
 RUN_DIR=""
@@ -176,7 +177,7 @@ publish_fixture_sources_on_stack() {
 }
 
 wait_for_fixture_sources() {
-  local fixture_file rec file_id_hex file_size search_payload start now elapsed sources_json sources_count status_json
+  local fixture_file rec file_id_hex file_size search_payload start now elapsed last_log sources_json sources_count status_json
 
   if [[ "${FIXTURES_ONLY:-0}" != "1" ]]; then
     return 0
@@ -195,6 +196,7 @@ wait_for_fixture_sources() {
     stack_auth_post "/api/v1/kad/search_sources" "$search_payload" >/dev/null || true
 
     start="$(ts_epoch)"
+    last_log=0
     while true; do
       sources_json="$(stack_auth_get "/api/v1/kad/sources/$file_id_hex" || echo '{}')"
       sources_count="$(printf '%s\n' "$sources_json" | jq -r '(.sources // []) | length' 2>/dev/null || echo 0)"
@@ -205,6 +207,10 @@ wait_for_fixture_sources() {
 
       now="$(ts_epoch)"
       elapsed="$((now - start))"
+      if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+        log "fixture-sources-wait file_id=$file_id_hex elapsed=${elapsed}s remaining=$((FIXTURE_SOURCE_TIMEOUT_SECS - elapsed))s count=$sources_count"
+        last_log="$elapsed"
+      fi
       if (( elapsed > FIXTURE_SOURCE_TIMEOUT_SECS )); then
         status_json="$(stack_auth_get "/api/v1/status" || echo '{}')"
         echo "ERROR: fixture source discovery timeout file_id=$file_id_hex elapsed=${elapsed}s count=$sources_count" >&2
@@ -282,8 +288,9 @@ wait_for_status_file() {
 wait_for_scenario_running() {
   local scenario="$1"
   local timeout_secs="$2"
-  local start now elapsed line status state
+  local start now elapsed line status state last_log
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     now="$(ts_epoch)"
     elapsed="$((now - start))"
@@ -295,8 +302,12 @@ wait_for_scenario_running() {
     if [[ -n "$line" ]]; then
       status="$(echo "$line" | cut -f3)"
       state="$(echo "$line" | cut -f4)"
-      log "scenario-check scenario=$scenario status=${status:-unknown} state=${state:-unknown}"
+      if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+        log "scenario-wait scenario=$scenario elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s status=${status:-unknown} state=${state:-unknown}"
+        last_log="$elapsed"
+      fi
       if [[ "$status" == "running" && "$state" == "running" ]]; then
+        log "scenario-ready scenario=$scenario elapsed=${elapsed}s"
         return 0
       fi
       if [[ "$state" == "completed" || "$state" == "failed" || "$state" == "stopped" ]]; then
@@ -471,9 +482,10 @@ has_active_transfer_in_file() {
 
 wait_for_active_transfer() {
   local timeout_secs="$1"
-  local start now elapsed tmp_json
+  local start now elapsed last_log tmp_json
   tmp_json="$RESUME_OUT_DIR/active_probe.json"
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     poll_downloads_json "$tmp_json"
     if has_active_transfer_in_file "$tmp_json"; then
@@ -482,6 +494,10 @@ wait_for_active_transfer() {
     fi
     now="$(ts_epoch)"
     elapsed="$((now - start))"
+    if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+      log "active-transfer-wait elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s downloads=$(jq -r '(.downloads // []) | length' "$tmp_json" 2>/dev/null || echo 0)"
+      last_log="$elapsed"
+    fi
     if (( elapsed > timeout_secs )); then
       echo "ERROR: no active transfer observed within ${timeout_secs}s" >&2
       jq -r '
@@ -519,9 +535,10 @@ assert_monotonic_download_bytes() {
 
 wait_for_any_completed_download() {
   local timeout_secs="$1"
-  local start now elapsed tmp_json
+  local start now elapsed last_log tmp_json
   tmp_json="$RESUME_OUT_DIR/completion_probe.json"
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     poll_downloads_json "$tmp_json"
     if jq -e '
@@ -532,6 +549,10 @@ wait_for_any_completed_download() {
     fi
     now="$(ts_epoch)"
     elapsed="$((now - start))"
+    if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+      log "completion-wait elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s downloads=$(jq -r '(.downloads // []) | length' "$tmp_json" 2>/dev/null || echo 0)"
+      last_log="$elapsed"
+    fi
     if (( elapsed > timeout_secs )); then
       echo "ERROR: no completed download observed within ${timeout_secs}s after restart" >&2
       jq -r '
@@ -610,10 +631,11 @@ restart_app() {
 wait_for_post_restart_progress() {
   local scenario="$1"
   local timeout_secs="$2"
-  local start now elapsed baseline_lines current_lines line status state
+  local start now elapsed baseline_lines current_lines line status state last_log
 
   baseline_lines="$(wc -l <"$STATUS_TSV" 2>/dev/null || echo 0)"
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     now="$(ts_epoch)"
     elapsed="$((now - start))"
@@ -627,8 +649,12 @@ wait_for_post_restart_progress() {
     if [[ -n "$line" ]]; then
       status="$(echo "$line" | cut -f3)"
       state="$(echo "$line" | cut -f4)"
-      log "post-restart scenario=$scenario status=${status:-unknown} state=${state:-unknown} lines=$current_lines"
+      if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+        log "post-restart-wait scenario=$scenario elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s status=${status:-unknown} state=${state:-unknown} lines=$current_lines"
+        last_log="$elapsed"
+      fi
       if (( current_lines > baseline_lines + 2 )) && [[ "$status" == "running" || "$state" == "completed" ]]; then
+        log "post-restart-ready scenario=$scenario elapsed=${elapsed}s lines=$current_lines"
         return 0
       fi
       if [[ "$state" == "failed" ]]; then
@@ -641,8 +667,9 @@ wait_for_post_restart_progress() {
 }
 
 wait_for_stack_terminal() {
-  local start now elapsed out runner_state
+  local start now elapsed out runner_state last_log
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     now="$(ts_epoch)"
     elapsed="$((now - start))"
@@ -652,7 +679,10 @@ wait_for_stack_terminal() {
     fi
     out="$(stack_status_raw)"
     runner_state="$(status_field "$out" "runner_state")"
-    log "stack-state runner_state=${runner_state:-unknown}"
+    if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+      log "stack-terminal-wait elapsed=${elapsed}s remaining=$((WAIT_TIMEOUT_SECS - elapsed))s runner_state=${runner_state:-unknown}"
+      last_log="$elapsed"
+    fi
     case "${runner_state:-unknown}" in
     completed) return 0 ;;
     failed | stopped) return 1 ;;

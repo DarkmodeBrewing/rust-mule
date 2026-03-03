@@ -93,6 +93,7 @@ Automated before/after gate:
 - enforcement:
   - `ENFORCE_THRESHOLDS=1` exits non-zero on failed checks
   - `ENFORCE_THRESHOLDS=0` prints failures but exits zero
+  - `PROGRESS_LOG_SECS=30` controls heartbeat interval for readiness/progress logs
 - suggested tuning-env for noisy networks:
   - `MIN_SENT_REQS_TOTAL_RATIO=0.60`
   - keep efficiency thresholds enabled (`MIN_MATCH_PER_SENT_RATIO`, `MAX_TIMEOUT_PER_SENT_RATIO`)
@@ -182,6 +183,7 @@ Phase-0 acceptance runner:
 - publish controls:
   - `PUBLISH_FIXTURES=1` enables fixture-source publish pre-step.
   - `PUBLISH_BASE_URL` and `PUBLISH_TOKEN_FILE` select publisher node/API token.
+  - `PROGRESS_LOG_SECS=30` controls acceptance-level stage progress heartbeat logs.
 
 ### 1) Single File E2E Lifecycle Soak
 
@@ -346,6 +348,7 @@ Common overrides:
 - `FIXTURE_SOURCE_TIMEOUT_SECS=300` (only with `FIXTURES_ONLY=1`)
 - `COMPLETION_TIMEOUT_SECS=3600`
 - `RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>`
+- `PROGRESS_LOG_SECS=30`
 
 Outputs:
 - resume artifacts/report under `RESUME_OUT_DIR`:

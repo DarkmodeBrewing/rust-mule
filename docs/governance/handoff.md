@@ -11,6 +11,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-03): Added progress heartbeat/ETA logs for long-running phase0 soak scripts.
+  - `scripts/test/kad_phase0_gate.sh`:
+    - new `PROGRESS_LOG_SECS` (default `30`) for throttled readiness-wait logs.
+    - capture start now logs initial remaining time and UTC ETA.
+  - `scripts/test/download_phase0_acceptance.sh`:
+    - added stage progress logs with elapsed/estimated-remaining/ETA (`gate`, `resume`, `longrun`).
+  - `scripts/test/download_resume_soak.sh`:
+    - new `PROGRESS_LOG_SECS` (default `30`) for throttled progress lines in long wait loops:
+      - scenario wait
+      - fixture source wait
+      - active transfer wait
+      - post-restart progress wait
+      - completion wait
+      - stack terminal wait
+  - `scripts/test/README.md`:
+    - documented `PROGRESS_LOG_SECS` in gate, acceptance, and resume sections.
+- Decisions:
+  - Keep progress logging throttled to avoid noisy per-poll output while preserving clear long-run observability.
+- Next steps:
+  - Re-run acceptance soak and confirm progress lines provide enough signal to leave runs unattended.
+- Change log:
+  - Updated `scripts/test/kad_phase0_gate.sh`.
+  - Updated `scripts/test/download_phase0_acceptance.sh`.
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-03): Addressed Copilot PR review findings on acceptance/soak scripts and API parse logging.
   - `scripts/test/download_soak_bg.sh`:
     - fixed exit-code capture in `api_post` and `downloads_create` by removing `! cmd; rc=$?` patterns that masked nonzero failures.

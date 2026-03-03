@@ -18,6 +18,7 @@ SETUP_SETTLE_SECS="${SETUP_SETTLE_SECS:-10}"
 READY_MAX_WAIT_SECS="${READY_MAX_WAIT_SECS:-120}"
 READY_POLL_SECS="${READY_POLL_SECS:-2}"
 READY_STABLE_SUCCESSES="${READY_STABLE_SUCCESSES:-3}"
+PROGRESS_LOG_SECS="${PROGRESS_LOG_SECS:-30}"
 
 ENFORCE_THRESHOLDS="${ENFORCE_THRESHOLDS:-1}"
 MIN_SENT_REQS_TOTAL_RATIO="${MIN_SENT_REQS_TOTAL_RATIO:-0.90}"
@@ -83,10 +84,16 @@ log() {
   echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*"
 }
 
+eta_utc() {
+  local secs="$1"
+  date -u -d "@$secs" +%Y-%m-%dT%H:%M:%SZ
+}
+
 wait_until_ready() {
-  local start now elapsed
+  local start now elapsed last_log
   local stable=0
   start="$(date +%s)"
+  last_log=0
   while true; do
     local health_code status_code
     health_code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/health" 2>/dev/null || echo 000)"
@@ -102,6 +109,10 @@ wait_until_ready() {
     fi
     now="$(date +%s)"
     elapsed="$((now - start))"
+    if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+      log "ready_wait elapsed=${elapsed}s max_wait=${READY_MAX_WAIT_SECS}s stable=${stable}/${READY_STABLE_SUCCESSES}"
+      last_log="$elapsed"
+    fi
     if (( elapsed >= READY_MAX_WAIT_SECS )); then
       echo "ERROR: readiness timeout after ${READY_MAX_WAIT_SECS}s (health=$health_code status=$status_code)" >&2
       return 1
@@ -127,8 +138,12 @@ run_setup() {
 run_capture() {
   local label="$1"
   local out_file="$2"
+  local now eta
   wait_until_ready
+  now="$(date +%s)"
+  eta="$((now + DURATION_SECS))"
   log "capture_start label=$label out_file=$out_file duration_secs=$DURATION_SECS interval_secs=$INTERVAL_SECS"
+  log "capture_progress label=$label elapsed=0s remaining=${DURATION_SECS}s eta_utc=$(eta_utc "$eta")"
   BASE_URL="$BASE_URL" \
   TOKEN_FILE="$TOKEN_FILE" \
   DURATION_SECS="$DURATION_SECS" \
