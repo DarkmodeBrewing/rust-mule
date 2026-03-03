@@ -1,9 +1,14 @@
+Status: DRAFT
+Last Reviewed: 2026-03-03
+
 # rust-mule API Design Specification (High Level)
+
 **Search-centric API for a Chat-style UI**
 
 ## Overview
 
 This document describes a high-level HTTP API for rust-mule that supports:
+
 - persistent **keyword searches** (UI “chat threads”)
 - starting/stopping/rerunning searches
 - reporting **progress, telemetry, and results**
@@ -11,11 +16,13 @@ This document describes a high-level HTTP API for rust-mule that supports:
 - simple operational endpoints (health, version, routing, logs)
 
 The API is designed for:
+
 - localhost-first usage (127.0.0.1)
 - later headless deployments behind TLS/reverse proxy/VPN
 - a lightweight UI (HTML + Alpine.js) with minimal client logic
 
 This document includes both:
+
 - currently implemented API behavior (`/api/v1` as of 2026-02-12), and
 - forward-looking endpoint ideas for later milestones.
 
@@ -47,10 +54,12 @@ This spec assumes **v1 in path**.
 ## Authentication (Localhost v1)
 
 ### Goals
+
 - Keep it simple for localhost.
 - Avoid exposing mint-token endpoints to remote callers.
 
 ### Token/session model (implemented)
+
 - UI bootstrap gets a local bearer token from `GET /api/v1/auth/bootstrap` (loopback-only).
 - Browser session is established via `POST /api/v1/session` and `rm_session` HTTP-only cookie.
 - REST endpoints use `Authorization: Bearer <token>`.
@@ -58,13 +67,16 @@ This spec assumes **v1 in path**.
 - Token query parameters for SSE are not used.
 
 ### Endpoints
+
 - `GET /api/v1/auth/bootstrap`
   - **Loopback-only**
   - returns `{ "token": "..." }`
   - used by UI to bootstrap a local session
 
 ### Notes for later (headless)
+
 For remote/headless deployments prefer:
+
 - reverse proxy auth (Basic/OIDC) + upstream to rust-mule
 - VPN-only access with API bound to loopback
 - cookie sessions and/or upstream auth gateways
@@ -74,9 +86,11 @@ For remote/headless deployments prefer:
 ## Core Resources
 
 ### Search (primary UI entity)
+
 Represents a keyword search and its current/latest run.
 
 **Search fields (conceptual)**
+
 - `id` (string/uuid)
 - `keyword` (string)
 - `state` (`idle | running | complete | stopped | error`)
@@ -85,6 +99,7 @@ Represents a keyword search and its current/latest run.
 - `last_run_summary` (optional)
 
 ### SearchRun (optional v1, useful later)
+
 Represents a single run of a search with its own timeline and results.
 
 ---
@@ -218,9 +233,11 @@ Current phase scope:
 Two approaches:
 
 **A) Stream logs via SSE only (simplest)**
+
 - no REST logs endpoint
 
 **B) Provide a paged log endpoint**
+
 - `GET /api/v1/logs?level=info&limit=200&cursor=...`
 
 ---
@@ -232,6 +249,7 @@ Two approaches:
   - authenticated by `rm_session` HTTP-only cookie (session-cookie auth)
 
 ### Event envelope
+
 All events follow a consistent envelope:
 
 ```json
@@ -239,11 +257,12 @@ All events follow a consistent envelope:
   "type": "search_progress",
   "ts": "2026-02-11T21:15:00Z",
   "search_id": "abc123",
-  "data": { }
+  "data": {}
 }
 ```
 
 ### Recommended event types (v1)
+
 - `search_created`
 - `search_updated` (keyword/flags)
 - `search_state_changed`
@@ -256,6 +275,7 @@ All events follow a consistent envelope:
 - `log`
 
 ### Delivery rules
+
 - Events should be **append-only**, never requiring the client to infer missing state.
 - UI should be able to recover by re-fetching snapshots at any time.
 
@@ -264,6 +284,7 @@ All events follow a consistent envelope:
 ## Snapshot DTOs (High Level)
 
 ### SearchListItem (sidebar)
+
 - `id`
 - `keyword`
 - `state`
@@ -275,6 +296,7 @@ All events follow a consistent envelope:
   - `errors` (count)
 
 ### SearchDetail (main panel)
+
 - `search` (metadata)
 - `telemetry`:
   - peers, requests, responses, drops, rates
@@ -299,12 +321,13 @@ All events follow a consistent envelope:
   - 500 internal error
 
 - Error response shape (consistent):
+
 ```json
 {
   "error": {
     "code": "SEARCH_NOT_FOUND",
     "message": "Search id does not exist",
-    "details": { }
+    "details": {}
   }
 }
 ```

@@ -1,3 +1,6 @@
+Status: ACTIVE
+Last Reviewed: 2026-03-03
+
 # Handoff / Continuation Notes
 
 This file exists because chat sessions are not durable project memory. In the next session, start here, then check `git log` on `main` and the active feature branch(es).
@@ -780,7 +783,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 - Status (2026-02-24): Replaced deterministic shaper jitter evolution with OS-seeded non-crypto jitter state.
   - `KadService` jitter state now initializes from `getrandom(...)` with a guarded system-time fallback.
-  - Jitter evolution switched from deterministic LCG to xorshift64* (`shaper_jitter_ms`), still non-crypto and lightweight.
+  - Jitter evolution switched from deterministic LCG to xorshift64\* (`shaper_jitter_ms`), still non-crypto and lightweight.
   - This removes fixed-seed deterministic jitter patterns while preserving bounded jitter range behavior.
 - Decisions:
   - Keep PRNG non-crypto and local-state-only (no additional config knobs in this slice).
@@ -3349,7 +3352,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Observed SAM `SESSION STATUS RESULT=I2P_ERROR MESSAGE="PONG timeout"` on both instances at 2026-02-12 06:49:20; service auto-recreated SAM session.
 - Source publish/search remained empty in the script output.
 - Periodic KAD2 BOOTSTRAP_REQ now sends **plain** packets to peers with `kad_version` 2–5 and **encrypted** packets only to `kad_version >= 6` to avoid silent ignores in mixed-version networks.
-- Publish/search candidate selection now truncates by **distance first**, then optionally reorders the *same* set by liveness to avoid skipping closest nodes.
+- Publish/search candidate selection now truncates by **distance first**, then optionally reorders the _same_ set by liveness to avoid skipping closest nodes.
 - Restarting a keyword search or publish job now clears the per-job `sent_to_*` sets so manual retries re-send to peers instead of becoming no-ops.
 - Publish/search candidate selection now returns a **distance-ordered list with fallback** (up to `max*4` closest) so if early candidates are skipped, farther peers are still available in the batch.
 
@@ -3538,7 +3541,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-12: Send periodic BOOTSTRAP_REQ unencrypted to Kad v2–v5 peers; only encrypt for Kad v6+.
 - 2026-02-12: Fix publish/search peer selection so distance is primary; liveness only reorders within the closest set.
 - 2026-02-12: Clear keyword job `sent_to_search` / `sent_to_publish` on restart to allow manual retries to send again.
-- 2026-02-12: Return distance-ordered peer lists with fallback (max*4) to avoid empty batches when closest peers are skipped.
+- 2026-02-12: Return distance-ordered peer lists with fallback (max\*4) to avoid empty batches when closest peers are skipped.
 - 2026-02-10: Two-instance DHT selftest (5 rounds) showed only local keyword hits; no cross-instance results, no publish-key acks, empty search responses; routing stayed flat (quiet network).
 - 2026-02-10: Add `origin` field to keyword hit API responses (`local` vs `network`).
 - 2026-02-10: Add `/kad/peers` API endpoint and new inbound request counters in `/status`; slightly increase keyword job cadence/batch size.
@@ -3557,7 +3560,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - 2026-02-06: Reduce default stdout verbosity to `info` (code default and repo `config.toml`; file logging remains configurable and can stay `debug`).
 - 2026-02-06: Make Kad UDP key secret file-backed only (`data/kad_udp_key_secret.dat`); `kad.udp_key_secret` is deprecated/ignored to reduce misconfiguration risk.
 - 2026-02-06: Implement iMule-style `KADEMLIA2_REQ` sender-id field and learn sender IDs from inbound `KADEMLIA2_REQ` to improve routing growth.
-- 2026-02-06: Clarify iMule `KADEMLIA2_REQ` first byte is a *requested contact count* (low 5 bits), and update Rust naming (`requested_contacts`) + parity docs.
+- 2026-02-06: Clarify iMule `KADEMLIA2_REQ` first byte is a _requested contact count_ (low 5 bits), and update Rust naming (`requested_contacts`) + parity docs.
 - 2026-02-06: Fix Kad1 `HELLO_RES` contact type to `3` (matches iMule `CContact::Self().WriteToKad1Contact` default).
 - 2026-02-06: Periodic BOOTSTRAP refresh: stop excluding peers by `failures >= max_failures` (BOOTSTRAP is a distinct discovery path); rely on per-peer backoff instead so refresh continues even when crawl timeouts accumulate.
 - 2026-02-07: Observed 3 responding peers (`live=3`) across a multi-hour run (improvement from prior steady state of 2). Routing table size still stayed flat (`routing=153`, `new_nodes=0`), indicating responders are returning already-known contacts.
@@ -3583,12 +3586,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     `TAG_COMPLETE_SOURCES`. See `source_ref/.../Search.cpp::PreparePacketForTags` and `Indexed.cpp::AddKeyword`.
   - Fix: rust-mule now always includes `TAG_SOURCES` and `TAG_COMPLETE_SOURCES` in Kad2 keyword publish/search-result taglists
     (`src/kad/wire.rs`), matching iMule expectations.
-- 2026-02-09: Follow-up two-instance test showed *some* keyword results coming back from the network (`keyword_entries=1`),
+- 2026-02-09: Follow-up two-instance test showed _some_ keyword results coming back from the network (`keyword_entries=1`),
   but A and B still tended to publish/search against disjoint "live" peers and would miss each other's stores.
   Fix: change DHT-critical peer selection to be **distance-first** (XOR distance primary; liveness as tiebreaker) so that
   publish/search targets the correct closest nodes (`src/kad/routing.rs`, `src/kad/service.rs`).
 - 2026-02-09: Two-instance test artifacts under `./tmp/` (mule-a+mule-b with `docs/scripts/two_instance_dht_selftest.sh`):
-  - Script output shows each side only ever returns its *own* published hit for the shared keyword (no cross-hit observed).
+  - Script output shows each side only ever returns its _own_ published hit for the shared keyword (no cross-hit observed).
     This is expected with the current API behavior because `POST /kad/publish_keyword` injects a local hit into the in-memory cache.
     Real proof of network success is `got SEARCH_RES ... keyword_entries>0 inserted_keywords>0` in logs (or explicit `origin=network` markers).
   - Both instances received at least one `got SEARCH_RES ... keyword_entries=0` for the shared keyword (network replied, but empty).
@@ -3609,14 +3612,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - rust-mule now retries TagList parsing with and without this extra `u32` field for:
     - Kad2 HELLO taglists (ints)
     - search/publish taglists (search info)
-    (`src/kad/wire.rs`).
+      (`src/kad/wire.rs`).
 - 2026-02-09: Added rust-mule peer identification:
   - Kad2 `HELLO_REQ/HELLO_RES` now includes a private vendor tag `TAG_RUST_MULE_AGENT (0xFE)` with a string like `rust-mule/<version>`.
   - If a peer sends that tag, rust-mule records it in-memory and logs it once when first learned.
   - This allows rust-mule-specific feature gating going forward while remaining compatible with iMule (unknown tags are ignored).
 - 2026-02-07: TTL note (small/slow iMule I2P-KAD reality):
   - Keyword hits are a “discovery cache” and can be noisy; expiring them is mostly for memory hygiene.
-  - File *sources* are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.
+  - File _sources_ are likely intermittent; plan to keep them much longer (days/weeks) and track `last_seen` rather than aggressively expiring.
   - If keyword lookups feel too slow to re-learn, bump:
     - `kad.service_keyword_interest_ttl_secs` and `kad.service_keyword_results_ttl_secs` (e.g. 7 days = `604800`).
 - 2026-02-08: Fix SAM session teardown + reconnect resilience:
@@ -3744,12 +3747,14 @@ If you delete it, a new secret is generated and any learned UDP-key relationship
 If you see `SAM read timed out` right after a successful `HELLO`, the hang is likely on `SESSION CREATE ... STYLE=DATAGRAM` (session establishment can be slow on some routers).
 
 Mitigation:
+
 - `sam.control_timeout_secs` (default `120`) controls SAM control-channel read/write timeouts.
 - With `general.log_level = "debug"`, the app logs the exact SAM command it was waiting on (with private keys redacted).
 
 ## Latest Run Notes (2026-02-04)
 
 Observed with `sam.datagram_transport = "tcp"`:
+
 - SAM `HELLO` OK.
 - `SESSION CREATE STYLE=DATAGRAM ...` OK.
 - Loaded a small seed pool (at that time it came from a repo reference `nodes.dat`; today we use the embedded initseed).
@@ -3758,6 +3763,7 @@ Observed with `sam.datagram_transport = "tcp"`:
   - Another likely root cause is that the nodes list is stale (the default iMule KadNodesUrl is `http://www.imule.i2p/nodes2.dat`).
 
 Next things to try if this repeats:
+
 - Switch to `sam.datagram_transport = "udp_forward"` (some SAM bridges implement UDP forwarding more reliably than TCP datagrams).
 - Ensure Docker/host UDP forwarding is mapped correctly if using `udp_forward` (`sam.forward_host` must be reachable from the SAM host).
 - Increase the bootstrap runtime (I2P tunnel build + lease set publication can take time). Defaults are now more forgiving (`max_initial=256`, `runtime=180s`, `warmup=8s`).
@@ -3765,7 +3771,7 @@ Next things to try if this repeats:
 - Avoid forcing I2P lease set encryption types unless you know all peers support it (iMule doesn't set `i2cp.leaseSetEncType` for its datagram session).
 - The app will attempt to fetch a fresh `nodes2.dat` over I2P from `www.imule.i2p` and write it to `data/nodes.dat` when it had to fall back to initseed/fallback.
 
-If you see `Error: SAM read timed out` *during* bootstrap on `sam.datagram_transport="tcp"`, that's a local read timeout on the SAM TCP socket (no inbound datagrams yet), not necessarily a SAM failure. The TCP datagram receiver was updated to block and let the bootstrap loop apply its own deadline.
+If you see `Error: SAM read timed out` _during_ bootstrap on `sam.datagram_transport="tcp"`, that's a local read timeout on the SAM TCP socket (no inbound datagrams yet), not necessarily a SAM failure. The TCP datagram receiver was updated to block and let the bootstrap loop apply its own deadline.
 
 ### Updated Run Notes (2026-02-04 19:30Z-ish)
 
@@ -3802,6 +3808,7 @@ If discovery remains flat over multi-hour runs, next tuning likely involves more
 ### Updated Run Notes (2026-02-05)
 
 From `log.txt`:
+
 - Bootstrapping from `data/nodes.dat` now works reliably enough to discover peers (`count=122` at end of run).
 - We now see lots of inbound Kad2 node lookups (`KADEMLIA2_REQ`, opcode `0x11`) and we respond to each with `KADEMLIA2_RES` (contacts=4 in logs).
 - One peer was repeatedly sending Kad2 publish-source requests (`opcode=0x19`, `KADEMLIA2_PUBLISH_SOURCE_REQ`). This is now handled by replying with `KADEMLIA2_PUBLISH_RES` and recording a minimal in-memory source entry so that (if asked) we can return it via `KADEMLIA2_SEARCH_RES`.
@@ -3823,6 +3830,7 @@ with **no** `RESULT=OK` field. `SamClient::dest_generate()` was updated to accep
 If `NAMING LOOKUP NAME=www.imule.i2p` returns `RESULT=KEY_NOT_FOUND`, your router's addressbook doesn't have that host.
 
 Mitigations:
+
 - Add/subscribe to an addressbook source which includes `www.imule.i2p`.
 - The downloader also tries `imule.i2p` as a fallback by stripping the leading `www.`.
 - The app now also persists any peers it discovers during bootstrap to `data/nodes.dat`, so it can slowly build a fresh nodes list even if `nodes2.dat` can’t be fetched.
@@ -3832,11 +3840,13 @@ Mitigations:
 iMule encrypts/obfuscates KAD UDP packets (see `EncryptedDatagramSocket.cpp`) and includes sender/receiver verify keys.
 
 Implemented in Rust:
+
 - `src/kad/udp_crypto.rs`: MD5 + RC4 + iMule framing, plus `udp_verify_key()` compatible with iMule (using I2P dest hash in place of IPv4).
 - `src/kad/udp_crypto.rs`: receiver-verify-key-based encryption path (needed for `KADEMLIA2_HELLO_RES_ACK` in iMule).
 - `kad.udp_key_secret` used to be configurable, but is now deprecated/ignored. The secret is always generated/loaded from `data/kad_udp_key_secret.dat` (analogous to iMule `thePrefs::GetKadUDPKey()`).
 
 Bootstrap now:
+
 - Encrypts outgoing `KADEMLIA2_BOOTSTRAP_REQ` using the target's KadID.
 - Attempts to decrypt inbound packets (NodeID-key and ReceiverVerifyKey-key variants) before KAD parsing.
 
@@ -3847,6 +3857,7 @@ cargo run --bin rust-mule
 ```
 
 If debugging SAM control protocol, set:
+
 - `general.log_level = "debug"` in `config.toml`, or
 - `RUST_LOG=rust_mule=debug` in the environment.
 
@@ -3854,6 +3865,7 @@ If debugging SAM control protocol, set:
 
 As of 2026-02-05, `rust-mule` runs a long-lived Kad service loop after the initial bootstrap by default.
 It:
+
 - listens/responds to inbound Kad traffic
 - periodically crawls the network by sending `KADEMLIA2_REQ` lookups and decoding `KADEMLIA2_RES` replies
 - periodically persists an updated `data/nodes.dat`
@@ -3863,26 +3875,28 @@ It:
 If you see the service loop sending lots of `KADEMLIA2_REQ` but reporting `recv_ress=0` in `kad service status`, the most likely culprit was a bug which is fixed in `main` (originally developed on `feature/sam-protocol`):
 
 - In iMule, the `KADEMLIA2_REQ` payload includes a `check` KadID field which must match the **receiver's** KadID.
-- If we incorrectly put *our* KadID in the `check` field, peers will silently ignore the request and never send `KADEMLIA2_RES`.
+- If we incorrectly put _our_ KadID in the `check` field, peers will silently ignore the request and never send `KADEMLIA2_RES`.
 
 After the fix, long runs should start showing `recv_ress>0` and `new_nodes>0` as the crawler learns contacts.
 
 ### Note: Why `routing` Might Not Grow Past The Seed Count
 
-If `kad service status` shows `recv_ress>0` but `routing` stays flat (e.g. stuck at the initial `nodes.dat` size), that can be normal in a small/stale network *or* it can indicate that peers are mostly returning contacts we already know (or echoing our own KadID back as a contact).
+If `kad service status` shows `recv_ress>0` but `routing` stays flat (e.g. stuck at the initial `nodes.dat` size), that can be normal in a small/stale network _or_ it can indicate that peers are mostly returning contacts we already know (or echoing our own KadID back as a contact).
 
 The service now counts “new nodes” only when `routing.len()` actually increases after processing `KADEMLIA2_RES`, to avoid misleading logs.
 
 Also: the crawler now picks query targets Kademlia-style: it biases which peers it queries by XOR distance to the lookup target (not just “who is live”). This tends to explore new regions of the ID space faster and increases the odds of discovering nodes that weren't already in the seed `nodes.dat`.
 
 Recent observation (2026-02-06, ~50 min run):
+
 - `data/nodes.dat` stayed at `154` entries; routing stayed at `153`.
 - `live` peers stayed at `2`.
 - Periodic `KADEMLIA2_BOOTSTRAP_REQ` refresh got replies, but returned contact lists were typically `2` and did not introduce new IDs (`new_nodes=0`).
 
-Takeaway: this looks consistent with a very small / stagnant iMule I2P-KAD network *or* a seed which mostly points at dead peers. Next improvements should focus on discovery strategy and fresh seeding (see TODO below).
+Takeaway: this looks consistent with a very small / stagnant iMule I2P-KAD network _or_ a seed which mostly points at dead peers. Next improvements should focus on discovery strategy and fresh seeding (see TODO below).
 
 Relevant config keys (all under `[kad]`):
+
 - `service_enabled` (default `true`)
 - `service_runtime_secs` (`0` = run until Ctrl-C)
 - `service_crawl_every_secs` (default `3`)
@@ -3890,7 +3904,7 @@ Relevant config keys (all under `[kad]`):
 - `service_alpha` (default `3`)
 - `service_req_contacts` (default `31`)
 - `service_max_persist_nodes` (default `5000`)
-Additional tuning knobs:
+  Additional tuning knobs:
 - `service_req_timeout_secs` (default `45`)
 - `service_req_min_interval_secs` (default `15`)
 - `service_bootstrap_every_secs` (default `1800`)
@@ -3906,6 +3920,7 @@ Additional tuning knobs:
 ## Logging Notes
 
 As of 2026-02-05, logs can be persisted to disk via `tracing-appender`:
+
 - Controlled by `[general].log_to_file` (default `true`)
 - Files are written under `[general].data_dir/logs` and rolled daily as `rust-mule.log.YYYY-MM-DD` (configurable via `[general].log_file_name`)
 - Stdout verbosity is controlled by `[general].log_level` (or `RUST_LOG`).
@@ -3930,10 +3945,11 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
    - Actively query peers (send `KADEMLIA2_REQ`) and **decode `KADEMLIA2_RES`** to learn more contacts.
    - Maintain an in-memory routing table (k-buckets / closest contacts) with `last_seen`, `verified`, and UDP key metadata.
    - Run as a long-lived service: keep SAM datagram session open, respond continuously, periodically refresh/ping, and periodically persist `data/nodes.dat`.
-   - TODO (discovery): add a conservative “cold bootstrap probe” mode so periodic bootstrap refresh occasionally targets *non-live / never-seen* peers, to try to discover new clusters without increasing overall traffic.
+   - TODO (discovery): add a conservative “cold bootstrap probe” mode so periodic bootstrap refresh occasionally targets _non-live / never-seen_ peers, to try to discover new clusters without increasing overall traffic.
    - TODO (seeding): optionally fetch the latest public `nodes.dat` snapshot (when available) and merge it into `data/nodes.dat` with provenance logged.
 
 2. **Publish/Search indexing (after routing is stable)**
+
 - Implement remaining Kad2 publish/search opcodes (key/notes/source) with iMule-compatible responses.
 - Add a real local index so we can answer searches meaningfully (not just “0 results but no retry”).
 
