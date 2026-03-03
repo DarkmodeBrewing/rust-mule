@@ -25,9 +25,13 @@ pub(crate) struct DownloadEntry {
 pub(crate) struct DownloadListResponse {
     pub(crate) queue_len: usize,
     pub(crate) recovered_on_start: usize,
+    pub(crate) reserve_calls_total: u64,
+    pub(crate) reserve_granted_blocks_total: u64,
     pub(crate) reserve_denied_cooldown_total: u64,
     pub(crate) reserve_denied_peer_cap_total: u64,
     pub(crate) reserve_denied_download_cap_total: u64,
+    pub(crate) reserve_denied_state_total: u64,
+    pub(crate) reserve_empty_no_missing_total: u64,
     pub(crate) downloads: Vec<DownloadEntry>,
 }
 
@@ -76,9 +80,13 @@ pub(crate) async fn downloads(
     Ok(Json(DownloadListResponse {
         queue_len: status.queue_len,
         recovered_on_start: status.recovered_on_start,
+        reserve_calls_total: status.reserve_calls_total,
+        reserve_granted_blocks_total: status.reserve_granted_blocks_total,
         reserve_denied_cooldown_total: status.reserve_denied_cooldown_total,
         reserve_denied_peer_cap_total: status.reserve_denied_peer_cap_total,
         reserve_denied_download_cap_total: status.reserve_denied_download_cap_total,
+        reserve_denied_state_total: status.reserve_denied_state_total,
+        reserve_empty_no_missing_total: status.reserve_empty_no_missing_total,
         downloads,
     }))
 }

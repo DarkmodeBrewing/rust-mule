@@ -355,6 +355,9 @@ Outputs:
   - `pre_downloads.json`, `post_downloads.json`
   - `pre_summary.txt`, `post_summary.txt`
   - `pre_violations.count`, `post_violations.count`
+  - failure-only diagnostics (written on fixture-source timeout or active-transfer timeout):
+    - `fixture_sources_timeout_downloads_diag.json` / `fixture_sources_timeout_status_diag.json`
+    - `active_transfer_timeout_downloads_diag.json` / `active_transfer_timeout_status_diag.json`
   - `resume_report.txt`
   - `stack_bundle.path`
 

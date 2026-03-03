@@ -215,6 +215,7 @@ wait_for_fixture_sources() {
         status_json="$(stack_auth_get "/api/v1/status" || echo '{}')"
         echo "ERROR: fixture source discovery timeout file_id=$file_id_hex elapsed=${elapsed}s count=$sources_count" >&2
         echo "$status_json" | jq -r '{sent_search_source_reqs,recv_search_source_reqs,source_store_files,source_store_entries_total,live,routing}' >&2 || true
+        dump_download_diagnostics "fixture_sources_timeout"
         exit 1
       fi
       sleep "$POLL_SECS"
@@ -442,6 +443,34 @@ poll_downloads_json() {
   curl -sS -H "Authorization: Bearer $token" "$BASE_URL/api/v1/downloads" >"$out"
 }
 
+dump_download_diagnostics() {
+  local tag="$1"
+  local downloads_json status_json
+  downloads_json="$RESUME_OUT_DIR/${tag}_downloads_diag.json"
+  status_json="$RESUME_OUT_DIR/${tag}_status_diag.json"
+
+  poll_downloads_json "$downloads_json" || true
+  stack_auth_get "/api/v1/status" >"$status_json" 2>/dev/null || echo '{}' >"$status_json"
+
+  log "diag-dump tag=$tag downloads_json=$downloads_json status_json=$status_json"
+  jq -r '
+    {
+      queue_len,
+      reserve_calls_total,
+      reserve_granted_blocks_total,
+      reserve_denied_cooldown_total,
+      reserve_denied_peer_cap_total,
+      reserve_denied_download_cap_total,
+      reserve_denied_state_total,
+      reserve_empty_no_missing_total,
+      downloads_count: ((.downloads // []) | length),
+      inflight_total: (((.downloads // []) | map(.inflight_ranges // 0) | add) // 0),
+      downloaded_total: (((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0),
+      states: ((.downloads // []) | group_by(.state) | map({state: .[0].state, count: length}))
+    }
+  ' "$downloads_json" 2>/dev/null || true
+}
+
 snapshot_downloads() {
   local label="$1"
   poll_downloads_json "$RESUME_OUT_DIR/${label}_downloads.json"
@@ -503,6 +532,7 @@ wait_for_active_transfer() {
       jq -r '
         "downloads=\((.downloads // []) | length) total_downloaded=\(((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0) inflight_total=\(((.downloads // []) | map(.inflight_ranges // 0) | add) // 0)"
       ' "$tmp_json" >&2 || true
+      dump_download_diagnostics "active_transfer_timeout"
       exit 1
     fi
     sleep "$POLL_SECS"

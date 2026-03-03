@@ -11,6 +11,41 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-03): Added download scheduler denial diagnostics and soak failure dumps for transfer-stall triage.
+  - `src/download/service.rs`:
+    - added status counters:
+      - `reserve_calls_total`
+      - `reserve_granted_blocks_total`
+      - `reserve_denied_state_total`
+      - `reserve_empty_no_missing_total`
+    - wired counters through runtime status publication.
+  - `src/api/handlers/downloads.rs`:
+    - exposed new reserve diagnostics in `/api/v1/downloads`.
+  - `scripts/test/download_resume_soak.sh`:
+    - on fixture-source timeout or active-transfer timeout, now writes diagnostic snapshots:
+      - `<tag>_downloads_diag.json`
+      - `<tag>_status_diag.json`
+    - logs concise reserve/download state summary from diagnostics.
+  - `scripts/test/README.md`:
+    - documented new failure diagnostic files.
+  - `src/api/tests.rs`:
+    - extended API contract assertion for new `/api/v1/downloads` fields.
+- Decisions:
+  - Keep diagnostics additive and read-only; no scheduling behavior changed in this patch.
+  - Focus first on visibility of reserve-path outcomes before changing downloader logic.
+- Next steps:
+  - Re-run `download_phase0_acceptance.sh` with `RUN_RESUME_SOAK=1`.
+  - If `active_transfer_timeout` recurs, inspect `active_transfer_timeout_downloads_diag.json` for reserve counters:
+    - if `reserve_calls_total` stays near zero: scheduler/dispatch is not invoking reserve.
+    - if `reserve_calls_total` rises but `reserve_granted_blocks_total` stays zero: examine denial counters and download states.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-03): Added progress heartbeat/ETA logs for long-running phase0 soak scripts.
   - `scripts/test/kad_phase0_gate.sh`:
     - new `PROGRESS_LOG_SECS` (default `30`) for throttled readiness-wait logs.

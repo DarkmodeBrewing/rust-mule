@@ -40,9 +40,13 @@ pub struct DownloadServiceStatus {
     pub running: bool,
     pub queue_len: usize,
     pub recovered_on_start: usize,
+    pub reserve_calls_total: u64,
+    pub reserve_granted_blocks_total: u64,
     pub reserve_denied_cooldown_total: u64,
     pub reserve_denied_peer_cap_total: u64,
     pub reserve_denied_download_cap_total: u64,
+    pub reserve_denied_state_total: u64,
+    pub reserve_empty_no_missing_total: u64,
     pub started_at: Instant,
 }
 
@@ -405,9 +409,13 @@ impl DownloadServiceHandle {
                             running: false,
                             queue_len: 0,
                             recovered_on_start: 0,
+                            reserve_calls_total: 0,
+                            reserve_granted_blocks_total: 0,
                             reserve_denied_cooldown_total: 0,
                             reserve_denied_peer_cap_total: 0,
                             reserve_denied_download_cap_total: 0,
+                            reserve_denied_state_total: 0,
+                            reserve_empty_no_missing_total: 0,
                             started_at: Instant::now(),
                         });
                     }
@@ -417,9 +425,13 @@ impl DownloadServiceHandle {
                                 running: false,
                                 queue_len: 0,
                                 recovered_on_start: 0,
+                                reserve_calls_total: 0,
+                                reserve_granted_blocks_total: 0,
                                 reserve_denied_cooldown_total: 0,
                                 reserve_denied_peer_cap_total: 0,
                                 reserve_denied_download_cap_total: 0,
+                                reserve_denied_state_total: 0,
+                                reserve_empty_no_missing_total: 0,
                                 started_at: Instant::now(),
                             },
                             Vec::new(),
@@ -485,9 +497,13 @@ pub async fn start_service(
         running: true,
         queue_len: recovered_count,
         recovered_on_start: recovered_count,
+        reserve_calls_total: 0,
+        reserve_granted_blocks_total: 0,
         reserve_denied_cooldown_total: 0,
         reserve_denied_peer_cap_total: 0,
         reserve_denied_download_cap_total: 0,
+        reserve_denied_state_total: 0,
+        reserve_empty_no_missing_total: 0,
         started_at,
     });
     let join = tokio::spawn(run_service(
@@ -889,9 +905,13 @@ struct InflightLease {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct DownloadPipelineStats {
+    reserve_calls_total: u64,
+    reserve_granted_blocks_total: u64,
     reserve_denied_cooldown_total: u64,
     reserve_denied_peer_cap_total: u64,
     reserve_denied_download_cap_total: u64,
+    reserve_denied_state_total: u64,
+    reserve_empty_no_missing_total: u64,
 }
 
 fn list_summaries(
@@ -1053,6 +1073,7 @@ async fn reserve_blocks(
     let d = downloads
         .get_mut(&part_number)
         .ok_or(DownloadError::NotFound(part_number))?;
+    pipeline_stats.reserve_calls_total = pipeline_stats.reserve_calls_total.saturating_add(1);
     if let Some(until) = d.cooldown_until {
         if Instant::now() < until {
             pipeline_stats.reserve_denied_cooldown_total = pipeline_stats
@@ -1065,6 +1086,8 @@ async fn reserve_blocks(
     match d.met.state {
         PartState::Queued | PartState::Downloading => {}
         other => {
+            pipeline_stats.reserve_denied_state_total =
+                pipeline_stats.reserve_denied_state_total.saturating_add(1);
             return Err(DownloadError::InvalidTransition {
                 part_number,
                 from: other,
@@ -1121,6 +1144,13 @@ async fn reserve_blocks(
         d.met.last_error = None;
         d.cooldown_until = None;
         save_part_met(&d.met_path, &d.met).await?;
+        pipeline_stats.reserve_granted_blocks_total = pipeline_stats
+            .reserve_granted_blocks_total
+            .saturating_add(out.len() as u64);
+    } else {
+        pipeline_stats.reserve_empty_no_missing_total = pipeline_stats
+            .reserve_empty_no_missing_total
+            .saturating_add(1);
     }
     Ok(out)
 }
@@ -1471,9 +1501,13 @@ fn make_status(
         running,
         queue_len,
         recovered_on_start,
+        reserve_calls_total: pipeline_stats.reserve_calls_total,
+        reserve_granted_blocks_total: pipeline_stats.reserve_granted_blocks_total,
         reserve_denied_cooldown_total: pipeline_stats.reserve_denied_cooldown_total,
         reserve_denied_peer_cap_total: pipeline_stats.reserve_denied_peer_cap_total,
         reserve_denied_download_cap_total: pipeline_stats.reserve_denied_download_cap_total,
+        reserve_denied_state_total: pipeline_stats.reserve_denied_state_total,
+        reserve_empty_no_missing_total: pipeline_stats.reserve_empty_no_missing_total,
         started_at,
     }
 }
