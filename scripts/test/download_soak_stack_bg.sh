@@ -64,6 +64,29 @@ RUNNER_STDOUT_FILE="$LOG_DIR/stack.out"
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
 
+log_signal_context() {
+  local sig="$1"
+  local self_pid self_ppid self_pgid self_cmd parent_cmd
+  self_pid="$$"
+  self_ppid="$(ps -o ppid= -p "$self_pid" 2>/dev/null | tr -d ' ' || true)"
+  self_pgid="$(ps -o pgid= -p "$self_pid" 2>/dev/null | tr -d ' ' || true)"
+  self_cmd="$(ps -o args= -p "$self_pid" 2>/dev/null || true)"
+  parent_cmd="$(ps -o args= -p "${self_ppid:-0}" 2>/dev/null || true)"
+  log "signal-context sig=$sig self_pid=${self_pid:-unknown} self_ppid=${self_ppid:-unknown} self_pgid=${self_pgid:-unknown}"
+  [[ -n "$self_cmd" ]] && log "signal-context self_cmd=$self_cmd"
+  [[ -n "$parent_cmd" ]] && log "signal-context parent_cmd=$parent_cmd"
+}
+
+handle_runner_signal() {
+  local sig="$1"
+  log "runner interrupted signal=$sig"
+  log_signal_context "$sig"
+  echo "stopped" >"$RUNNER_STATE_FILE"
+  cleanup_children
+  rm -f "$RUNNER_PID_FILE"
+  exit 0
+}
+
 ensure_toolchain_path() {
   if command -v cargo >/dev/null 2>&1; then
     return 0
@@ -233,7 +256,8 @@ run_foreground() {
   echo "running" >"$RUNNER_STATE_FILE"
   rm -f "$STOP_FILE"
 
-  trap 'log "runner interrupted"; echo "stopped" >"$RUNNER_STATE_FILE"; cleanup_children; rm -f "$RUNNER_PID_FILE"; exit 0' INT TERM
+  trap 'handle_runner_signal INT' INT
+  trap 'handle_runner_signal TERM' TERM
 
   log "build-start cmd=$BUILD_CMD"
   # Run build in current shell context so PATH/toolchain bootstrap is preserved.

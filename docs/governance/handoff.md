@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-04): Added signal-forensics logging for soak interruptions.
+  - `scripts/test/download_soak_band.sh`:
+    - on `INT/TERM`, now logs signal context (`self_pid`, `self_ppid`, `self_pgid`, `self_cmd`, `parent_cmd`) before stop/collect.
+  - `scripts/test/download_soak_stack_bg.sh`:
+    - replaced inline trap with `handle_runner_signal`.
+    - on `INT/TERM`, now logs the same signal context fields plus explicit `runner interrupted signal=<...>`.
+- Decisions:
+  - Capture process ancestry at signal time to distinguish app/script crashes from external termination.
+- Next steps:
+  - Re-run acceptance soak and inspect new `signal-context` lines if interruption recurs; correlate `parent_cmd` with invoking shell/script.
+- Change log:
+  - Updated `scripts/test/download_soak_band.sh`.
+  - Updated `scripts/test/download_soak_stack_bg.sh`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-04): Aligned API design docs with current `/api/v1` implementation.
   - `docs/10_architecture/API_DESIGN.md`:
     - set status to `ACTIVE`, refreshed review date.

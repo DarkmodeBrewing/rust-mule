@@ -37,6 +37,19 @@ CURRENT_DURATION=""
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 log() { echo "$(ts) $*"; }
 
+log_signal_context() {
+  local sig="$1"
+  local self_pid self_ppid self_pgid self_cmd parent_cmd
+  self_pid="$$"
+  self_ppid="$(ps -o ppid= -p "$self_pid" 2>/dev/null | tr -d ' ' || true)"
+  self_pgid="$(ps -o pgid= -p "$self_pid" 2>/dev/null | tr -d ' ' || true)"
+  self_cmd="$(ps -o args= -p "$self_pid" 2>/dev/null || true)"
+  parent_cmd="$(ps -o args= -p "${self_ppid:-0}" 2>/dev/null || true)"
+  log "signal-context sig=$sig self_pid=${self_pid:-unknown} self_ppid=${self_ppid:-unknown} self_pgid=${self_pgid:-unknown}"
+  [[ -n "$self_cmd" ]] && log "signal-context self_cmd=$self_cmd"
+  [[ -n "$parent_cmd" ]] && log "signal-context parent_cmd=$parent_cmd"
+}
+
 require_file() {
   local f="$1"
   [[ -f "$f" ]] || {
@@ -73,6 +86,7 @@ handle_signal() {
   local sig="$1"
   local status_out state_value tarball
   log "band interrupted signal=$sig scenario=${CURRENT_SCENARIO:-none}"
+  log_signal_context "$sig"
   if [[ -n "${CURRENT_WRAPPER:-}" ]]; then
     env BASE_URL="$BASE_URL" TOKEN_FILE="$TOKEN_FILE" "$CURRENT_WRAPPER" stop >/dev/null 2>&1 || true
     status_out="$(env BASE_URL="$BASE_URL" TOKEN_FILE="$TOKEN_FILE" "$CURRENT_WRAPPER" status 2>&1 || true)"
