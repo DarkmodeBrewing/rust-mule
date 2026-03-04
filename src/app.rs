@@ -3,7 +3,7 @@ use crate::{
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamError, SamKadSocket, SamKeys},
     single_instance::SingleInstanceLock,
 };
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
@@ -14,6 +14,7 @@ use tokio::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 struct PumpHeldLease {
+    file_hash: [u8; 16],
     peer_id: String,
     block: crate::download::service::BlockRange,
     held_at: Instant,
@@ -634,12 +635,14 @@ async fn run_download_transfer_pump(
     const PUMP_TICK: Duration = Duration::from_secs(2);
     const HOLD_TTL: Duration = Duration::from_secs(6);
     const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
+    const SEARCH_MIN_INTERVAL: Duration = Duration::from_secs(30);
     const MAX_BLOCKS_PER_RESERVE: usize = 4;
     const BLOCK_SIZE: u64 = 64 * 1024;
 
     let mut ticker = tokio::time::interval(PUMP_TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut held = HashMap::<u16, PumpHeldLease>::new();
+    let mut held = HashMap::<u16, VecDeque<PumpHeldLease>>::new();
+    let mut last_search_by_file = HashMap::<String, Instant>::new();
 
     loop {
         ticker.tick().await;
@@ -656,7 +659,10 @@ async fn run_download_transfer_pump(
         for d in &downloads {
             active_parts.insert(d.part_number, d.state);
         }
-        held.retain(|part, _| {
+        held.retain(|part, leases| {
+            if leases.is_empty() {
+                return false;
+            }
             active_parts.get(part).is_some_and(|state| {
                 !matches!(
                     state,
@@ -673,27 +679,41 @@ async fn run_download_transfer_pump(
                 _ => continue,
             }
 
-            if let Some(lease) = held.get(&d.part_number).cloned()
-                && lease.held_at.elapsed() >= HOLD_TTL
-            {
-                let _ = download_handle
-                    .mark_block_received_by_peer(d.part_number, lease.peer_id, lease.block)
-                    .await;
-                held.remove(&d.part_number);
+            if let Some(leases) = held.get_mut(&d.part_number) {
+                if let Some(front) = leases.front()
+                    && front.held_at.elapsed() >= HOLD_TTL
+                {
+                    let lease = leases.pop_front().expect("front exists");
+                    let block_len = lease
+                        .block
+                        .end
+                        .saturating_sub(lease.block.start)
+                        .saturating_add(1) as usize;
+                    let mut payload = Vec::with_capacity(16 + 8 + 8 + block_len);
+                    payload.extend_from_slice(&lease.file_hash);
+                    payload.extend_from_slice(&lease.block.start.to_le_bytes());
+                    payload.extend_from_slice(&(lease.block.end.saturating_add(1)).to_le_bytes());
+                    payload.extend(std::iter::repeat_n(0u8, block_len));
+                    let packet = crate::download::service::InboundPacket {
+                        opcode: crate::download::protocol::OP_SENDINGPART,
+                        payload,
+                    };
+                    let _ = download_handle
+                        .ingest_inbound_packet(d.part_number, lease.peer_id, packet)
+                        .await;
+                }
+                if !leases.is_empty() {
+                    // Keep one held lease queue per part; do not stack new reservations while held.
+                    continue;
+                }
             }
 
-            let file_id = match crate::kad::KadId::from_hex(&d.file_hash_md4_hex) {
+            let file_hash = match crate::kad::KadId::from_hex(&d.file_hash_md4_hex) {
                 Ok(id) => id,
                 Err(_) => continue,
             };
+            let file_id = file_hash;
             let file_size = d.file_size;
-
-            let _ = kad_cmd_tx
-                .send(crate::kad::service::KadServiceCommand::SearchSources {
-                    file: file_id,
-                    file_size,
-                })
-                .await;
 
             let (tx, rx) = tokio::sync::oneshot::channel();
             if kad_cmd_tx
@@ -712,6 +732,20 @@ async fn run_download_transfer_pump(
                 _ => continue,
             };
             let Some(source) = sources.first() else {
+                let file_key = file_id.to_hex_lower();
+                let now = Instant::now();
+                let should_search = last_search_by_file
+                    .get(&file_key)
+                    .is_none_or(|t| now.duration_since(*t) >= SEARCH_MIN_INTERVAL);
+                if should_search {
+                    last_search_by_file.insert(file_key, now);
+                    let _ = kad_cmd_tx.try_send(
+                        crate::kad::service::KadServiceCommand::SearchSources {
+                            file: file_id,
+                            file_size,
+                        },
+                    );
+                }
                 continue;
             };
             let peer_id = source.source_id.to_hex_lower();
@@ -740,21 +774,30 @@ async fn run_download_transfer_pump(
             }
 
             let hold_last = blocks.len() > 1;
+            let held_queue = held.entry(d.part_number).or_default();
             for (idx, block) in blocks.iter().copied().enumerate() {
                 if hold_last && idx == blocks.len() - 1 {
-                    held.insert(
-                        d.part_number,
-                        PumpHeldLease {
-                            peer_id: peer_id.clone(),
-                            block,
-                            held_at: Instant::now(),
-                        },
-                    );
+                    held_queue.push_back(PumpHeldLease {
+                        file_hash: file_hash.0,
+                        peer_id: peer_id.clone(),
+                        block,
+                        held_at: Instant::now(),
+                    });
                     continue;
                 }
 
+                let block_len = block.end.saturating_sub(block.start).saturating_add(1) as usize;
+                let mut payload = Vec::with_capacity(16 + 8 + 8 + block_len);
+                payload.extend_from_slice(&file_hash.0);
+                payload.extend_from_slice(&block.start.to_le_bytes());
+                payload.extend_from_slice(&(block.end.saturating_add(1)).to_le_bytes());
+                payload.extend(std::iter::repeat_n(0u8, block_len));
+                let packet = crate::download::service::InboundPacket {
+                    opcode: crate::download::protocol::OP_SENDINGPART,
+                    payload,
+                };
                 let _ = download_handle
-                    .mark_block_received_by_peer(d.part_number, peer_id.clone(), block)
+                    .ingest_inbound_packet(d.part_number, peer_id.clone(), packet)
                     .await;
             }
         }

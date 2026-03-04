@@ -11,6 +11,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-04): Addressed PR review findings on transfer pump safety and behavior.
+  - `src/app.rs`:
+    - replaced direct `mark_block_received_by_peer` calls with `ingest_inbound_packet(OP_SENDINGPART, ...)` so block data is written before receive-state transitions.
+    - changed held-lease model from single lease per part to queue (`HashMap<u16, VecDeque<PumpHeldLease>>`) to avoid lease overwrite/loss.
+    - added per-file source-search throttle (`SEARCH_MIN_INTERVAL=30s`) and only sends `SearchSources` when source list is empty and throttle allows.
+    - prevents new reservations while a part still has held leases pending.
+- Decisions:
+  - Keep pump as phase-0 bridge but make it data-writing and lease-safe to avoid corrupt completion semantics.
+  - Reduce network load by throttling search fanout from pump.
+- Next steps:
+  - Run acceptance/resume soak and inspect whether reserve/grant/inflight now advance without prior cancellation churn.
+  - If stable, split pump into dedicated module and gate behind explicit config flag.
+- Change log:
+  - Updated `src/app.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-04): Implemented runtime download transfer pump to exercise reserve/receive path.
   - `src/app.rs`:
     - added background `run_download_transfer_pump(...)` task (enabled when KAD service is enabled).
