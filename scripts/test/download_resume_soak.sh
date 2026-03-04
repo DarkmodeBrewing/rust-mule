@@ -480,7 +480,7 @@ snapshot_downloads() {
     echo "timestamp=$(ts)"
     echo "run_dir=$RUN_DIR"
     echo "label=$label"
-    echo "downloads_count=$(jq -r '.downloads | length' "$RESUME_OUT_DIR/${label}_downloads.json")"
+    echo "downloads_count=$(jq -r '(.downloads // []) | length' "$RESUME_OUT_DIR/${label}_downloads.json")"
     echo "queue_len=$(jq -r '.queue_len // 0' "$RESUME_OUT_DIR/${label}_downloads.json")"
     echo "part_files=$(find "$RUN_DIR/data/download" -maxdepth 1 -type f -name '*.part' | wc -l)"
     echo "part_met_files=$(find "$RUN_DIR/data/download" -maxdepth 1 -type f -name '*.part.met' | wc -l)"
@@ -559,11 +559,18 @@ assert_monotonic_download_bytes() {
   local out="$RESUME_OUT_DIR/post_monotonic_violations.txt"
 
   jq -nr --argfile pre "$pre" --argfile post "$post" '
-    def by_id($arr): reduce ($arr[]?) as $d ({}; .[$d.id] = ($d.downloaded_bytes // 0));
+    def dl_key($d):
+      if ($d.part_number? != null) then ("part:" + (($d.part_number | tostring)))
+      elif ($d.id? != null) then ("id:" + ($d.id | tostring))
+      elif ($d.file_hash_md4_hex? != null) then ("hash:" + ($d.file_hash_md4_hex | tostring))
+      else empty
+      end;
+    def by_key($arr):
+      reduce ($arr[]?) as $d ({}; (dl_key($d)) as $k | if $k == null or $k == "" then . else .[$k] = ($d.downloaded_bytes // 0) end);
     ($pre.downloads // []) as $pre_dl
     | ($post.downloads // []) as $post_dl
-    | (by_id($pre_dl)) as $pre_map
-    | (by_id($post_dl)) as $post_map
+    | (by_key($pre_dl)) as $pre_map
+    | (by_key($post_dl)) as $post_map
     | ($pre_map | to_entries[])
     | select((($post_map[.key] // -1) < .value))
     | "\(.key)\tpre=\(.value)\tpost=\($post_map[.key] // -1)"

@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-04): Fixed resume-soak jq crash after restart snapshot.
+  - `scripts/test/download_resume_soak.sh`:
+    - made snapshot `downloads_count` null-safe with `(.downloads // []) | length`.
+    - replaced monotonic keying by `.id` with stable fallback key selection:
+      - `part_number`, then `id`, then `file_hash_md4_hex`.
+    - prevents `jq: Cannot index object with null` when download rows do not expose `id`.
+- Decisions:
+  - Treat API response schema as partially optional in soak scripts; always null-guard collection fields and key derivation.
+- Next steps:
+  - Re-run acceptance with resume soak and verify it passes post-restart monotonic check without jq abort.
+  - If next failure occurs, inspect generated `*_downloads_diag.json`/`*_status_diag.json` in the acceptance output directory.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-04): Addressed PR review findings on transfer pump safety and behavior.
   - `src/app.rs`:
     - replaced direct `mark_block_received_by_peer` calls with `ingest_inbound_packet(OP_SENDINGPART, ...)` so block data is written before receive-state transitions.
