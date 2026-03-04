@@ -11,6 +11,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-04): Aligned API design docs with current `/api/v1` implementation.
+  - `docs/10_architecture/API_DESIGN.md`:
+    - set status to `ACTIVE`, refreshed review date.
+    - fixed stale executable docs reference (`docs/30_operations/api_curl.md`).
+    - added explicit implemented endpoint surface matching `src/api/router.rs` (auth/session, core, searches, downloads, KAD, debug).
+    - replaced non-existent routing endpoint examples with actual current KAD/debug routing endpoints.
+    - updated error envelope example to current default (`{code,message}`).
+    - updated minimal checklist to reflect implemented vs future items.
+- Decisions:
+  - Keep `API_DESIGN.md` as mixed “current + future” design doc, but pin current implementation in an explicit section at top.
+- Next steps:
+  - Optionally add a generated API route inventory check to CI to detect doc/route drift earlier.
+- Change log:
+  - Updated `docs/10_architecture/API_DESIGN.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-04): Fixed resume-soak jq crash after restart snapshot.
   - `scripts/test/download_resume_soak.sh`:
     - made snapshot `downloads_count` null-safe with `(.downloads // []) | length`.
