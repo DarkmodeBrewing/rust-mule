@@ -11,6 +11,7 @@ use crate::download::{CreateDownloadRequest, DownloadError};
 pub(crate) struct DownloadEntry {
     pub(crate) part_number: u16,
     pub(crate) file_name: String,
+    pub(crate) file_hash_md4_hex: String,
     pub(crate) file_size: u64,
     pub(crate) state: String,
     pub(crate) downloaded_bytes: u64,
@@ -66,6 +67,7 @@ pub(crate) async fn downloads(
         .map(|d| DownloadEntry {
             part_number: d.part_number,
             file_name: d.file_name.clone(),
+            file_hash_md4_hex: d.file_hash_md4_hex.clone(),
             file_size: d.file_size,
             state: format!("{:?}", d.state).to_lowercase(),
             downloaded_bytes: d.downloaded_bytes,
@@ -113,6 +115,7 @@ pub(crate) async fn downloads_create(
             download: DownloadEntry {
                 part_number: summary.part_number,
                 file_name: summary.file_name,
+                file_hash_md4_hex: summary.file_hash_md4_hex,
                 file_size: summary.file_size,
                 state: format!("{:?}", summary.state).to_lowercase(),
                 downloaded_bytes: summary.downloaded_bytes,
@@ -139,6 +142,7 @@ pub(crate) async fn downloads_pause(
         download: DownloadEntry {
             part_number: summary.part_number,
             file_name: summary.file_name,
+            file_hash_md4_hex: summary.file_hash_md4_hex,
             file_size: summary.file_size,
             state: format!("{:?}", summary.state).to_lowercase(),
             downloaded_bytes: summary.downloaded_bytes,
@@ -164,6 +168,7 @@ pub(crate) async fn downloads_resume(
         download: DownloadEntry {
             part_number: summary.part_number,
             file_name: summary.file_name,
+            file_hash_md4_hex: summary.file_hash_md4_hex,
             file_size: summary.file_size,
             state: format!("{:?}", summary.state).to_lowercase(),
             downloaded_bytes: summary.downloaded_bytes,
@@ -189,6 +194,7 @@ pub(crate) async fn downloads_cancel(
         download: DownloadEntry {
             part_number: summary.part_number,
             file_name: summary.file_name,
+            file_hash_md4_hex: summary.file_hash_md4_hex,
             file_size: summary.file_size,
             state: format!("{:?}", summary.state).to_lowercase(),
             downloaded_bytes: summary.downloaded_bytes,

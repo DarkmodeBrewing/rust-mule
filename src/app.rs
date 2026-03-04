@@ -3,7 +3,7 @@ use crate::{
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamError, SamKadSocket, SamKeys},
     single_instance::SingleInstanceLock,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
@@ -11,6 +11,13 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{Duration, Instant};
+
+#[derive(Debug, Clone)]
+struct PumpHeldLease {
+    peer_id: String,
+    block: crate::download::service::BlockRange,
+    held_at: Instant,
+}
 
 pub type AppResult<T> = std::result::Result<T, AppError>;
 
@@ -300,6 +307,14 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
 
     // Command channel used by the (future) GUI/API to instruct the Kad service (search/publish/etc).
     let (kad_cmd_tx, kad_cmd_rx) = mpsc::channel(128);
+
+    if config.kad.service_enabled {
+        let download_handle_for_pump = download_handle.clone();
+        let kad_cmd_tx_for_pump = kad_cmd_tx.clone();
+        tokio::spawn(async move {
+            run_download_transfer_pump(download_handle_for_pump, kad_cmd_tx_for_pump).await;
+        });
+    }
 
     // Local HTTP API (REST + SSE) for control plane and future GUI.
     //
@@ -610,6 +625,140 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
 
     tracing::info!("shutting down gracefully");
     Ok(())
+}
+
+async fn run_download_transfer_pump(
+    download_handle: crate::download::DownloadServiceHandle,
+    kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
+) {
+    const PUMP_TICK: Duration = Duration::from_secs(2);
+    const HOLD_TTL: Duration = Duration::from_secs(6);
+    const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
+    const MAX_BLOCKS_PER_RESERVE: usize = 4;
+    const BLOCK_SIZE: u64 = 64 * 1024;
+
+    let mut ticker = tokio::time::interval(PUMP_TICK);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut held = HashMap::<u16, PumpHeldLease>::new();
+
+    loop {
+        ticker.tick().await;
+
+        let downloads = match download_handle.list().await {
+            Ok(items) => items,
+            Err(err) => {
+                tracing::debug!(error = %err, "download transfer pump list failed");
+                continue;
+            }
+        };
+
+        let mut active_parts = HashMap::<u16, crate::download::PartState>::new();
+        for d in &downloads {
+            active_parts.insert(d.part_number, d.state);
+        }
+        held.retain(|part, _| {
+            active_parts.get(part).is_some_and(|state| {
+                !matches!(
+                    state,
+                    crate::download::PartState::Cancelled
+                        | crate::download::PartState::Completed
+                        | crate::download::PartState::Error
+                )
+            })
+        });
+
+        for d in downloads {
+            match d.state {
+                crate::download::PartState::Queued | crate::download::PartState::Downloading => {}
+                _ => continue,
+            }
+
+            if let Some(lease) = held.get(&d.part_number).cloned()
+                && lease.held_at.elapsed() >= HOLD_TTL
+            {
+                let _ = download_handle
+                    .mark_block_received_by_peer(d.part_number, lease.peer_id, lease.block)
+                    .await;
+                held.remove(&d.part_number);
+            }
+
+            let file_id = match crate::kad::KadId::from_hex(&d.file_hash_md4_hex) {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
+            let file_size = d.file_size;
+
+            let _ = kad_cmd_tx
+                .send(crate::kad::service::KadServiceCommand::SearchSources {
+                    file: file_id,
+                    file_size,
+                })
+                .await;
+
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            if kad_cmd_tx
+                .send(crate::kad::service::KadServiceCommand::GetSources {
+                    file: file_id,
+                    respond_to: tx,
+                })
+                .await
+                .is_err()
+            {
+                continue;
+            }
+
+            let sources = match tokio::time::timeout(SEARCH_TIMEOUT, rx).await {
+                Ok(Ok(s)) => s,
+                _ => continue,
+            };
+            let Some(source) = sources.first() else {
+                continue;
+            };
+            let peer_id = source.source_id.to_hex_lower();
+
+            let blocks = match download_handle
+                .reserve_blocks_for_peer(
+                    d.part_number,
+                    peer_id.clone(),
+                    MAX_BLOCKS_PER_RESERVE,
+                    BLOCK_SIZE,
+                )
+                .await
+            {
+                Ok(v) => v,
+                Err(err) => {
+                    tracing::debug!(
+                        error = %err,
+                        part = d.part_number,
+                        "download transfer pump reserve failed"
+                    );
+                    continue;
+                }
+            };
+            if blocks.is_empty() {
+                continue;
+            }
+
+            let hold_last = blocks.len() > 1;
+            for (idx, block) in blocks.iter().copied().enumerate() {
+                if hold_last && idx == blocks.len() - 1 {
+                    held.insert(
+                        d.part_number,
+                        PumpHeldLease {
+                            peer_id: peer_id.clone(),
+                            block,
+                            held_at: Instant::now(),
+                        },
+                    );
+                    continue;
+                }
+
+                let _ = download_handle
+                    .mark_block_received_by_peer(d.part_number, peer_id.clone(), block)
+                    .await;
+            }
+        }
+    }
 }
 
 fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {

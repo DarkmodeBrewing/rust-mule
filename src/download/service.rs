@@ -54,6 +54,7 @@ pub struct DownloadServiceStatus {
 pub struct DownloadSummary {
     pub part_number: u16,
     pub file_name: String,
+    pub file_hash_md4_hex: String,
     pub file_size: u64,
     pub state: PartState,
     pub downloaded_bytes: u64,
@@ -929,6 +930,7 @@ fn summary_from_download(d: &ManagedDownload) -> DownloadSummary {
     DownloadSummary {
         part_number: d.met.part_number,
         file_name: d.met.file_name.clone(),
+        file_hash_md4_hex: d.met.file_hash_md4_hex.clone(),
         file_size: d.met.file_size,
         state: d.met.state,
         downloaded_bytes: d.met.downloaded_bytes,

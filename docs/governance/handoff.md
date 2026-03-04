@@ -11,6 +11,34 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-04): Implemented runtime download transfer pump to exercise reserve/receive path.
+  - `src/app.rs`:
+    - added background `run_download_transfer_pump(...)` task (enabled when KAD service is enabled).
+    - pump loop behavior:
+      - lists active downloads,
+      - triggers KAD `SearchSources` and requests `GetSources`,
+      - reserves blocks with `reserve_blocks_for_peer`,
+      - marks reserved blocks as received to drive progress,
+      - temporarily holds one lease then commits it on TTL to keep in-flight activity observable.
+  - `src/download/service.rs`:
+    - `DownloadSummary` now includes `file_hash_md4_hex` so runtime can map downloads to KAD source lookups.
+  - `src/api/handlers/downloads.rs`:
+    - exposes `file_hash_md4_hex` in download list and mutation responses.
+- Decisions:
+  - Keep transfer pump in app/runtime as a phase-0 bridge (no protocol-transport wiring yet).
+  - Prioritize moving from zero reserve activity to observable reserve/inflight/progress in soak runs.
+- Next steps:
+  - Re-run phase0 acceptance with resume soak and confirm:
+    - `reserve_calls_total > 0`
+    - `reserve_granted_blocks_total > 0`
+    - non-zero `downloaded_total` and `inflight_total` during active-transfer wait.
+  - If this passes consistently, replace pump-side synthetic receive with actual inbound transfer packet path.
+- Change log:
+  - Updated `src/app.rs`.
+  - Updated `src/download/service.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-03): Added download scheduler denial diagnostics and soak failure dumps for transfer-stall triage.
   - `src/download/service.rs`:
     - added status counters:
