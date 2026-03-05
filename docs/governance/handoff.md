@@ -11,6 +11,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Trace lookup design now explicitly uses async execution.
+  - `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`:
+    - added chosen mode: `POST /api/v1/debug/trace_lookup` returns `202 Accepted` with `trace_id`.
+    - added poll endpoint model: `GET /api/v1/debug/trace_lookup/{trace_id}`.
+    - added optional cancel model and bounded registry/TTL expectations.
+  - `docs/governance/TASKS.md`:
+    - added async execution + bounded active trace backlog requirements.
+- Decisions:
+  - Async-first trace execution is required to protect API responsiveness and avoid long request blocking under peer/timeouts variance.
+- Next steps:
+  - define trace registry bounds in config (defaults + hard caps) during implementation slice.
+- Change log:
+  - Updated `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Added design notes for debug-only KAD hop tracing endpoint.
   - Added `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md` with:
     - endpoint proposal: `POST /api/v1/debug/trace_lookup`

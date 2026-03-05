@@ -17,6 +17,24 @@ This is for operator troubleshooting and protocol verification, not end-user UI 
 - Auth: standard bearer/session auth (same as other debug routes)
 - Rate limit: strict, separate bucket from normal API traffic
 
+## Execution Mode (chosen)
+
+Use asynchronous execution to avoid blocking API workers during slow network traces.
+
+Proposed control flow:
+
+1. `POST /api/v1/debug/trace_lookup` returns `202 Accepted` with `trace_id`.
+2. `GET /api/v1/debug/trace_lookup/{trace_id}` returns current state/result.
+3. Optional: `DELETE /api/v1/debug/trace_lookup/{trace_id}` to cancel active traces.
+
+State model (proposed): `queued | running | completed | failed | cancelled | expired`.
+
+Retention/safety:
+
+- keep bounded in-memory trace registry (`max_active_traces`)
+- add TTL for completed/failed traces (`trace_ttl_secs`)
+- reject new traces when capacity is exceeded
+
 ## Request Schema (proposed)
 
 ```json
