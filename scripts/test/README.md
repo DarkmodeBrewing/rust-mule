@@ -174,6 +174,8 @@ Phase-0 acceptance runner:
   - `PUBLISH_FIXTURES=1 DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json PUBLISH_BASE_URL=http://127.0.0.1:17835 PUBLISH_TOKEN_FILE=data/api.token BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak:
   - `RUN_RESUME_SOAK=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak fast-exit (stop+collect shortly after completion gate):
+  - `RUN_RESUME_SOAK=1 FAST_EXIT_AFTER_COMPLETION=1 FAST_EXIT_GRACE_SECS=60 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak + stack-local fixture publish controls:
   - `RUN_RESUME_SOAK=1 FIXTURES_ONLY=1 DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json STACK_PUBLISH_FIXTURES=1 STACK_PUBLISH_BASE_URL=http://127.0.0.1:17965 STACK_PUBLISH_TOKEN_FILE=/tmp/rustmule-run-<ts>/data/api.token BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
 - with resume soak + longrun:
@@ -348,6 +350,8 @@ Common overrides:
 - `NO_RESERVE_ACTIVITY_TIMEOUT_SECS=300` (fail fast when downloads exist but `reserve_calls_total` never increments)
 - `FIXTURE_SOURCE_TIMEOUT_SECS=300` (only with `FIXTURES_ONLY=1`)
 - `COMPLETION_TIMEOUT_SECS=3600`
+- `FAST_EXIT_AFTER_COMPLETION=0` (set `1/true/yes/on` to skip long stack terminal wait after completion gate)
+- `FAST_EXIT_GRACE_SECS=60` (optional grace before stop/collect when fast-exit is enabled)
 - `RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>`
 - `PROGRESS_LOG_SECS=30`
 
@@ -359,6 +363,7 @@ Outputs:
   - failure-only diagnostics (written on fixture-source timeout or active-transfer timeout):
     - `fixture_sources_timeout_downloads_diag.json` / `fixture_sources_timeout_status_diag.json`
     - `active_transfer_timeout_downloads_diag.json` / `active_transfer_timeout_status_diag.json`
+    - `completion_timeout_downloads_diag.json` / `completion_timeout_status_diag.json`
   - `resume_report.txt`
   - `stack_bundle.path`
 
@@ -374,3 +379,4 @@ Notes:
 - Resume now fails fast on scheduler inactivity when downloads exist but `reserve_calls_total` stays `0` for `NO_RESERVE_ACTIVITY_TIMEOUT_SECS`.
 - Resume now fails if any pre-existing download has lower `downloaded_bytes` after restart.
 - Resume now requires at least one completed download post-restart within `COMPLETION_TIMEOUT_SECS`.
+- Optional fast-exit mode (`FAST_EXIT_AFTER_COMPLETION=1`) stops and collects immediately after completion gate (plus optional `FAST_EXIT_GRACE_SECS`) to shorten total runtime.

@@ -11,6 +11,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Added optional resume-soak fast-exit path to reduce wall-clock runtime.
+  - `scripts/test/download_resume_soak.sh`:
+    - added `FAST_EXIT_AFTER_COMPLETION` (default `0`) and `FAST_EXIT_GRACE_SECS` (default `60`).
+    - when enabled, script stops + collects stack shortly after completion gate instead of waiting for full stack terminal state.
+  - `scripts/test/README.md`:
+    - documented fast-exit env vars and acceptance command example.
+    - documented completion-timeout diagnostic artifact names.
+- Decisions:
+  - Keep fast-exit opt-in to preserve existing full-run behavior by default.
+  - Use short grace period before stop/collect to preserve post-completion context while cutting long tail wait time.
+- Next steps:
+  - run one acceptance pass with `FAST_EXIT_AFTER_COMPLETION=1` and validate artifact completeness.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Captured debug-token lifecycle policy to prevent accidental secret churn.
   - Updated debug/API design docs to require:
     - no automatic deletion/rotation of `api.debug_token` when debug endpoints are disabled

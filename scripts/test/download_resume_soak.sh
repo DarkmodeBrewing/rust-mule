@@ -24,6 +24,8 @@ set -euo pipefail
 #   HEALTH_TIMEOUT_SECS=300
 #   ACTIVE_TRANSFER_TIMEOUT_SECS=1800
 #   COMPLETION_TIMEOUT_SECS=3600
+#   FAST_EXIT_AFTER_COMPLETION=0
+#   FAST_EXIT_GRACE_SECS=60
 #   POLL_SECS=2
 #   RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>
 # Forwarded to stack/band runners:
@@ -49,6 +51,8 @@ HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-300}"
 ACTIVE_TRANSFER_TIMEOUT_SECS="${ACTIVE_TRANSFER_TIMEOUT_SECS:-1800}"
 NO_RESERVE_ACTIVITY_TIMEOUT_SECS="${NO_RESERVE_ACTIVITY_TIMEOUT_SECS:-300}"
 COMPLETION_TIMEOUT_SECS="${COMPLETION_TIMEOUT_SECS:-3600}"
+FAST_EXIT_AFTER_COMPLETION="${FAST_EXIT_AFTER_COMPLETION:-0}"
+FAST_EXIT_GRACE_SECS="${FAST_EXIT_GRACE_SECS:-60}"
 FIXTURE_SOURCE_TIMEOUT_SECS="${FIXTURE_SOURCE_TIMEOUT_SECS:-300}"
 STACK_PUBLISH_FIXTURES="${STACK_PUBLISH_FIXTURES:-1}"
 STACK_PUBLISH_BASE_URL="${STACK_PUBLISH_BASE_URL:-$BASE_URL}"
@@ -68,6 +72,13 @@ STOP_ON_EXIT=1
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 log() { echo "$(ts) $*"; }
+
+is_enabled() {
+  case "${1:-0}" in
+  1 | true | TRUE | yes | YES | on | ON) return 0 ;;
+  *) return 1 ;;
+  esac
+}
 
 cleanup_on_exit() {
   local rc="$?"
@@ -810,6 +821,20 @@ run_resume_soak() {
 
   wait_for_post_restart_progress "$RESUME_SCENARIO" "$HEALTH_TIMEOUT_SECS"
   wait_for_any_completed_download "$COMPLETION_TIMEOUT_SECS"
+
+  if is_enabled "$FAST_EXIT_AFTER_COMPLETION"; then
+    if [[ "$FAST_EXIT_GRACE_SECS" =~ ^[0-9]+$ ]] && (( FAST_EXIT_GRACE_SECS > 0 )); then
+      log "fast-exit enabled; grace-sleep ${FAST_EXIT_GRACE_SECS}s before stop/collect"
+      sleep "$FAST_EXIT_GRACE_SECS"
+    fi
+    log "fast-exit enabled; requesting stack stop after completion gate"
+    "$STACK_SCRIPT" stop >/dev/null 2>&1 || true
+    collect_stack_bundle
+    write_report
+    STOP_ON_EXIT=0
+    log "resume-soak complete report=$RESUME_OUT_DIR/resume_report.txt (fast-exit)"
+    return 0
+  fi
 
   if ! wait_for_stack_terminal; then
     log "stack terminal state is non-completed; requesting stop"
