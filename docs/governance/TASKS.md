@@ -42,6 +42,12 @@ Last Reviewed: 2026-03-03
   - support `rust-mule --version` for support/debug reporting
   - support `rust-mule --check-config` to validate config and exit
   - support `rust-mule --print-effective-config` for troubleshooting resolved runtime config
+- add debug lookup traceability backlog:
+  - implement `POST /api/v1/debug/trace_lookup` as debug-only endpoint
+  - return bounded hop-by-hop lookup trace for a target KAD key
+  - enforce strict input/runtime bounds (`max_hops`, `parallelism`, `timeout_ms`)
+  - add dedicated rate limiting and counters for trace requests
+  - reference design: `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`
 
 ## Definition Of Done
 

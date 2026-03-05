@@ -11,6 +11,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Added design notes for debug-only KAD hop tracing endpoint.
+  - Added `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md` with:
+    - endpoint proposal: `POST /api/v1/debug/trace_lookup`
+    - request/response schema draft
+    - stop conditions, safety bounds, rate-limit expectations
+    - observability and test plan
+  - Updated `docs/10_architecture/API_DESIGN.md` implemented/planned debug endpoint list.
+  - Added implementation backlog entry in `docs/governance/TASKS.md`.
+- Decisions:
+  - Keep trace lookup debug-only and strictly bounded to avoid lookup-amplification risk.
+  - Implement via existing KAD service lookup flow, not API-layer network logic.
+- Next steps:
+  - implement service command + API handler under debug routes.
+  - add endpoint validation/rate-limit tests and basic topology integration test.
+- Change log:
+  - Added `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`.
+  - Updated `docs/10_architecture/API_DESIGN.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Added completion-timeout diagnostics in resume soak script.
   - `scripts/test/download_resume_soak.sh`:
     - on post-restart completion timeout, now calls `dump_download_diagnostics "completion_timeout"` before exit.
