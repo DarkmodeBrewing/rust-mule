@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Added CLI parameterization follow-up task for app startup UX.
+  - `docs/governance/TASKS.md`:
+    - added backlog item for `rust-mule --config <path>` support.
+    - added explicit fail-fast requirement for missing/unreadable `--config` file.
+    - added `--help` and `-?` usage output requirement.
+    - preserved default config behavior (`config.toml` in CWD) as compatibility baseline.
+- Decisions:
+  - Treat startup argument handling as a small, isolated hardening slice (no runtime behavior changes beyond config path selection and usage output).
+- Next steps:
+  - implement minimal CLI parser in `src/main.rs` for `--config`, `--help`, `-?`.
+  - add focused unit tests for argument parsing and missing-config error surface.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-04): Added signal-forensics logging for soak interruptions.
   - `scripts/test/download_soak_band.sh`:
     - on `INT/TERM`, now logs signal context (`self_pid`, `self_ppid`, `self_pgid`, `self_cmd`, `parent_cmd`) before stop/collect.

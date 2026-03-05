@@ -34,6 +34,11 @@ Last Reviewed: 2026-03-03
   - switch release scripts to explicit target triples instead of host-only `target/release` artifacts
   - define first-class targets: `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `x86_64-apple-darwin`, `aarch64-apple-darwin`
   - document target-specific prerequisites and native-runner requirements for CI release jobs
+- add CLI/runtime startup ergonomics backlog:
+  - support `rust-mule --config <path>` to load config from an explicit location
+  - fail fast with clear error when `--config` path does not exist or is unreadable
+  - support `rust-mule --help` and `rust-mule -?` for parameter/usage output
+  - keep default behavior (`config.toml` in CWD) when `--config` is omitted
 
 ## Definition Of Done
 
