@@ -158,6 +158,7 @@ Represents a single run of a search with its own timeline and results.
   - `POST /api/v1/debug/lookup_once`
   - `POST /api/v1/debug/probe_peer`
   - `POST /api/v1/debug/trace_lookup` (planned; see `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`)
+  - `POST /api/v1/debug/bootstrap/restart` (planned; see `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`)
 
 Everything below in this document should be read as design guidance and future expansion, unless it appears in the implemented list above.
 

@@ -52,6 +52,12 @@ Last Reviewed: 2026-03-03
   - implement debug-disabled `404` and invalid/missing debug-token `403` behavior
   - add dedicated rate limiting and counters for trace requests
   - reference design: `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`
+- add debug bootstrap restart backlog:
+  - implement `POST /api/v1/debug/bootstrap/restart` as async (`202 + job_id`)
+  - implement `GET /api/v1/debug/bootstrap/jobs/{job_id}` for job status
+  - enforce single-flight + cooldown + bounded job TTL
+  - require debug second-factor secret (`api.debug_token`, `X-Debug-Token`)
+  - reference design: `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`
 
 ## Definition Of Done
 

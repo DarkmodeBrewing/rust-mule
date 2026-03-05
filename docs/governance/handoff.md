@@ -11,6 +11,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Added design for debug-triggered bootstrap restart.
+  - Added `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`:
+    - endpoint proposal: `POST /api/v1/debug/bootstrap/restart` (async `202 + job_id`)
+    - status endpoint proposal: `GET /api/v1/debug/bootstrap/jobs/{job_id}`
+    - guardrails: single-flight, cooldown, bounded job registry, TTL cleanup
+    - security: debug-enabled gate + debug second-factor token (`api.debug_token`, `X-Debug-Token`)
+  - Updated planned debug endpoint list in `docs/10_architecture/API_DESIGN.md`.
+  - Added implementation backlog in `docs/governance/TASKS.md`.
+- Decisions:
+  - Keep bootstrap restart debug-only and asynchronous to protect API responsiveness.
+  - Reuse same debug-token defense-in-depth model as trace/debug endpoints.
+- Next steps:
+  - implement debug bootstrap job runner in service layer with single-flight + cooldown enforcement.
+  - add API tests for 202/job status and 404/403 debug gating behavior.
+- Change log:
+  - Added `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`.
+  - Updated `docs/10_architecture/API_DESIGN.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Added debug endpoint second-factor token decision.
   - Updated `docs/10_architecture/API_DESIGN.md` with planned debug hardening:
     - `api.debug_token` + `X-Debug-Token` as additive gate on debug endpoints.
