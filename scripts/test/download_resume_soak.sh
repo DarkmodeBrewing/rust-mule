@@ -609,6 +609,7 @@ wait_for_any_completed_download() {
       jq -r '
         "downloads=\((.downloads // []) | length) completed=\(((.downloads // []) | map(select(.state=="completed")) | length)) total_downloaded=\(((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0)"
       ' "$tmp_json" >&2 || true
+      dump_download_diagnostics "completion_timeout"
       exit 1
     fi
     sleep "$POLL_SECS"

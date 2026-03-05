@@ -11,6 +11,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Added completion-timeout diagnostics in resume soak script.
+  - `scripts/test/download_resume_soak.sh`:
+    - on post-restart completion timeout, now calls `dump_download_diagnostics "completion_timeout"` before exit.
+    - emits structured diagnostic artifacts:
+      - `<resume_out_dir>/completion_timeout_downloads_diag.json`
+      - `<resume_out_dir>/completion_timeout_status_diag.json`
+- Decisions:
+  - Treat completion timeout as a first-class triage path; always persist queue/state/counter snapshot for post-run analysis.
+- Next steps:
+  - rerun `download_phase0_acceptance.sh` with resume soak enabled and inspect `completion_timeout_*` artifacts if timeout recurs.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): CLI backlog expanded with accepted operational flags.
   - `docs/governance/TASKS.md`:
     - added accepted follow-up flags:
