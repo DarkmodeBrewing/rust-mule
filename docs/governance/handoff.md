@@ -11,6 +11,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): CLI backlog expanded with accepted operational flags.
+  - `docs/governance/TASKS.md`:
+    - added accepted follow-up flags:
+      - `--version`
+      - `--check-config`
+      - `--print-effective-config`
+- Decisions:
+  - Keep first CLI slice minimal but include low-risk operational introspection flags once argument parser is in place.
+- Next steps:
+  - implement parser and usage output in `src/main.rs`.
+  - implement `--check-config` fast path (load + validate + exit).
+  - define redaction policy before implementing `--print-effective-config` output.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Added CLI parameterization follow-up task for app startup UX.
   - `docs/governance/TASKS.md`:
     - added backlog item for `rust-mule --config <path>` support.

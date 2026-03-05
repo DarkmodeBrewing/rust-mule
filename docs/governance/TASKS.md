@@ -39,6 +39,9 @@ Last Reviewed: 2026-03-03
   - fail fast with clear error when `--config` path does not exist or is unreadable
   - support `rust-mule --help` and `rust-mule -?` for parameter/usage output
   - keep default behavior (`config.toml` in CWD) when `--config` is omitted
+  - support `rust-mule --version` for support/debug reporting
+  - support `rust-mule --check-config` to validate config and exit
+  - support `rust-mule --print-effective-config` for troubleshooting resolved runtime config
 
 ## Definition Of Done
 
