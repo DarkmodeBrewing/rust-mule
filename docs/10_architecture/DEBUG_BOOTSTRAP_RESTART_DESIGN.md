@@ -27,6 +27,10 @@ This endpoint is operational/diagnostic and should not be exposed as a normal us
 - Response behavior:
   - debug disabled: `404`
   - debug enabled + missing/invalid debug token: `403`
+- Token lifecycle policy:
+  - do not auto-delete token when debug endpoints are disabled
+  - keep token inert while debug mode is off (`404` path behavior remains authoritative)
+  - rotate token only through explicit admin action
 
 ## Execution Model (chosen)
 

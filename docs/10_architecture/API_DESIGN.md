@@ -76,6 +76,11 @@ This spec assumes **v1 in path**.
   - debug disabled: `404`
   - debug enabled + missing/invalid debug token: `403`
 - Keep standard auth/session checks in place; debug token is additive defense-in-depth.
+- Debug token lifecycle policy:
+  - do not auto-delete/rotate `api.debug_token` when debug endpoints are disabled
+  - when debug is disabled, token is inert (ignored at request path) and all debug routes stay `404`
+  - token rotation should be explicit admin action, not startup side-effect
+  - token must be redacted from logs and from any future `--print-effective-config` output
 
 ### Endpoints
 

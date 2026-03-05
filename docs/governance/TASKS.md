@@ -50,6 +50,7 @@ Last Reviewed: 2026-03-03
   - bound active traces + trace TTL; optionally support cancellation
   - require debug second-factor secret (`api.debug_token`, `X-Debug-Token`) in addition to normal auth
   - implement debug-disabled `404` and invalid/missing debug-token `403` behavior
+  - enforce token lifecycle policy: no auto-delete on debug-disabled; explicit rotation only
   - add dedicated rate limiting and counters for trace requests
   - reference design: `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`
 - add debug bootstrap restart backlog:
@@ -57,6 +58,7 @@ Last Reviewed: 2026-03-03
   - implement `GET /api/v1/debug/bootstrap/jobs/{job_id}` for job status
   - enforce single-flight + cooldown + bounded job TTL
   - require debug second-factor secret (`api.debug_token`, `X-Debug-Token`)
+  - enforce token lifecycle policy: no auto-delete on debug-disabled; explicit rotation only
   - reference design: `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`
 
 ## Definition Of Done

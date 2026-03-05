@@ -113,6 +113,10 @@ Constraints:
   - response behavior:
     - debug disabled: `404`
     - debug enabled but token missing/invalid: `403`
+  - lifecycle policy:
+    - do not auto-delete token when debug endpoints are disabled
+    - token remains inert while debug is disabled; route behavior is still `404`
+    - rotate only via explicit admin action
 - Enforce per-request bounds regardless of client input.
 - Add dedicated rate-limit bucket to avoid traffic amplification.
 - Do not leak internal secrets in response payloads.

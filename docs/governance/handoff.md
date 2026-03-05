@@ -11,6 +11,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Captured debug-token lifecycle policy to prevent accidental secret churn.
+  - Updated debug/API design docs to require:
+    - no automatic deletion/rotation of `api.debug_token` when debug endpoints are disabled
+    - debug-disabled mode keeps token inert and returns `404` on debug routes
+    - token rotation is explicit admin action only
+    - token redaction in logs/effective-config output
+  - Updated `docs/governance/TASKS.md` with implementation requirements for lifecycle behavior.
+- Decisions:
+  - Avoid startup side-effects on secrets; “disabled means inert” is the default.
+- Next steps:
+  - implement debug-token verification helper with constant-time compare and redaction-safe config rendering.
+  - add API tests for disabled/invalid-token behavior and startup non-mutation of debug token.
+- Change log:
+  - Updated `docs/10_architecture/API_DESIGN.md`.
+  - Updated `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`.
+  - Updated `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Added design for debug-triggered bootstrap restart.
   - Added `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`:
     - endpoint proposal: `POST /api/v1/debug/bootstrap/restart` (async `202 + job_id`)
