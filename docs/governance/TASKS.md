@@ -48,6 +48,8 @@ Last Reviewed: 2026-03-03
   - return bounded hop-by-hop lookup trace for a target KAD key
   - enforce strict input/runtime bounds (`max_hops`, `parallelism`, `timeout_ms`)
   - bound active traces + trace TTL; optionally support cancellation
+  - require debug second-factor secret (`api.debug_token`, `X-Debug-Token`) in addition to normal auth
+  - implement debug-disabled `404` and invalid/missing debug-token `403` behavior
   - add dedicated rate limiting and counters for trace requests
   - reference design: `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`
 

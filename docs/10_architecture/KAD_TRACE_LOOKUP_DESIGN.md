@@ -106,6 +106,13 @@ Constraints:
 ## Security and Safety Requirements
 
 - Debug feature-flag gate is mandatory.
+- Require a second-factor debug secret in addition to normal auth:
+  - config: `api.debug_token`
+  - request header: `X-Debug-Token: <token>`
+  - token check should use constant-time comparison
+  - response behavior:
+    - debug disabled: `404`
+    - debug enabled but token missing/invalid: `403`
 - Enforce per-request bounds regardless of client input.
 - Add dedicated rate-limit bucket to avoid traffic amplification.
 - Do not leak internal secrets in response payloads.

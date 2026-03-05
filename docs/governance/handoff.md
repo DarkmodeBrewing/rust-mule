@@ -11,6 +11,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-05): Added debug endpoint second-factor token decision.
+  - Updated `docs/10_architecture/API_DESIGN.md` with planned debug hardening:
+    - `api.debug_token` + `X-Debug-Token` as additive gate on debug endpoints.
+    - behavior split: debug disabled `404`, invalid/missing debug token `403`.
+  - Updated `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md` security section with same requirement.
+  - Updated `docs/governance/TASKS.md` backlog for implementation.
+- Decisions:
+  - Debug endpoints require both standard auth and debug secret (defense-in-depth).
+  - Preserve endpoint cloaking semantics when debug mode is off (`404`).
+- Next steps:
+  - implement middleware/helper for debug-token enforcement using constant-time compare.
+  - add API tests for 404/403 split behavior on debug routes.
+- Change log:
+  - Updated `docs/10_architecture/API_DESIGN.md`.
+  - Updated `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Trace lookup design now explicitly uses async execution.
   - `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`:
     - added chosen mode: `POST /api/v1/debug/trace_lookup` returns `202 Accepted` with `trace_id`.

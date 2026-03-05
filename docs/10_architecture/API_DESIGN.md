@@ -66,6 +66,17 @@ This spec assumes **v1 in path**.
 - SSE (`GET /api/v1/events`) uses session-cookie auth.
 - Token query parameters for SSE are not used.
 
+### Debug endpoint hardening (planned)
+
+- Debug endpoints remain behind `[api].enable_debug_endpoints = true`.
+- Add a second-factor debug secret gate:
+  - config: `api.debug_token`
+  - header: `X-Debug-Token`
+- Expected behavior:
+  - debug disabled: `404`
+  - debug enabled + missing/invalid debug token: `403`
+- Keep standard auth/session checks in place; debug token is additive defense-in-depth.
+
 ### Endpoints
 
 - `GET /api/v1/auth/bootstrap`
