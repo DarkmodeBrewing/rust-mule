@@ -68,6 +68,7 @@ CRASH_EPOCH=0
 RESTART_EPOCH=0
 STACK_STARTED=0
 STOP_ON_EXIT=1
+CLEANUP_RAN=0
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
@@ -82,6 +83,11 @@ is_enabled() {
 
 cleanup_on_exit() {
   local rc="$?"
+  if (( CLEANUP_RAN == 1 )); then
+    return
+  fi
+  CLEANUP_RAN=1
+  trap - EXIT INT TERM
   if (( STOP_ON_EXIT == 0 )); then
     return
   fi
@@ -90,7 +96,6 @@ cleanup_on_exit() {
     log "cleanup: stop requested for stack runner (exit_rc=$rc)"
   fi
   STOP_ON_EXIT=0
-  trap - EXIT INT TERM
 }
 
 is_pid_alive() {
@@ -816,6 +821,10 @@ run_resume_soak() {
 
   restart_app
   wait_for_health_code "200" "$HEALTH_TIMEOUT_SECS"
+  # Re-publish + verify fixture sources after restart so completion gate
+  # measures resumed transfer behavior instead of stale pre-crash context.
+  publish_fixture_sources_on_stack
+  wait_for_fixture_sources
   snapshot_downloads "post"
   assert_monotonic_download_bytes
 

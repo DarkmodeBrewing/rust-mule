@@ -11,6 +11,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-06): Resume-soak hardening for post-restart fixture state and cleanup idempotency.
+  - `scripts/test/download_resume_soak.sh`:
+    - re-publishes fixture sources and re-validates fixture source discovery after restart (`restart_app` -> health 200 -> publish+wait).
+    - made `cleanup_on_exit` idempotent with `CLEANUP_RAN` guard and early trap clear to prevent repeated cleanup spam on signal storms.
+- Decisions:
+  - Post-restart fixture publish is now part of the critical path for `FIXTURES_ONLY=1` resume validation.
+  - Cleanup should be single-shot even under repeated TERM delivery.
+- Next steps:
+  - run one acceptance pass with `FAST_EXIT_AFTER_COMPLETION=1`; confirm either completion gate passes or diagnostics now include post-restart fixture state.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-05): Added optional resume-soak fast-exit path to reduce wall-clock runtime.
   - `scripts/test/download_resume_soak.sh`:
     - added `FAST_EXIT_AFTER_COMPLETION` (default `0`) and `FAST_EXIT_GRACE_SECS` (default `60`).
