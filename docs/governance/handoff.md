@@ -11,6 +11,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-07): Archived latest successful phase0 acceptance artifacts on `main`.
+  - Ran `scripts/test/archive_acceptance_artifacts.sh` for:
+    - run dir: `/tmp/rust-mule-download-phase0-accept-20260307_145056`
+    - dest dir: `artifacts/soak/rust-mule-download-phase0-accept-20260307_145056`
+  - stack bundle path from logs was no longer present in `/tmp` at archive time.
+- Decisions:
+  - keep archiving run artifacts immediately after successful runs to avoid `/tmp` cleanup loss.
+- Next steps:
+  - copy/relocate stack bundle to a stable path during run (or immediately after) before archival.
+  - decide whether to commit selected `artifacts/soak/*` baselines or keep local-only.
+- Change log:
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-07): Addressed remaining actionable PR feedback in resume-soak script.
   - Updated `scripts/test/download_resume_soak.sh`:
     - fixed diagnostics state aggregation to `sort_by(.state) | group_by(.state)` for correct counts.
