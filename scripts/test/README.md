@@ -14,6 +14,7 @@ Scenario and soak test scripts.
 - `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
 - `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
 - `download_phase0_acceptance.sh`: one-command phase-0 acceptance runner (captures pre/post snapshots, runs KAD gate, optional resume soak and optional longrun).
+- `archive_acceptance_artifacts.sh`: copies high-value acceptance outputs into `artifacts/soak/<run_id>` for long-term comparison/history.
 - `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
 - `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
 - `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
@@ -186,6 +187,14 @@ Phase-0 acceptance runner:
   - `PUBLISH_FIXTURES=1` enables fixture-source publish pre-step.
   - `PUBLISH_BASE_URL` and `PUBLISH_TOKEN_FILE` select publisher node/API token.
   - `PROGRESS_LOG_SECS=30` controls acceptance-level stage progress heartbeat logs.
+
+Archive selected acceptance artifacts:
+- latest run (auto-detect):
+  - `bash scripts/test/archive_acceptance_artifacts.sh`
+- explicit run:
+  - `bash scripts/test/archive_acceptance_artifacts.sh --run-dir /tmp/rust-mule-download-phase0-accept-20260307_145056`
+- include collected stack bundle:
+  - `bash scripts/test/archive_acceptance_artifacts.sh --run-dir /tmp/rust-mule-download-phase0-accept-20260307_145056 --stack-bundle /tmp/rust-mule-download-stack-20260307_175944.tar.gz`
 
 ### 1) Single File E2E Lifecycle Soak
 

@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-07): Added acceptance artifact archiving helper for long-term regression baselines.
+  - Added `scripts/test/archive_acceptance_artifacts.sh`:
+    - archives high-value files from a phase0 acceptance run into `artifacts/soak/<run_id>`.
+    - includes: `summary.txt`, `kad-gate/*.tsv`, `resume-soak/resume_report.txt`, diagnostics JSON, snapshots JSON.
+    - optional `--stack-bundle` to attach collected stack tarball.
+  - Updated `scripts/test/README.md` with usage examples.
+- Decisions:
+  - Keep archival explicit/manual (operator-triggered) to avoid unbounded storage growth from every run.
+- Next steps:
+  - after each notable pass/fail run, archive selected artifacts for baseline history.
+- Change log:
+  - Added `scripts/test/archive_acceptance_artifacts.sh`.
+  - Updated `scripts/test/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-07): Isolated stack runner process group to prevent stop-time signal splash.
   - Updated `scripts/test/download_soak_stack_bg.sh`:
     - `start_background` now prefers `nohup setsid ...` when available.
