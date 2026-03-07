@@ -11,6 +11,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-06): Aligned KAD wire refactor plan doc with current project state.
+  - Updated `docs/10_architecture/KAD_WIRE_REFACTOR_PLAN.md`:
+    - marked Phase 1 (Central Outbound Shaper) items as complete.
+    - added governance doc references (`docs/governance/TASKS.md`, `docs/governance/handoff.md`).
+    - updated Phase 5 rollout checklist paths to governance docs.
+    - added note that current active priority remains download restart/resume soak stabilization.
+- Decisions:
+  - Treat this as documentation alignment only; no behavior/runtime changes.
+- Next steps:
+  - after current acceptance soak run, decide whether to open a dedicated KAD Phase 2 follow-up branch or keep focus on download phase 2 hardening.
+- Change log:
+  - Updated `docs/10_architecture/KAD_WIRE_REFACTOR_PLAN.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-06): Resume-soak hardening for post-restart fixture state and cleanup idempotency.
   - `scripts/test/download_resume_soak.sh`:
     - re-publishes fixture sources and re-validates fixture source discovery after restart (`restart_app` -> health 200 -> publish+wait).

@@ -8,6 +8,8 @@ This plan captures the required refactor work to align KAD/wire behavior with:
 - `docs/BEHAVIOURAL_CONTRACT.md`
 - `docs/REVIEWERS_CHECKLIST.md`
 - `docs/IMULE_COMPABILITY_TIMING.md`
+- `docs/governance/TASKS.md`
+- `docs/governance/handoff.md`
 
 Policy:
 
@@ -39,10 +41,13 @@ Policy:
 
 ## Phase 1: Central Outbound Shaper
 
-- [ ] Introduce a single outbound scheduling layer for KAD traffic.
-- [ ] Enforce base delay + jitter on all outbound messages.
-- [ ] Enforce randomized dequeue/ordering (no deterministic send order).
-- [ ] Enforce global and per-peer hard caps independent of host performance.
+- [x] Introduce a single outbound scheduling layer for KAD traffic.
+- [x] Enforce base delay + jitter on all outbound messages.
+- [x] Enforce randomized dequeue/ordering (no deterministic send order).
+- [x] Enforce global and per-peer hard caps independent of host performance.
+- Notes:
+  - Implemented and tuned previously (see `docs/governance/handoff.md` entries for `feature/kad-phase1-shaper`).
+  - Current active priority is download restart/resume soak stabilization and phase 2 download hardening from `docs/governance/TASKS.md`.
 
 ## Phase 2: Remove Bypass Paths
 
@@ -67,4 +72,4 @@ Policy:
 
 - [ ] Re-run A/B soak comparisons (before/after) for search/publish success and timing drift.
 - [ ] Confirm no regression in interoperability envelope with iMule-like peers.
-- [ ] Update `docs/handoff.md`, `docs/TODO.md`, and `docs/TASKS.md` with results.
+- [ ] Update `docs/governance/handoff.md`, `docs/TODO.md`, and `docs/governance/TASKS.md` with results.
