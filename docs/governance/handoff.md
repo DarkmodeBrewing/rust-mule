@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-07): Isolated stack runner process group to prevent stop-time signal splash.
+  - Updated `scripts/test/download_soak_stack_bg.sh`:
+    - `start_background` now prefers `nohup setsid ...` when available.
+    - fallback remains `nohup ...` when `setsid` is unavailable.
+  - Motivation:
+    - acceptance/resume runs showed completion gate pass but shell output ended with large `Terminated` bursts and missing final summary artifacts.
+    - root cause was process-group stop targeting a runner started in caller-linked process group.
+- Decisions:
+  - Keep fix minimal and local to stack runner bootstrap; no changes to stop semantics.
+- Next steps:
+  - rerun phase0 acceptance with fast-exit and verify `summary.txt` + `resume_report.txt` are emitted cleanly.
+- Change log:
+  - Updated `scripts/test/download_soak_stack_bg.sh`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-06): Aligned KAD wire refactor plan doc with current project state.
   - Updated `docs/10_architecture/KAD_WIRE_REFACTOR_PLAN.md`:
     - marked Phase 1 (Central Outbound Shaper) items as complete.
