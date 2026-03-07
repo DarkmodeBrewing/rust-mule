@@ -11,6 +11,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-07): Ignored local acceptance archives by default.
+  - Updated `.gitignore` to include `/artifacts`.
+  - Rationale: keep large soak/archive outputs local unless intentionally versioned via explicit commit.
+- Decisions:
+  - preserve artifact versioning as an explicit opt-in action.
+- Next steps:
+  - if a specific artifact set should be retained in git, stage it explicitly with a focused PR and note retention reason.
+- Change log:
+  - Updated `.gitignore`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-07): Archived latest successful phase0 acceptance artifacts on `main`.
   - Ran `scripts/test/archive_acceptance_artifacts.sh` for:
     - run dir: `/tmp/rust-mule-download-phase0-accept-20260307_145056`
