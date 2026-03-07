@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-03
+Last Reviewed: 2026-03-07
 
 # Handoff / Continuation Notes
 
@@ -10,6 +10,22 @@ This file exists because chat sessions are not durable project memory. In the ne
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
 ## Status (2026-02-19)
+
+- Status (2026-03-07): Addressed remaining actionable PR feedback in resume-soak script.
+  - Updated `scripts/test/download_resume_soak.sh`:
+    - fixed diagnostics state aggregation to `sort_by(.state) | group_by(.state)` for correct counts.
+    - replaced combined `EXIT INT TERM` trap with explicit signal handlers:
+      - `INT` -> cleanup + exit `130`
+      - `TERM` -> cleanup + exit `143`
+    - kept cleanup idempotent and reusable via optional explicit exit code parameter.
+- Decisions:
+  - Preserve single-shot cleanup behavior while making signal outcome explicit and POSIX-consistent.
+- Next steps:
+  - merge PR `feature/download-phase0-acceptance`.
+  - archive latest acceptance artifacts using `scripts/test/archive_acceptance_artifacts.sh` for baseline retention.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-07): Added acceptance artifact archiving helper for long-term regression baselines.
   - Added `scripts/test/archive_acceptance_artifacts.sh`:

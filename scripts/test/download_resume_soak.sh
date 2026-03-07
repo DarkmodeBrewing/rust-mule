@@ -82,7 +82,7 @@ is_enabled() {
 }
 
 cleanup_on_exit() {
-  local rc="$?"
+  local rc="${1:-$?}"
   if (( CLEANUP_RAN == 1 )); then
     return
   fi
@@ -96,6 +96,16 @@ cleanup_on_exit() {
     log "cleanup: stop requested for stack runner (exit_rc=$rc)"
   fi
   STOP_ON_EXIT=0
+}
+
+on_sigint() {
+  cleanup_on_exit 130
+  exit 130
+}
+
+on_sigterm() {
+  cleanup_on_exit 143
+  exit 143
 }
 
 is_pid_alive() {
@@ -483,7 +493,7 @@ dump_download_diagnostics() {
       downloads_count: ((.downloads // []) | length),
       inflight_total: (((.downloads // []) | map(.inflight_ranges // 0) | add) // 0),
       downloaded_total: (((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0),
-      states: ((.downloads // []) | group_by(.state) | map({state: .[0].state, count: length}))
+      states: ((.downloads // []) | sort_by(.state) | group_by(.state) | map({state: .[0].state, count: length}))
     }
   ' "$downloads_json" 2>/dev/null || true
 }
@@ -790,7 +800,9 @@ run_resume_soak() {
   local out status
   require_tools
   mkdir -p "$RESUME_OUT_DIR"
-  trap cleanup_on_exit EXIT INT TERM
+  trap cleanup_on_exit EXIT
+  trap on_sigint INT
+  trap on_sigterm TERM
 
   out="$(stack_status_raw)"
   status="$(status_field "$out" "status")"
