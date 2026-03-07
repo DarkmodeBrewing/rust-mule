@@ -1,23 +1,23 @@
-# Documentation Index
+# Docs Directory Guide
 
-Use this as the entrypoint for project documentation.
+`docs/index.md` is the canonical documentation landing page (used by the docs site and for top-level navigation).
 
-- `dev.md`: development/runtime setup notes.
-- `architecture.md`: system layers, API auth/session model, endpoint overview.
-- `API_DESIGN.md`: API design reference (implemented and forward-looking).
-- `DOWNLOAD_DESIGN.md`: download subsystem strategy (`.part`, `.part.met`, `known.met`, chunk flow).
-- `UI_DESIGN.md`: UI layout, page model, interaction goals.
-- `BEHAVIOURAL_CONTRACT.md`: anonymity-preserving, non-negotiable behavior invariants.
-- `REVIEWERS_CHECKLIST.md`: mandatory PR review gates for networking/protocol changes.
-- `IMULE_COMPABILITY_TIMING.md`: compatibility policy between iMule envelope and behavior contract.
-- `KAD_WIRE_REFACTOR_PLAN.md`: phased, deferred KAD/wire alignment plan against the contracts.
-- `ui_api_contract_map.md`: page/controller -> API contract map.
-- `api_curl.md`: practical curl examples for local API checks.
-- `TASKS.md`: current prioritized execution plan.
-- `TODO.md`: normalized backlog by subsystem.
-- `handoff.md`: rolling implementation log and continuation notes.
-- `../site/`: VitePress configuration for docs-site builds.
-- `../scripts/docs/`: endpoint-focused API helper scripts.
-- `../scripts/test/`: scenario/soak test harness scripts.
-- `../scripts/build/`: platform build/release bundle scripts.
-- `rfcs/*`: KAD3 documentation
+This `README.md` explains the folder layout at a glance:
+
+- `00_overview/`: contracts and high-level design principles.
+- `10_architecture/`: architecture/design references (API, UI, download, refactor plans).
+- `20_protocol/`: protocol compatibility/parity notes.
+- `30_operations/`: operational runbooks and API usage examples.
+- `governance/`: review checklist, execution tasks, and handoff log.
+- `rfcs/`: RFC-style technical notes.
+- `90_archive/`: legacy or historical docs kept for reference.
+- `public/`: static assets for docs-site publishing.
+
+Related paths:
+
+- `../site/`: VitePress configuration and site scaffolding.
+- `../scripts/docs/`: docs helper scripts for API interactions.
+- `../scripts/test/`: soak/scenario test harnesses.
+- `../scripts/build/`: build/release helper scripts.
+
+If links drift, update `docs/index.md` first, then keep this file aligned with folder-level intent only.

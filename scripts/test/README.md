@@ -13,6 +13,8 @@ Scenario and soak test scripts.
 - `download_soak_band.sh`: sequential runner that executes all four download soaks in one command and auto-collects tarballs.
 - `download_soak_stack_bg.sh`: full background pipeline (build + staged run dir + config + app launch + health wait + band soak + collectable artifacts).
 - `download_resume_soak.sh`: automated crash/restart resume-soak on top of stack runner (kills app mid-scenario, restarts in-place, verifies continued progress).
+- `download_phase0_acceptance.sh`: one-command phase-0 acceptance runner (captures pre/post snapshots, runs KAD gate, optional resume soak and optional longrun).
+- `archive_acceptance_artifacts.sh`: copies high-value acceptance outputs into `artifacts/soak/<run_id>` for long-term comparison/history.
 - `download_fixtures.example.json`: example fixture file format (`file_name`, `file_size`, `file_hash_md4_hex`).
 - `gen_download_fixture.sh`: generates fixture JSON from local files (MD4 + size + name).
 - `kad_publish_search_probe.sh`: publishes source on node A, triggers search on node B, and polls A/B counters + B sources until success/timeout.
@@ -92,6 +94,7 @@ Automated before/after gate:
 - enforcement:
   - `ENFORCE_THRESHOLDS=1` exits non-zero on failed checks
   - `ENFORCE_THRESHOLDS=0` prints failures but exits zero
+  - `PROGRESS_LOG_SECS=30` controls heartbeat interval for readiness/progress logs
 - suggested tuning-env for noisy networks:
   - `MIN_SENT_REQS_TOTAL_RATIO=0.60`
   - keep efficiency thresholds enabled (`MIN_MATCH_PER_SENT_RATIO`, `MAX_TIMEOUT_PER_SENT_RATIO`)
@@ -145,6 +148,9 @@ These scripts target the current download API/control-plane behavior (`/api/v1/d
 For real transfer/resume validation (not random synthetic hashes), provide fixtures:
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1` to fail fast if fixture-backed creates cannot be used.
+- `CREATE_FAIL_LIMIT=10` (optional): in fixtures-only mode, fail scenario early after N repeated create responses without `download.part_number`.
+- `DEBUG_CREATE_PAYLOADS=1` (optional): logs exact `/api/v1/downloads` request payload and response in soak runner logs.
+- `LOCK_ROOT=/tmp/rust-mule-download-soak-locks` (optional): lock directory for per-`BASE_URL` runner ownership.
 
 Generate fixture JSON from local files:
 - `scripts/test/gen_download_fixture.sh --out /tmp/download_fixtures.json /path/to/file1 /path/to/file2`
@@ -161,6 +167,34 @@ Pre-check:
 - Defaults:
   - `BASE_URL=http://127.0.0.1:17835`
   - `TOKEN_FILE=data/api.token`
+
+Phase-0 acceptance runner:
+- default (gate + snapshots):
+  - `BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with fixture pre-publish (recommended for `FIXTURES_ONLY=1`):
+  - `PUBLISH_FIXTURES=1 DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json PUBLISH_BASE_URL=http://127.0.0.1:17835 PUBLISH_TOKEN_FILE=data/api.token BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak:
+  - `RUN_RESUME_SOAK=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak fast-exit (stop+collect shortly after completion gate):
+  - `RUN_RESUME_SOAK=1 FAST_EXIT_AFTER_COMPLETION=1 FAST_EXIT_GRACE_SECS=60 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak + stack-local fixture publish controls:
+  - `RUN_RESUME_SOAK=1 FIXTURES_ONLY=1 DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json STACK_PUBLISH_FIXTURES=1 STACK_PUBLISH_BASE_URL=http://127.0.0.1:17965 STACK_PUBLISH_TOKEN_FILE=/tmp/rustmule-run-<ts>/data/api.token BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- with resume soak + longrun:
+  - `RUN_RESUME_SOAK=1 RUN_KAD_LONGRUN=1 BASE_URL=http://127.0.0.1:17835 TOKEN_FILE=data/api.token bash scripts/test/download_phase0_acceptance.sh`
+- exit behavior:
+  - exits non-zero when any enabled stage fails (`kad_phase0_gate`, `download_resume_soak`, `kad_phase0_longrun`)
+- publish controls:
+  - `PUBLISH_FIXTURES=1` enables fixture-source publish pre-step.
+  - `PUBLISH_BASE_URL` and `PUBLISH_TOKEN_FILE` select publisher node/API token.
+  - `PROGRESS_LOG_SECS=30` controls acceptance-level stage progress heartbeat logs.
+
+Archive selected acceptance artifacts:
+- latest run (auto-detect):
+  - `bash scripts/test/archive_acceptance_artifacts.sh`
+- explicit run:
+  - `bash scripts/test/archive_acceptance_artifacts.sh --run-dir /tmp/rust-mule-download-phase0-accept-20260307_145056`
+- include collected stack bundle:
+  - `bash scripts/test/archive_acceptance_artifacts.sh --run-dir /tmp/rust-mule-download-phase0-accept-20260307_145056 --stack-bundle /tmp/rust-mule-download-stack-20260307_175944.tar.gz`
 
 ### 1) Single File E2E Lifecycle Soak
 
@@ -248,6 +282,7 @@ Optional overrides:
 - `API_MAX_TIME_SECS=8`
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1`
+- `DEBUG_CREATE_PAYLOADS=1`
 
 ## Full Background Pipeline (Build + Run + Soak)
 
@@ -283,11 +318,13 @@ Common overrides:
 - `LONG_CHURN_SECS=7200`
 - `DOWNLOAD_FIXTURES_FILE=/path/to/download_fixtures.json`
 - `FIXTURES_ONLY=1`
+- `DEBUG_CREATE_PAYLOADS=1`
 
 Troubleshooting:
 - If status is `failed` immediately, inspect `/tmp/rust-mule-download-stack/logs/stack.out`.
 - The stack runner now attempts to add `~/.cargo/bin` to `PATH` automatically when `cargo` is not found.
 - `stop` now kills the full stack process tree (runner group + per-scenario soak runners + run-dir processes) to avoid orphaned `rust-mule`/soak processes.
+- Per-scenario soak runners now take a `BASE_URL` ownership lock; starting another runner on the same API URL fails fast with lock-owner details.
 
 ## Resume Soak Automation (Crash + Restart)
 
@@ -311,26 +348,44 @@ Run:
 Common overrides:
 - `RESUME_SCENARIO=concurrency`
 - `STACK_ROOT=/tmp/rust-mule-download-stack`
-- `API_PORT=17835`
+- `STACK_API_PORT=17865`
+- `STACK_BASE_URL=http://127.0.0.1:17865`
+- `STACK_PUBLISH_FIXTURES=1` (default; only applied when `FIXTURES_ONLY=1`)
+- `STACK_PUBLISH_BASE_URL=http://127.0.0.1:17865` (defaults to `STACK_BASE_URL`)
+- `STACK_PUBLISH_TOKEN_FILE=/path/to/publisher/api.token` (optional; defaults to stack run token when publishing to `STACK_BASE_URL`)
 - `WAIT_TIMEOUT_SECS=21600`
 - `HEALTH_TIMEOUT_SECS=300`
 - `ACTIVE_TRANSFER_TIMEOUT_SECS=1800`
+- `NO_RESERVE_ACTIVITY_TIMEOUT_SECS=300` (fail fast when downloads exist but `reserve_calls_total` never increments)
+- `FIXTURE_SOURCE_TIMEOUT_SECS=300` (only with `FIXTURES_ONLY=1`)
 - `COMPLETION_TIMEOUT_SECS=3600`
+- `FAST_EXIT_AFTER_COMPLETION=0` (set `1/true/yes/on` to skip long stack terminal wait after completion gate)
+- `FAST_EXIT_GRACE_SECS=60` (optional grace before stop/collect when fast-exit is enabled)
 - `RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>`
+- `PROGRESS_LOG_SECS=30`
 
 Outputs:
 - resume artifacts/report under `RESUME_OUT_DIR`:
   - `pre_downloads.json`, `post_downloads.json`
   - `pre_summary.txt`, `post_summary.txt`
   - `pre_violations.count`, `post_violations.count`
+  - failure-only diagnostics (written on fixture-source timeout or active-transfer timeout):
+    - `fixture_sources_timeout_downloads_diag.json` / `fixture_sources_timeout_status_diag.json`
+    - `active_transfer_timeout_downloads_diag.json` / `active_transfer_timeout_status_diag.json`
+    - `completion_timeout_downloads_diag.json` / `completion_timeout_status_diag.json`
   - `resume_report.txt`
   - `stack_bundle.path`
 
 Notes:
 - Crash validation is process-based (killed app PID + no remaining run-dir `rust-mule` process), not strictly `health=000`.
 - This avoids false failures when another process is already serving the same API port.
+- Resume stack now defaults to its own API endpoint (`http://127.0.0.1:17865`) to avoid colliding with an already-running local node on `:17835`.
+- With `FIXTURES_ONLY=1`, resume now publishes fixture sources on the stack node after startup (before source-discovery polling) to avoid cross-topology publish/discovery drift.
+- With `FIXTURES_ONLY=1`, the resume script now verifies fixture source availability (`/api/v1/kad/sources/:file_id_hex`) before waiting for active transfer and fails fast with KAD status diagnostics when sources never appear.
 - Resume restart now hard-checks `/proc` for any remaining run-dir `rust-mule` process (`cwd`/`cmdline`), and fails early with PID details if single-instance lock would still be held.
 - Crash step now force-kills all run-dir-owned `rust-mule` PIDs found via `/proc` (not only `control/app.pid`) to handle wrapper-PID vs child-PID mismatches.
 - Resume now waits for an active transfer before crash (`downloaded_bytes>0` and `inflight_ranges>0`) so the run validates true in-flight resume behavior.
+- Resume now fails fast on scheduler inactivity when downloads exist but `reserve_calls_total` stays `0` for `NO_RESERVE_ACTIVITY_TIMEOUT_SECS`.
 - Resume now fails if any pre-existing download has lower `downloaded_bytes` after restart.
 - Resume now requires at least one completed download post-restart within `COMPLETION_TIMEOUT_SECS`.
+- Optional fast-exit mode (`FAST_EXIT_AFTER_COMPLETION=1`) stops and collects immediately after completion gate (plus optional `FAST_EXIT_GRACE_SECS`) to shorten total runtime.

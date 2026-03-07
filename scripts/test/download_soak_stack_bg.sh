@@ -31,7 +31,8 @@ set -euo pipefail
 #
 # Forwarded to download_soak_band.sh:
 #   INTEGRITY_SECS, SINGLE_E2E_SECS, CONCURRENCY_SECS, LONG_CHURN_SECS,
-#   CONCURRENCY_TARGET, CHURN_MAX_QUEUE, DOWNLOAD_FIXTURES_FILE, FIXTURES_ONLY
+#   CONCURRENCY_TARGET, CHURN_MAX_QUEUE, DOWNLOAD_FIXTURES_FILE, FIXTURES_ONLY,
+#   DEBUG_CREATE_PAYLOADS
 
 ROOT="${ROOT:-$PWD}"
 STACK_ROOT="${STACK_ROOT:-/tmp/rust-mule-download-stack}"
@@ -62,6 +63,29 @@ RUNNER_STDOUT_FILE="$LOG_DIR/stack.out"
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
+
+log_signal_context() {
+  local sig="$1"
+  local self_pid self_ppid self_pgid self_cmd parent_cmd
+  self_pid="$$"
+  self_ppid="$(ps -o ppid= -p "$self_pid" 2>/dev/null | tr -d ' ' || true)"
+  self_pgid="$(ps -o pgid= -p "$self_pid" 2>/dev/null | tr -d ' ' || true)"
+  self_cmd="$(ps -o args= -p "$self_pid" 2>/dev/null || true)"
+  parent_cmd="$(ps -o args= -p "${self_ppid:-0}" 2>/dev/null || true)"
+  log "signal-context sig=$sig self_pid=${self_pid:-unknown} self_ppid=${self_ppid:-unknown} self_pgid=${self_pgid:-unknown}"
+  [[ -n "$self_cmd" ]] && log "signal-context self_cmd=$self_cmd"
+  [[ -n "$parent_cmd" ]] && log "signal-context parent_cmd=$parent_cmd"
+}
+
+handle_runner_signal() {
+  local sig="$1"
+  log "runner interrupted signal=$sig"
+  log_signal_context "$sig"
+  echo "stopped" >"$RUNNER_STATE_FILE"
+  cleanup_children
+  rm -f "$RUNNER_PID_FILE"
+  exit 0
+}
 
 ensure_toolchain_path() {
   if command -v cargo >/dev/null 2>&1; then
@@ -157,7 +181,7 @@ cleanup_children() {
 }
 
 wait_for_health() {
-  local start now elapsed code token_file run_dir
+  local start now elapsed code token_file run_dir token auth downloads_code
   run_dir="$(read_run_dir)"
   token_file="$run_dir/data/api.token"
   start="$(date +%s)"
@@ -171,8 +195,18 @@ wait_for_health() {
     fi
     code="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/health" || true)"
     if [[ "$code" == "200" && -s "$token_file" ]]; then
-      log "health-check-ok code=$code token_file=$token_file elapsed=${elapsed}s"
-      return 0
+      token="$(tr -d '\r\n' <"$token_file" 2>/dev/null || true)"
+      if [[ -n "$token" ]]; then
+        auth="Authorization: Bearer $token"
+        downloads_code="$(curl -s -o /dev/null -w '%{http_code}' -H "$auth" "$BASE_URL/api/v1/downloads" || true)"
+        if [[ "$downloads_code" == "200" ]]; then
+          log "health-check-ok code=$code downloads_code=$downloads_code token_file=$token_file elapsed=${elapsed}s"
+          return 0
+        fi
+        log "health-check-wait code=$code downloads_code=$downloads_code token_file=$token_file elapsed=${elapsed}s"
+      else
+        log "health-check-wait code=$code token_file=$token_file token=empty elapsed=${elapsed}s"
+      fi
     fi
     sleep "$POLL_SECS"
   done
@@ -222,7 +256,8 @@ run_foreground() {
   echo "running" >"$RUNNER_STATE_FILE"
   rm -f "$STOP_FILE"
 
-  trap 'log "runner interrupted"; echo "stopped" >"$RUNNER_STATE_FILE"; cleanup_children; rm -f "$RUNNER_PID_FILE"; exit 0' INT TERM
+  trap 'handle_runner_signal INT' INT
+  trap 'handle_runner_signal TERM' TERM
 
   log "build-start cmd=$BUILD_CMD"
   # Run build in current shell context so PATH/toolchain bootstrap is preserved.
@@ -307,7 +342,13 @@ start_background() {
     rm -f "$RUNNER_PID_FILE"
   fi
 
-  nohup bash -lc "cd '$ROOT' && ROOT='$ROOT' STACK_ROOT='$STACK_ROOT' RUN_DIR='$RUN_DIR' API_PORT='$API_PORT' SAM_HOST='$SAM_HOST' SAM_PORT='$SAM_PORT' LOG_LEVEL='$LOG_LEVEL' BUILD_PROFILE='$BUILD_PROFILE' BUILD_CMD='$BUILD_CMD' HEALTH_TIMEOUT_SECS='$HEALTH_TIMEOUT_SECS' POLL_SECS='$POLL_SECS' INTEGRITY_SECS='${INTEGRITY_SECS:-3600}' SINGLE_E2E_SECS='${SINGLE_E2E_SECS:-3600}' CONCURRENCY_SECS='${CONCURRENCY_SECS:-7200}' LONG_CHURN_SECS='${LONG_CHURN_SECS:-7200}' CONCURRENCY_TARGET='${CONCURRENCY_TARGET:-20}' CHURN_MAX_QUEUE='${CHURN_MAX_QUEUE:-25}' DOWNLOAD_FIXTURES_FILE='${DOWNLOAD_FIXTURES_FILE:-}' FIXTURES_ONLY='${FIXTURES_ONLY:-0}' '$SELF_PATH' run" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  # Start runner in a dedicated session/process-group so `stop` can signal it
+  # without affecting the caller shell's process-group.
+  if command -v setsid >/dev/null 2>&1; then
+    nohup setsid bash -lc "cd '$ROOT' && ROOT='$ROOT' STACK_ROOT='$STACK_ROOT' RUN_DIR='$RUN_DIR' API_PORT='$API_PORT' SAM_HOST='$SAM_HOST' SAM_PORT='$SAM_PORT' LOG_LEVEL='$LOG_LEVEL' BUILD_PROFILE='$BUILD_PROFILE' BUILD_CMD='$BUILD_CMD' HEALTH_TIMEOUT_SECS='$HEALTH_TIMEOUT_SECS' POLL_SECS='$POLL_SECS' INTEGRITY_SECS='${INTEGRITY_SECS:-3600}' SINGLE_E2E_SECS='${SINGLE_E2E_SECS:-3600}' CONCURRENCY_SECS='${CONCURRENCY_SECS:-7200}' LONG_CHURN_SECS='${LONG_CHURN_SECS:-7200}' CONCURRENCY_TARGET='${CONCURRENCY_TARGET:-20}' CHURN_MAX_QUEUE='${CHURN_MAX_QUEUE:-25}' DOWNLOAD_FIXTURES_FILE='${DOWNLOAD_FIXTURES_FILE:-}' FIXTURES_ONLY='${FIXTURES_ONLY:-0}' DEBUG_CREATE_PAYLOADS='${DEBUG_CREATE_PAYLOADS:-0}' '$SELF_PATH' run" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  else
+    nohup bash -lc "cd '$ROOT' && ROOT='$ROOT' STACK_ROOT='$STACK_ROOT' RUN_DIR='$RUN_DIR' API_PORT='$API_PORT' SAM_HOST='$SAM_HOST' SAM_PORT='$SAM_PORT' LOG_LEVEL='$LOG_LEVEL' BUILD_PROFILE='$BUILD_PROFILE' BUILD_CMD='$BUILD_CMD' HEALTH_TIMEOUT_SECS='$HEALTH_TIMEOUT_SECS' POLL_SECS='$POLL_SECS' INTEGRITY_SECS='${INTEGRITY_SECS:-3600}' SINGLE_E2E_SECS='${SINGLE_E2E_SECS:-3600}' CONCURRENCY_SECS='${CONCURRENCY_SECS:-7200}' LONG_CHURN_SECS='${LONG_CHURN_SECS:-7200}' CONCURRENCY_TARGET='${CONCURRENCY_TARGET:-20}' CHURN_MAX_QUEUE='${CHURN_MAX_QUEUE:-25}' DOWNLOAD_FIXTURES_FILE='${DOWNLOAD_FIXTURES_FILE:-}' FIXTURES_ONLY='${FIXTURES_ONLY:-0}' DEBUG_CREATE_PAYLOADS='${DEBUG_CREATE_PAYLOADS:-0}' '$SELF_PATH' run" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  fi
   echo $! >"$RUNNER_PID_FILE"
   echo "$RUN_DIR" >"$RUN_DIR_FILE"
   local pid

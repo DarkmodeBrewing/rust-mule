@@ -17,29 +17,48 @@ set -euo pipefail
 # Optional overrides:
 #   STACK_SCRIPT=scripts/test/download_soak_stack_bg.sh
 #   STACK_ROOT=/tmp/rust-mule-download-stack
-#   API_PORT=17835
+#   STACK_API_PORT=17865
+#   STACK_BASE_URL=http://127.0.0.1:17865
 #   RESUME_SCENARIO=concurrency
 #   WAIT_TIMEOUT_SECS=21600
 #   HEALTH_TIMEOUT_SECS=300
 #   ACTIVE_TRANSFER_TIMEOUT_SECS=1800
 #   COMPLETION_TIMEOUT_SECS=3600
+#   FAST_EXIT_AFTER_COMPLETION=0
+#   FAST_EXIT_GRACE_SECS=60
 #   POLL_SECS=2
 #   RESUME_OUT_DIR=/tmp/rust-mule-download-resume-<timestamp>
+# Forwarded to stack/band runners:
+#   DOWNLOAD_FIXTURES_FILE=/tmp/download_fixtures.json
+#   FIXTURES_ONLY=1
+#   FIXTURE_SOURCE_TIMEOUT_SECS=300
+#   STACK_PUBLISH_FIXTURES=1
+#   STACK_PUBLISH_BASE_URL=http://127.0.0.1:17865
+#   STACK_PUBLISH_TOKEN_FILE=/path/to/publisher/api.token
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STACK_SCRIPT="${STACK_SCRIPT:-$SCRIPT_DIR/download_soak_stack_bg.sh}"
 STACK_ROOT="${STACK_ROOT:-/tmp/rust-mule-download-stack}"
 CONTROL_DIR="$STACK_ROOT/control"
 
-API_PORT="${API_PORT:-17835}"
-BASE_URL="${BASE_URL:-http://127.0.0.1:${API_PORT}}"
+STACK_API_PORT="${STACK_API_PORT:-17865}"
+STACK_BASE_URL="${STACK_BASE_URL:-http://127.0.0.1:${STACK_API_PORT}}"
+BASE_URL="$STACK_BASE_URL"
 RESUME_SCENARIO="${RESUME_SCENARIO:-concurrency}"
 
 WAIT_TIMEOUT_SECS="${WAIT_TIMEOUT_SECS:-21600}"
 HEALTH_TIMEOUT_SECS="${HEALTH_TIMEOUT_SECS:-300}"
 ACTIVE_TRANSFER_TIMEOUT_SECS="${ACTIVE_TRANSFER_TIMEOUT_SECS:-1800}"
+NO_RESERVE_ACTIVITY_TIMEOUT_SECS="${NO_RESERVE_ACTIVITY_TIMEOUT_SECS:-300}"
 COMPLETION_TIMEOUT_SECS="${COMPLETION_TIMEOUT_SECS:-3600}"
+FAST_EXIT_AFTER_COMPLETION="${FAST_EXIT_AFTER_COMPLETION:-0}"
+FAST_EXIT_GRACE_SECS="${FAST_EXIT_GRACE_SECS:-60}"
+FIXTURE_SOURCE_TIMEOUT_SECS="${FIXTURE_SOURCE_TIMEOUT_SECS:-300}"
+STACK_PUBLISH_FIXTURES="${STACK_PUBLISH_FIXTURES:-1}"
+STACK_PUBLISH_BASE_URL="${STACK_PUBLISH_BASE_URL:-$BASE_URL}"
+STACK_PUBLISH_TOKEN_FILE="${STACK_PUBLISH_TOKEN_FILE:-}"
 POLL_SECS="${POLL_SECS:-2}"
+PROGRESS_LOG_SECS="${PROGRESS_LOG_SECS:-30}"
 RESUME_OUT_DIR="${RESUME_OUT_DIR:-/tmp/rust-mule-download-resume-$(date +%Y%m%d_%H%M%S)}"
 
 RUN_DIR=""
@@ -47,10 +66,47 @@ STATUS_TSV=""
 STACK_TARBALL=""
 CRASH_EPOCH=0
 RESTART_EPOCH=0
+STACK_STARTED=0
+STOP_ON_EXIT=1
+CLEANUP_RAN=0
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
 log() { echo "$(ts) $*"; }
+
+is_enabled() {
+  case "${1:-0}" in
+  1 | true | TRUE | yes | YES | on | ON) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+cleanup_on_exit() {
+  local rc="${1:-$?}"
+  if (( CLEANUP_RAN == 1 )); then
+    return
+  fi
+  CLEANUP_RAN=1
+  trap - EXIT INT TERM
+  if (( STOP_ON_EXIT == 0 )); then
+    return
+  fi
+  if (( STACK_STARTED == 1 )); then
+    "$STACK_SCRIPT" stop >/dev/null 2>&1 || true
+    log "cleanup: stop requested for stack runner (exit_rc=$rc)"
+  fi
+  STOP_ON_EXIT=0
+}
+
+on_sigint() {
+  cleanup_on_exit 130
+  exit 130
+}
+
+on_sigterm() {
+  cleanup_on_exit 143
+  exit 143
+}
 
 is_pid_alive() {
   local pid="$1"
@@ -67,6 +123,132 @@ require_tools() {
     echo "ERROR: jq is required" >&2
     exit 1
   }
+}
+
+valid_fixture_filter='
+  .[]? |
+  select(
+    (type == "object")
+    and ((.file_hash_md4_hex? | type) == "string")
+    and ((.file_size? | type) == "number")
+    and (.file_size > 0)
+  )
+'
+
+stack_token() {
+  local token_file
+  token_file="$RUN_DIR/data/api.token"
+  [[ -s "$token_file" ]] || return 1
+  tr -d '\r\n' <"$token_file"
+}
+
+stack_auth_get() {
+  local path="$1"
+  local token
+  token="$(stack_token)" || return 1
+  curl -sS -H "Authorization: Bearer $token" "$BASE_URL$path"
+}
+
+stack_auth_post() {
+  local path="$1"
+  local json="$2"
+  local token
+  token="$(stack_token)" || return 1
+  curl -sS -H "Authorization: Bearer $token" -H "content-type: application/json" \
+    -d "$json" "$BASE_URL$path"
+}
+
+publish_auth_post() {
+  local path="$1"
+  local json="$2"
+  local publish_base_url="$3"
+  local publish_token_file="$4"
+  local token
+
+  if [[ "$publish_base_url" == "$BASE_URL" && -z "$publish_token_file" ]]; then
+    stack_auth_post "$path" "$json"
+    return
+  fi
+
+  if [[ -z "$publish_token_file" || ! -s "$publish_token_file" ]]; then
+    echo "ERROR: publish token file missing or empty: $publish_token_file" >&2
+    exit 1
+  fi
+  token="$(tr -d '\r\n' <"$publish_token_file")"
+  curl -sS -H "Authorization: Bearer $token" -H "content-type: application/json" \
+    -d "$json" "$publish_base_url$path"
+}
+
+publish_fixture_sources_on_stack() {
+  local fixture_file rec file_id_hex file_size payload
+
+  if [[ "${FIXTURES_ONLY:-0}" != "1" || "${STACK_PUBLISH_FIXTURES:-1}" != "1" ]]; then
+    return 0
+  fi
+  fixture_file="${DOWNLOAD_FIXTURES_FILE:-}"
+  if [[ -z "$fixture_file" || ! -f "$fixture_file" ]]; then
+    echo "ERROR: stack fixture publish requires DOWNLOAD_FIXTURES_FILE: $fixture_file" >&2
+    exit 1
+  fi
+
+  log "fixture-publish-start file=$fixture_file base_url=$STACK_PUBLISH_BASE_URL token_file=${STACK_PUBLISH_TOKEN_FILE:-<stack>}"
+  while IFS= read -r rec; do
+    [[ -n "$rec" ]] || continue
+    file_id_hex="$(printf '%s\n' "$rec" | jq -r '.file_hash_md4_hex')"
+    file_size="$(printf '%s\n' "$rec" | jq -r '.file_size')"
+    payload="$(jq -nc --arg id "$file_id_hex" --argjson size "$file_size" '{file_id_hex:$id,file_size:$size}')"
+    publish_auth_post "/api/v1/kad/publish_source" "$payload" "$STACK_PUBLISH_BASE_URL" "$STACK_PUBLISH_TOKEN_FILE" >/dev/null
+    log "fixture-publish file_id=$file_id_hex file_size=$file_size"
+  done < <(jq -cr "$valid_fixture_filter" "$fixture_file")
+  log "fixture-publish-done file=$fixture_file"
+}
+
+wait_for_fixture_sources() {
+  local fixture_file rec file_id_hex file_size search_payload start now elapsed last_log sources_json sources_count status_json
+
+  if [[ "${FIXTURES_ONLY:-0}" != "1" ]]; then
+    return 0
+  fi
+  fixture_file="${DOWNLOAD_FIXTURES_FILE:-}"
+  if [[ -z "$fixture_file" || ! -f "$fixture_file" ]]; then
+    echo "ERROR: FIXTURES_ONLY=1 but DOWNLOAD_FIXTURES_FILE is missing: $fixture_file" >&2
+    exit 1
+  fi
+
+  while IFS= read -r rec; do
+    [[ -n "$rec" ]] || continue
+    file_id_hex="$(printf '%s\n' "$rec" | jq -r '.file_hash_md4_hex')"
+    file_size="$(printf '%s\n' "$rec" | jq -r '.file_size')"
+    search_payload="$(jq -nc --arg id "$file_id_hex" --argjson size "$file_size" '{file_id_hex:$id,file_size:$size}')"
+    stack_auth_post "/api/v1/kad/search_sources" "$search_payload" >/dev/null || true
+
+    start="$(ts_epoch)"
+    last_log=0
+    while true; do
+      sources_json="$(stack_auth_get "/api/v1/kad/sources/$file_id_hex" || echo '{}')"
+      sources_count="$(printf '%s\n' "$sources_json" | jq -r '(.sources // []) | length' 2>/dev/null || echo 0)"
+      if [[ "$sources_count" =~ ^[0-9]+$ ]] && (( sources_count > 0 )); then
+        log "fixture-sources-ready file_id=$file_id_hex count=$sources_count"
+        break
+      fi
+
+      now="$(ts_epoch)"
+      elapsed="$((now - start))"
+      if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+        log "fixture-sources-wait file_id=$file_id_hex elapsed=${elapsed}s remaining=$((FIXTURE_SOURCE_TIMEOUT_SECS - elapsed))s count=$sources_count"
+        last_log="$elapsed"
+      fi
+      if (( elapsed > FIXTURE_SOURCE_TIMEOUT_SECS )); then
+        status_json="$(stack_auth_get "/api/v1/status" || echo '{}')"
+        echo "ERROR: fixture source discovery timeout file_id=$file_id_hex elapsed=${elapsed}s count=$sources_count" >&2
+        echo "$status_json" | jq -r '{sent_search_source_reqs,recv_search_source_reqs,source_store_files,source_store_entries_total,live,routing}' >&2 || true
+        dump_download_diagnostics "fixture_sources_timeout"
+        exit 1
+      fi
+      sleep "$POLL_SECS"
+      stack_auth_post "/api/v1/kad/search_sources" "$search_payload" >/dev/null || true
+    done
+  done < <(jq -cr "$valid_fixture_filter" "$fixture_file")
 }
 
 stack_status_raw() {
@@ -134,8 +316,9 @@ wait_for_status_file() {
 wait_for_scenario_running() {
   local scenario="$1"
   local timeout_secs="$2"
-  local start now elapsed line status state
+  local start now elapsed line status state last_log
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     now="$(ts_epoch)"
     elapsed="$((now - start))"
@@ -147,8 +330,12 @@ wait_for_scenario_running() {
     if [[ -n "$line" ]]; then
       status="$(echo "$line" | cut -f3)"
       state="$(echo "$line" | cut -f4)"
-      log "scenario-check scenario=$scenario status=${status:-unknown} state=${state:-unknown}"
+      if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+        log "scenario-wait scenario=$scenario elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s status=${status:-unknown} state=${state:-unknown}"
+        last_log="$elapsed"
+      fi
       if [[ "$status" == "running" && "$state" == "running" ]]; then
+        log "scenario-ready scenario=$scenario elapsed=${elapsed}s"
         return 0
       fi
       if [[ "$state" == "completed" || "$state" == "failed" || "$state" == "stopped" ]]; then
@@ -283,6 +470,34 @@ poll_downloads_json() {
   curl -sS -H "Authorization: Bearer $token" "$BASE_URL/api/v1/downloads" >"$out"
 }
 
+dump_download_diagnostics() {
+  local tag="$1"
+  local downloads_json status_json
+  downloads_json="$RESUME_OUT_DIR/${tag}_downloads_diag.json"
+  status_json="$RESUME_OUT_DIR/${tag}_status_diag.json"
+
+  poll_downloads_json "$downloads_json" || true
+  stack_auth_get "/api/v1/status" >"$status_json" 2>/dev/null || echo '{}' >"$status_json"
+
+  log "diag-dump tag=$tag downloads_json=$downloads_json status_json=$status_json"
+  jq -r '
+    {
+      queue_len,
+      reserve_calls_total,
+      reserve_granted_blocks_total,
+      reserve_denied_cooldown_total,
+      reserve_denied_peer_cap_total,
+      reserve_denied_download_cap_total,
+      reserve_denied_state_total,
+      reserve_empty_no_missing_total,
+      downloads_count: ((.downloads // []) | length),
+      inflight_total: (((.downloads // []) | map(.inflight_ranges // 0) | add) // 0),
+      downloaded_total: (((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0),
+      states: ((.downloads // []) | sort_by(.state) | group_by(.state) | map({state: .[0].state, count: length}))
+    }
+  ' "$downloads_json" 2>/dev/null || true
+}
+
 snapshot_downloads() {
   local label="$1"
   poll_downloads_json "$RESUME_OUT_DIR/${label}_downloads.json"
@@ -291,7 +506,7 @@ snapshot_downloads() {
     echo "timestamp=$(ts)"
     echo "run_dir=$RUN_DIR"
     echo "label=$label"
-    echo "downloads_count=$(jq -r '.downloads | length' "$RESUME_OUT_DIR/${label}_downloads.json")"
+    echo "downloads_count=$(jq -r '(.downloads // []) | length' "$RESUME_OUT_DIR/${label}_downloads.json")"
     echo "queue_len=$(jq -r '.queue_len // 0' "$RESUME_OUT_DIR/${label}_downloads.json")"
     echo "part_files=$(find "$RUN_DIR/data/download" -maxdepth 1 -type f -name '*.part' | wc -l)"
     echo "part_met_files=$(find "$RUN_DIR/data/download" -maxdepth 1 -type f -name '*.part.met' | wc -l)"
@@ -323,9 +538,10 @@ has_active_transfer_in_file() {
 
 wait_for_active_transfer() {
   local timeout_secs="$1"
-  local start now elapsed tmp_json
+  local start now elapsed last_log tmp_json downloads_count reserve_calls reserve_granted
   tmp_json="$RESUME_OUT_DIR/active_probe.json"
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     poll_downloads_json "$tmp_json"
     if has_active_transfer_in_file "$tmp_json"; then
@@ -334,11 +550,29 @@ wait_for_active_transfer() {
     fi
     now="$(ts_epoch)"
     elapsed="$((now - start))"
+    downloads_count="$(jq -r '(.downloads // []) | length' "$tmp_json" 2>/dev/null || echo 0)"
+    reserve_calls="$(jq -r '.reserve_calls_total // 0' "$tmp_json" 2>/dev/null || echo 0)"
+    reserve_granted="$(jq -r '.reserve_granted_blocks_total // 0' "$tmp_json" 2>/dev/null || echo 0)"
+
+    if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+      log "active-transfer-wait elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s downloads=$downloads_count reserve_calls_total=$reserve_calls reserve_granted_blocks_total=$reserve_granted"
+      last_log="$elapsed"
+    fi
+    if (( elapsed > NO_RESERVE_ACTIVITY_TIMEOUT_SECS )) \
+      && [[ "$downloads_count" =~ ^[0-9]+$ ]] \
+      && [[ "$reserve_calls" =~ ^[0-9]+$ ]] \
+      && (( downloads_count > 0 )) \
+      && (( reserve_calls == 0 )); then
+      echo "ERROR: no reserve activity observed within ${NO_RESERVE_ACTIVITY_TIMEOUT_SECS}s (downloads=$downloads_count reserve_calls_total=$reserve_calls)" >&2
+      dump_download_diagnostics "no_reserve_activity"
+      exit 1
+    fi
     if (( elapsed > timeout_secs )); then
       echo "ERROR: no active transfer observed within ${timeout_secs}s" >&2
       jq -r '
         "downloads=\((.downloads // []) | length) total_downloaded=\(((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0) inflight_total=\(((.downloads // []) | map(.inflight_ranges // 0) | add) // 0)"
       ' "$tmp_json" >&2 || true
+      dump_download_diagnostics "active_transfer_timeout"
       exit 1
     fi
     sleep "$POLL_SECS"
@@ -351,11 +585,18 @@ assert_monotonic_download_bytes() {
   local out="$RESUME_OUT_DIR/post_monotonic_violations.txt"
 
   jq -nr --argfile pre "$pre" --argfile post "$post" '
-    def by_id($arr): reduce ($arr[]?) as $d ({}; .[$d.id] = ($d.downloaded_bytes // 0));
+    def dl_key($d):
+      if ($d.part_number? != null) then ("part:" + (($d.part_number | tostring)))
+      elif ($d.id? != null) then ("id:" + ($d.id | tostring))
+      elif ($d.file_hash_md4_hex? != null) then ("hash:" + ($d.file_hash_md4_hex | tostring))
+      else empty
+      end;
+    def by_key($arr):
+      reduce ($arr[]?) as $d ({}; (dl_key($d)) as $k | if $k == null or $k == "" then . else .[$k] = ($d.downloaded_bytes // 0) end);
     ($pre.downloads // []) as $pre_dl
     | ($post.downloads // []) as $post_dl
-    | (by_id($pre_dl)) as $pre_map
-    | (by_id($post_dl)) as $post_map
+    | (by_key($pre_dl)) as $pre_map
+    | (by_key($post_dl)) as $post_map
     | ($pre_map | to_entries[])
     | select((($post_map[.key] // -1) < .value))
     | "\(.key)\tpre=\(.value)\tpost=\($post_map[.key] // -1)"
@@ -371,9 +612,10 @@ assert_monotonic_download_bytes() {
 
 wait_for_any_completed_download() {
   local timeout_secs="$1"
-  local start now elapsed tmp_json
+  local start now elapsed last_log tmp_json
   tmp_json="$RESUME_OUT_DIR/completion_probe.json"
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     poll_downloads_json "$tmp_json"
     if jq -e '
@@ -384,11 +626,16 @@ wait_for_any_completed_download() {
     fi
     now="$(ts_epoch)"
     elapsed="$((now - start))"
+    if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+      log "completion-wait elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s downloads=$(jq -r '(.downloads // []) | length' "$tmp_json" 2>/dev/null || echo 0)"
+      last_log="$elapsed"
+    fi
     if (( elapsed > timeout_secs )); then
       echo "ERROR: no completed download observed within ${timeout_secs}s after restart" >&2
       jq -r '
         "downloads=\((.downloads // []) | length) completed=\(((.downloads // []) | map(select(.state=="completed")) | length)) total_downloaded=\(((.downloads // []) | map(.downloaded_bytes // 0) | add) // 0)"
       ' "$tmp_json" >&2 || true
+      dump_download_diagnostics "completion_timeout"
       exit 1
     fi
     sleep "$POLL_SECS"
@@ -462,10 +709,11 @@ restart_app() {
 wait_for_post_restart_progress() {
   local scenario="$1"
   local timeout_secs="$2"
-  local start now elapsed baseline_lines current_lines line status state
+  local start now elapsed baseline_lines current_lines line status state last_log
 
   baseline_lines="$(wc -l <"$STATUS_TSV" 2>/dev/null || echo 0)"
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     now="$(ts_epoch)"
     elapsed="$((now - start))"
@@ -479,8 +727,12 @@ wait_for_post_restart_progress() {
     if [[ -n "$line" ]]; then
       status="$(echo "$line" | cut -f3)"
       state="$(echo "$line" | cut -f4)"
-      log "post-restart scenario=$scenario status=${status:-unknown} state=${state:-unknown} lines=$current_lines"
+      if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+        log "post-restart-wait scenario=$scenario elapsed=${elapsed}s remaining=$((timeout_secs - elapsed))s status=${status:-unknown} state=${state:-unknown} lines=$current_lines"
+        last_log="$elapsed"
+      fi
       if (( current_lines > baseline_lines + 2 )) && [[ "$status" == "running" || "$state" == "completed" ]]; then
+        log "post-restart-ready scenario=$scenario elapsed=${elapsed}s lines=$current_lines"
         return 0
       fi
       if [[ "$state" == "failed" ]]; then
@@ -493,8 +745,9 @@ wait_for_post_restart_progress() {
 }
 
 wait_for_stack_terminal() {
-  local start now elapsed out runner_state
+  local start now elapsed out runner_state last_log
   start="$(ts_epoch)"
+  last_log=0
   while true; do
     now="$(ts_epoch)"
     elapsed="$((now - start))"
@@ -504,7 +757,10 @@ wait_for_stack_terminal() {
     fi
     out="$(stack_status_raw)"
     runner_state="$(status_field "$out" "runner_state")"
-    log "stack-state runner_state=${runner_state:-unknown}"
+    if (( elapsed - last_log >= PROGRESS_LOG_SECS )); then
+      log "stack-terminal-wait elapsed=${elapsed}s remaining=$((WAIT_TIMEOUT_SECS - elapsed))s runner_state=${runner_state:-unknown}"
+      last_log="$elapsed"
+    fi
     case "${runner_state:-unknown}" in
     completed) return 0 ;;
     failed | stopped) return 1 ;;
@@ -544,6 +800,9 @@ run_resume_soak() {
   local out status
   require_tools
   mkdir -p "$RESUME_OUT_DIR"
+  trap cleanup_on_exit EXIT
+  trap on_sigint INT
+  trap on_sigterm TERM
 
   out="$(stack_status_raw)"
   status="$(status_field "$out" "status")"
@@ -553,13 +812,20 @@ run_resume_soak() {
   fi
 
   log "starting stack soak via $STACK_SCRIPT"
-  "$STACK_SCRIPT" start
+  BASE_URL="$STACK_BASE_URL" \
+    API_PORT="$STACK_API_PORT" \
+    DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}" \
+    FIXTURES_ONLY="${FIXTURES_ONLY:-0}" \
+    "$STACK_SCRIPT" start
+  STACK_STARTED=1
 
   wait_for_run_dir
   wait_for_status_file
   log "run_dir=$RUN_DIR status_tsv=$STATUS_TSV"
 
+  publish_fixture_sources_on_stack
   wait_for_scenario_running "$RESUME_SCENARIO" "$WAIT_TIMEOUT_SECS"
+  wait_for_fixture_sources
   wait_for_active_transfer "$ACTIVE_TRANSFER_TIMEOUT_SECS"
   snapshot_downloads "pre"
 
@@ -567,11 +833,29 @@ run_resume_soak() {
 
   restart_app
   wait_for_health_code "200" "$HEALTH_TIMEOUT_SECS"
+  # Re-publish + verify fixture sources after restart so completion gate
+  # measures resumed transfer behavior instead of stale pre-crash context.
+  publish_fixture_sources_on_stack
+  wait_for_fixture_sources
   snapshot_downloads "post"
   assert_monotonic_download_bytes
 
   wait_for_post_restart_progress "$RESUME_SCENARIO" "$HEALTH_TIMEOUT_SECS"
   wait_for_any_completed_download "$COMPLETION_TIMEOUT_SECS"
+
+  if is_enabled "$FAST_EXIT_AFTER_COMPLETION"; then
+    if [[ "$FAST_EXIT_GRACE_SECS" =~ ^[0-9]+$ ]] && (( FAST_EXIT_GRACE_SECS > 0 )); then
+      log "fast-exit enabled; grace-sleep ${FAST_EXIT_GRACE_SECS}s before stop/collect"
+      sleep "$FAST_EXIT_GRACE_SECS"
+    fi
+    log "fast-exit enabled; requesting stack stop after completion gate"
+    "$STACK_SCRIPT" stop >/dev/null 2>&1 || true
+    collect_stack_bundle
+    write_report
+    STOP_ON_EXIT=0
+    log "resume-soak complete report=$RESUME_OUT_DIR/resume_report.txt (fast-exit)"
+    return 0
+  fi
 
   if ! wait_for_stack_terminal; then
     log "stack terminal state is non-completed; requesting stop"
@@ -580,6 +864,7 @@ run_resume_soak() {
 
   collect_stack_bundle
   write_report
+  STOP_ON_EXIT=0
   log "resume-soak complete report=$RESUME_OUT_DIR/resume_report.txt"
 }
 

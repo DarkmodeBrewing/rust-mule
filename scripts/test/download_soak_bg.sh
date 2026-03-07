@@ -23,6 +23,8 @@ set -euo pipefail
 #   API_MAX_TIME_SECS=8
 #   DOWNLOAD_FIXTURES_FILE=scripts/test/download_fixtures.example.json
 #   FIXTURES_ONLY=0
+#   DEBUG_CREATE_PAYLOADS=0
+#   LOCK_ROOT=/tmp/rust-mule-download-soak-locks
 
 SCENARIO="${SCENARIO:-}"
 BASE_URL="${BASE_URL:-http://127.0.0.1:17835}"
@@ -38,6 +40,8 @@ API_CONNECT_TIMEOUT_SECS="${API_CONNECT_TIMEOUT_SECS:-3}"
 API_MAX_TIME_SECS="${API_MAX_TIME_SECS:-8}"
 DOWNLOAD_FIXTURES_FILE="${DOWNLOAD_FIXTURES_FILE:-}"
 FIXTURES_ONLY="${FIXTURES_ONLY:-0}"
+DEBUG_CREATE_PAYLOADS="${DEBUG_CREATE_PAYLOADS:-0}"
+LOCK_ROOT="${LOCK_ROOT:-/tmp/rust-mule-download-soak-locks}"
 
 if [[ -z "$SCENARIO" ]]; then
   echo "ERROR: SCENARIO is required (single_e2e|long_churn|integrity|concurrency)" >&2
@@ -53,12 +57,118 @@ RUNNER_STATE_FILE="$RUN_ROOT/runner.state"
 STOP_FILE="$RUN_ROOT/stop.requested"
 FAIL_FILE="$RUN_ROOT/failed.flag"
 FIXTURE_INDEX_FILE="$RUN_ROOT/fixture.index"
+CREATE_FAIL_STREAK_FILE="$RUN_ROOT/create_fail_streak"
 FIXTURE_COUNT=0
 FIXTURE_NEXT=0
+CREATE_FAIL_STREAK=0
+CREATE_FAIL_LIMIT="${CREATE_FAIL_LIMIT:-10}"
+BASE_URL_LOCK_KEY=""
+BASE_URL_LOCK_DIR=""
+BASE_URL_LOCK_HELD=0
 
 ts() { date +"%Y-%m-%dT%H:%M:%S%z"; }
 ts_epoch() { date +%s; }
-log() { echo "$(ts) $*" | tee -a "$RUNNER_LOG_FILE"; }
+log() {
+  local line
+  line="$(ts) $*"
+  echo "$line" >>"$RUNNER_LOG_FILE"
+  echo "$line" >&2
+}
+clip_detail() {
+  local text="${1:-}"
+  text="$(echo "$text" | tr '\r\n\t' '   ')"
+  printf '%.160s' "$text"
+}
+
+base_url_lock_key() {
+  printf '%s' "$BASE_URL" | tr -c '[:alnum:]' '_'
+}
+
+init_base_url_lock_paths() {
+  BASE_URL_LOCK_KEY="$(base_url_lock_key)"
+  BASE_URL_LOCK_DIR="${LOCK_ROOT}/${BASE_URL_LOCK_KEY}"
+}
+
+read_lock_owner_pid() {
+  local owner_file="$1"
+  awk -F= '$1=="pid"{print $2}' "$owner_file" 2>/dev/null | head -n1
+}
+
+write_lock_owner_file() {
+  local owner_file="$1"
+  {
+    printf 'pid=%s\n' "$$"
+    printf 'scenario=%s\n' "$SCENARIO"
+    printf 'base_url=%s\n' "$BASE_URL"
+    printf 'run_root=%s\n' "$RUN_ROOT"
+    printf 'started_at=%s\n' "$(ts)"
+  } >"$owner_file"
+}
+
+base_url_lock_conflict() {
+  init_base_url_lock_paths
+  mkdir -p "$LOCK_ROOT"
+  if [[ ! -d "$BASE_URL_LOCK_DIR" ]]; then
+    return 1
+  fi
+
+  local owner_file owner_pid
+  owner_file="$BASE_URL_LOCK_DIR/owner"
+  owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+  if [[ -n "$owner_pid" && "$owner_pid" =~ ^[0-9]+$ ]] && is_pid_alive "$owner_pid"; then
+    return 0
+  fi
+
+  rm -rf "$BASE_URL_LOCK_DIR" 2>/dev/null || true
+  return 1
+}
+
+acquire_base_url_lock() {
+  init_base_url_lock_paths
+  mkdir -p "$LOCK_ROOT"
+
+  if mkdir "$BASE_URL_LOCK_DIR" 2>/dev/null; then
+    write_lock_owner_file "$BASE_URL_LOCK_DIR/owner"
+    BASE_URL_LOCK_HELD=1
+    return 0
+  fi
+
+  local owner_file owner_pid
+  owner_file="$BASE_URL_LOCK_DIR/owner"
+  owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+  if [[ -n "$owner_pid" && "$owner_pid" =~ ^[0-9]+$ ]] && is_pid_alive "$owner_pid"; then
+    log "ERROR: base_url lock held base_url=$BASE_URL lock_dir=$BASE_URL_LOCK_DIR owner_pid=$owner_pid owner_file=$owner_file"
+    return 1
+  fi
+
+  rm -rf "$BASE_URL_LOCK_DIR" 2>/dev/null || true
+  if mkdir "$BASE_URL_LOCK_DIR" 2>/dev/null; then
+    write_lock_owner_file "$BASE_URL_LOCK_DIR/owner"
+    BASE_URL_LOCK_HELD=1
+    return 0
+  fi
+
+  log "ERROR: failed to acquire base_url lock base_url=$BASE_URL lock_dir=$BASE_URL_LOCK_DIR"
+  return 1
+}
+
+release_base_url_lock() {
+  if [[ "$BASE_URL_LOCK_HELD" != "1" ]]; then
+    return 0
+  fi
+  if [[ -z "$BASE_URL_LOCK_DIR" ]]; then
+    BASE_URL_LOCK_HELD=0
+    return 0
+  fi
+
+  local owner_file owner_pid
+  owner_file="$BASE_URL_LOCK_DIR/owner"
+  owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+  if [[ "$owner_pid" == "$$" ]]; then
+    rm -rf "$BASE_URL_LOCK_DIR" 2>/dev/null || true
+  fi
+  BASE_URL_LOCK_HELD=0
+}
 
 ensure_dirs() {
   mkdir -p "$RUN_ROOT" "$LOG_DIR"
@@ -109,6 +219,8 @@ fixtures_path() {
 
 load_fixtures() {
   local f
+  CREATE_FAIL_STREAK=0
+  printf '0\n' >"$CREATE_FAIL_STREAK_FILE"
   if ! f="$(fixtures_path)"; then
     FIXTURE_COUNT=0
     FIXTURE_NEXT=0
@@ -180,25 +292,51 @@ create_download() {
   local fallback_name="$1"
   local fallback_size="$2"
   local fallback_md4="$3"
-  local rec name size md4 resp
+  local rec name size md4 resp source_label part err_code err_msg err_excerpt
 
+  source_label="fallback"
   if rec="$(next_fixture_record)"; then
     name="$(echo "$rec" | jq -r '.file_name')"
     size="$(echo "$rec" | jq -r '.file_size')"
     md4="$(echo "$rec" | jq -r '.file_hash_md4_hex')"
+    source_label="fixture"
     resp="$(downloads_create "$name" "$size" "$md4" || true)"
     advance_fixture_index
+  else
+    if [[ "$FIXTURES_ONLY" == "1" ]]; then
+      log "ERROR: fixtures_only enabled but no valid fixture available"
+      touch "$FAIL_FILE"
+      return 1
+    fi
+    resp="$(downloads_create "$fallback_name" "$fallback_size" "$fallback_md4" || true)"
+  fi
+
+  part="$(echo "$resp" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+  if [[ -n "$part" ]]; then
+    CREATE_FAIL_STREAK=0
+    printf '%s\n' "$CREATE_FAIL_STREAK" >"$CREATE_FAIL_STREAK_FILE"
     echo "$resp"
     return 0
   fi
 
-  if [[ "$FIXTURES_ONLY" == "1" ]]; then
-    log "ERROR: fixtures_only enabled but no valid fixture available"
-    touch "$FAIL_FILE"
-    return 1
+  if [[ -f "$CREATE_FAIL_STREAK_FILE" ]]; then
+    local persisted_streak
+    persisted_streak="$(tr -d ' \t\r\n' <"$CREATE_FAIL_STREAK_FILE" 2>/dev/null || true)"
+    if [[ "$persisted_streak" =~ ^[0-9]+$ ]]; then
+      CREATE_FAIL_STREAK="$persisted_streak"
+    fi
   fi
-
-  downloads_create "$fallback_name" "$fallback_size" "$fallback_md4" || true
+  CREATE_FAIL_STREAK="$((CREATE_FAIL_STREAK + 1))"
+  printf '%s\n' "$CREATE_FAIL_STREAK" >"$CREATE_FAIL_STREAK_FILE"
+  err_code="$(echo "$resp" | jq -r '.error.code // .code // empty' 2>/dev/null || true)"
+  err_msg="$(echo "$resp" | jq -r '.error.message // .message // empty' 2>/dev/null || true)"
+  err_excerpt="$(clip_detail "$resp")"
+  log "WARN: create returned no part source=$source_label streak=$CREATE_FAIL_STREAK error_code=${err_code:-none} error_message=${err_msg:-none} response=${err_excerpt:-empty}"
+  if [[ "$FIXTURES_ONLY" == "1" ]] && (( CREATE_FAIL_STREAK >= CREATE_FAIL_LIMIT )); then
+    log "ERROR: repeated create failures in fixtures-only mode streak=$CREATE_FAIL_STREAK limit=$CREATE_FAIL_LIMIT"
+    touch "$FAIL_FILE"
+  fi
+  echo "$resp"
 }
 
 api_get() {
@@ -212,18 +350,35 @@ api_get() {
     "$BASE_URL$path"
 }
 
-api_post() {
+api_post_file() {
   local path="$1"
-  local json="${2:-{}}"
-  local auth
+  local payload_file="$2"
+  local auth rc
   auth="$(auth_header)" || return 1
+  rc=0
   curl -sS \
     --connect-timeout "$API_CONNECT_TIMEOUT_SECS" \
     --max-time "$API_MAX_TIME_SECS" \
     -H "$auth" \
     -H "content-type: application/json" \
-    -d "$json" \
-    "$BASE_URL$path"
+    --data-binary "@$payload_file" \
+    "$BASE_URL$path" || rc=$?
+  return "$rc"
+}
+
+api_post() {
+  local path="$1"
+  local json="${2:-{}}"
+  local payload_file rc
+  payload_file="$(mktemp "$RUN_ROOT/payload.XXXXXX.json")"
+  printf '%s' "$json" >"$payload_file"
+  if api_post_file "$path" "$payload_file"; then
+    rc=0
+  else
+    rc=$?
+  fi
+  rm -f "$payload_file"
+  return "$rc"
 }
 
 api_delete() {
@@ -262,7 +417,40 @@ downloads_create() {
   local name="$1"
   local size="$2"
   local md4="$3"
-  api_post "/api/v1/downloads" "{\"file_name\":\"$name\",\"file_size\":$size,\"file_hash_md4_hex\":\"$md4\"}"
+  local payload_file payload payload_len payload_bytes resp rc
+  payload_file="$(mktemp "$RUN_ROOT/create-payload.XXXXXX.json")"
+  if ! jq -nc \
+    --arg file_name "$name" \
+    --arg file_hash_md4_hex "$md4" \
+    --argjson file_size "$size" \
+    '{file_name:$file_name,file_size:$file_size,file_hash_md4_hex:$file_hash_md4_hex}' >"$payload_file"; then
+    rm -f "$payload_file"
+    return 1
+  fi
+  payload="$(cat "$payload_file")"
+  payload_len="${#payload}"
+  payload_bytes="$(wc -c <"$payload_file" | tr -d ' ')"
+
+  if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
+    log "create-debug stage=request target=${BASE_URL}/api/v1/downloads token_file=${TOKEN_FILE} payload_len=${payload_len} payload_bytes=${payload_bytes} payload=${payload}"
+  fi
+
+  if resp="$(api_post_file "/api/v1/downloads" "$payload_file")"; then
+    rc=0
+  else
+    rc=$?
+    rm -f "$payload_file"
+    if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
+      log "create-debug stage=response target=${BASE_URL}/api/v1/downloads rc=${rc} response_len=0 response="
+    fi
+    return "$rc"
+  fi
+  rm -f "$payload_file"
+
+  if [[ "$DEBUG_CREATE_PAYLOADS" == "1" ]]; then
+    log "create-debug stage=response target=${BASE_URL}/api/v1/downloads rc=0 response_len=${#resp} response=${resp}"
+  fi
+  printf '%s' "$resp"
 }
 
 downloads_pause() { local part="$1"; api_post "/api/v1/downloads/$part/pause" "{}"; }
@@ -317,13 +505,18 @@ scenario_single_e2e_round() {
 
   part="$(downloads_random_part)"
   if [[ -z "$part" ]]; then
-    local name size md4 create_json
+    local name size md4 create_json create_err
     name="single-e2e-${round}.bin"
     size="$(( (RANDOM % 20000000) + 1000000 ))"
     md4="$(rand_md4_hex)"
     create_json="$(create_download "$name" "$size" "$md4" || true)"
     part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
-    write_round_row "$round" "create" "part=${part:-none}"
+    if [[ -z "$part" ]]; then
+      create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+      write_round_row "$round" "create" "part=none error=$(clip_detail "$create_err")"
+    else
+      write_round_row "$round" "create" "part=$part"
+    fi
     return 0
   fi
 
@@ -345,13 +538,18 @@ scenario_single_e2e_round() {
 
 scenario_long_churn_round() {
   local round part action queue_len
-  local name size md4
+  local name size md4 create_json create_part create_err
   round="$1"
 
   name="churn-${round}-$(rand_hex16).bin"
   size="$(( (RANDOM % 10000000) + 500000 ))"
   md4="$(rand_md4_hex)"
-  create_download "$name" "$size" "$md4" >/dev/null || true
+  create_json="$(create_download "$name" "$size" "$md4" || true)"
+  create_part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+  if [[ -z "$create_part" ]]; then
+    create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+    write_round_row "$round" "create_fail" "error=$(clip_detail "$create_err")"
+  fi
 
   part="$(downloads_random_part)"
   if [[ -n "$part" ]]; then
@@ -378,14 +576,19 @@ scenario_long_churn_round() {
 
 scenario_integrity_round() {
   local round list_json violations
-  local name size md4
+  local name size md4 create_json create_part create_err
   round="$1"
 
   if (( round <= 3 )); then
     name="integrity-${round}.bin"
     size="$(( (RANDOM % 5000000) + 2000000 ))"
     md4="$(rand_md4_hex)"
-    create_download "$name" "$size" "$md4" >/dev/null || true
+    create_json="$(create_download "$name" "$size" "$md4" || true)"
+    create_part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+    if [[ -z "$create_part" ]]; then
+      create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+      write_round_row "$round" "create_fail" "error=$(clip_detail "$create_err")"
+    fi
   fi
 
   list_json="$(downloads_list || echo '{}')"
@@ -422,7 +625,7 @@ scenario_integrity_round() {
 }
 
 scenario_concurrency_round() {
-  local round queue_len i target name size md4 part
+  local round queue_len i target name size md4 part create_json create_part create_err
   round="$1"
   target="$CONCURRENCY_TARGET"
   queue_len="$(downloads_list | jq -r '.queue_len // 0' 2>/dev/null || echo 0)"
@@ -431,7 +634,12 @@ scenario_concurrency_round() {
     name="concurrency-${round}-$(rand_hex16).bin"
     size="$(( (RANDOM % 15000000) + 500000 ))"
     md4="$(rand_md4_hex)"
-    create_download "$name" "$size" "$md4" >/dev/null || true
+    create_json="$(create_download "$name" "$size" "$md4" || true)"
+    create_part="$(echo "$create_json" | jq -r '.download.part_number // empty' 2>/dev/null || true)"
+    if [[ -z "$create_part" ]]; then
+      create_err="$(echo "$create_json" | jq -r '.error.message // .error.code // "unknown"' 2>/dev/null || echo unknown)"
+      write_round_row "$round" "create_fail" "error=$(clip_detail "$create_err")"
+    fi
     queue_len="$((queue_len + 1))"
   done
 
@@ -485,7 +693,14 @@ run_foreground() {
   rm -f "$STOP_FILE" "$FAIL_FILE"
   load_fixtures
 
-  trap 'log "runner interrupted"; echo "stopped" > "$RUNNER_STATE_FILE"; rm -f "$RUNNER_PID_FILE"; exit 0' INT TERM
+  if ! acquire_base_url_lock; then
+    echo "failed" >"$RUNNER_STATE_FILE"
+    rm -f "$RUNNER_PID_FILE"
+    exit 1
+  fi
+
+  trap 'release_base_url_lock' EXIT
+  trap 'log "runner interrupted"; echo "stopped" > "$RUNNER_STATE_FILE"; rm -f "$RUNNER_PID_FILE"; release_base_url_lock; exit 0' INT TERM
 
   deadline="$(( $(ts_epoch) + duration_secs ))"
   log "download-soak-start scenario=$SCENARIO duration_secs=$duration_secs deadline_epoch=$deadline base_url=$BASE_URL"
@@ -493,6 +708,7 @@ run_foreground() {
   if ! wait_ready; then
     echo "failed" >"$RUNNER_STATE_FILE"
     rm -f "$RUNNER_PID_FILE"
+    release_base_url_lock
     exit 1
   fi
 
@@ -518,17 +734,28 @@ run_foreground() {
     log "download-soak-finished rounds=$round result=failed"
     echo "failed" >"$RUNNER_STATE_FILE"
     rm -f "$RUNNER_PID_FILE"
+    release_base_url_lock
     exit 1
   fi
 
   log "download-soak-finished rounds=$round result=completed"
   echo "completed" >"$RUNNER_STATE_FILE"
   rm -f "$RUNNER_PID_FILE"
+  release_base_url_lock
 }
 
 start_background() {
   local duration_secs="${1:-1800}"
   ensure_dirs
+
+  if base_url_lock_conflict; then
+    local owner_file owner_pid
+    init_base_url_lock_paths
+    owner_file="$BASE_URL_LOCK_DIR/owner"
+    owner_pid="$(read_lock_owner_pid "$owner_file" || true)"
+    log "ERROR: refusing start due to active base_url lock base_url=$BASE_URL owner_pid=${owner_pid:-unknown} lock_dir=$BASE_URL_LOCK_DIR"
+    return 1
+  fi
 
   if [[ -f "$RUNNER_PID_FILE" ]]; then
     local pid
@@ -540,7 +767,7 @@ start_background() {
     rm -f "$RUNNER_PID_FILE"
   fi
 
-  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' READY_PATH='$READY_PATH' READY_HTTP_CODES='$READY_HTTP_CODES' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' DOWNLOAD_FIXTURES_FILE='$DOWNLOAD_FIXTURES_FILE' FIXTURES_ONLY='$FIXTURES_ONLY' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
+  nohup bash -lc "cd '$PWD' && SCENARIO='$SCENARIO' BASE_URL='$BASE_URL' TOKEN_FILE='$TOKEN_FILE' RUN_ROOT='$RUN_ROOT_BASE' WAIT_BETWEEN='$WAIT_BETWEEN' READY_TIMEOUT_SECS='$READY_TIMEOUT_SECS' READY_PATH='$READY_PATH' READY_HTTP_CODES='$READY_HTTP_CODES' CONCURRENCY_TARGET='$CONCURRENCY_TARGET' CHURN_MAX_QUEUE='$CHURN_MAX_QUEUE' API_CONNECT_TIMEOUT_SECS='$API_CONNECT_TIMEOUT_SECS' API_MAX_TIME_SECS='$API_MAX_TIME_SECS' DOWNLOAD_FIXTURES_FILE='$DOWNLOAD_FIXTURES_FILE' FIXTURES_ONLY='$FIXTURES_ONLY' DEBUG_CREATE_PAYLOADS='$DEBUG_CREATE_PAYLOADS' LOCK_ROOT='$LOCK_ROOT' '$0' run '$duration_secs'" >"$RUNNER_STDOUT_FILE" 2>&1 &
   echo $! >"$RUNNER_PID_FILE"
   log "runner started pid=$(cat "$RUNNER_PID_FILE") scenario=$SCENARIO duration_secs=$duration_secs"
 }

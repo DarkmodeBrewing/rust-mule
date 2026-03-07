@@ -14,9 +14,15 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [ ] Ensure CI/CD build + release flow is fully tag-driven (triggered from Git tags with artifact publish and verification).
 - [ ] Naming refactor pass: replace `Imule*` type/module/function identifiers with neutral `Mule*` naming (or neutral equivalents) across codebase.
 - [ ] Comment text normalization: avoid explicit iMule/aMule/eMule wording in code comments; use compatibility-focused wording instead (keep protocol-compat details in docs/tests as needed).
+- [ ] Build scripts: stop platform-name-only packaging and add explicit Rust target triples (`cargo build --target ...`) for release outputs.
+- [ ] Build scripts: add Linux x86_64/amd64 release target support (`x86_64-unknown-linux-gnu`) alongside current host-arch output.
+- [ ] Build scripts: add Windows target support in unified release matrix (`x86_64-pc-windows-msvc`, optional `aarch64-pc-windows-msvc`).
+- [ ] Build scripts: add macOS target support in unified release matrix (`x86_64-apple-darwin`, `aarch64-apple-darwin`) with clear host/cross-build constraints.
+- [ ] Build docs: document per-target prerequisites (rustup targets, linker/toolchain needs, when native runners are required vs Linux cross-build).
 
 ## KAD
 
+- [ ] Replace runtime-derived MD5 round constants in UDP crypto with the 64 fixed RFC 1321 constants to avoid platform-specific floating-point drift and preserve cross-node compatibility.
 - [x] Post-current longrun + merge: harden KAD wire decoders against allocation amplification by clamping untrusted `count` fields before `Vec::with_capacity(...)`.
 - [x] Post-current longrun + merge: cap `tracked_in_requests` growth with explicit max entries + eviction policy (hostile source churn protection).
 - [x] Post-current longrun + merge: replace deterministic LCG shaper jitter with OS-seeded non-crypto RNG jitter.
@@ -50,6 +56,10 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [x] Implement `.part` / `.part.met` persistence and startup recovery from `data/download/`.
 - [ ] Implement block scheduler and transfer pipeline (`OP_REQUESTPARTS`, `OP_SENDINGPART`, compressed blocks).
 - [x] Implement completion flow into `data/incoming/` with known file persistence (`known.met`).
+- [ ] Execute reproducible phase-0 acceptance pass and archive artifacts (`scripts/test/download_phase0_acceptance.sh`).
+- [ ] Deepen `known.met` compatibility and add restart/resume robustness assertions for crash/restart edge cases.
+- [ ] Add hash-first discovery/initiation path (direct MD4/file-hash driven flow, not keyword-only).
+- [x] Add operator helper for hash-first initiation (`scripts/docs/download_create_from_hash.sh`) to queue source search and create download from file hash.
 - [ ] Phase in AICH hashset support (`known2_64.met`) after MD4-first baseline is stable.
 
 ## API
@@ -59,6 +69,8 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 - [x] Post-current longrun + merge: make `load_or_create_token` self-heal invalid/corrupt token files (rotate + replace with warning).
 - [x] Post-current longrun + merge: emit warning/metric when SSE status serialization falls back to `{}`.
 - [x] Post-current longrun + merge: standardize typed API error envelope for non-2xx responses (code + human message).
+- [ ] Use constant-time bearer token comparison in `src/api/auth.rs` (e.g., `subtle::ConstantTimeEq`) instead of short-circuit string equality to reduce local timing side-channel exposure.
+- [ ] Enforce hard cap on active session count in `POST /api/v1/session` (e.g., `MAX_SESSIONS = 1024`) after pruning expired sessions; return `503 Service Unavailable` when cap is reached.
 - [ ] Consider tiered API command timeouts (shared baseline exists; tune by endpoint class if needed).
 - [x] Evaluate optional typed API error response envelope consistency for all non-2xx responses.
 - [x] Add human-friendly messages for HTTP error status responses (consistent, user-facing text alongside status code).
@@ -72,6 +84,7 @@ Backlog by subsystem. Keep this aligned with `docs/TASKS.md` and `docs/handoff.m
 
 ## SAM / Runtime
 
+- [ ] Prevent SAM command-line injection via settings/protocol hardening: reject `\r`/`\n` (and control chars) in `sam.session_name` at API validation and enforce no CR/LF emission in `i2p::sam::protocol::encode_value`.
 - [x] Post-current longrun + merge: bound `src/i2p/http.rs` response reads (replace unbounded `read_to_end` with capped read loop).
 - [x] Post-current longrun + merge: add SAM control line max-length guard in `src/i2p/sam/client.rs` (align with `datagram_tcp` framing limits).
 - [x] Post-current longrun + merge: harden chunked HTTP parsing with explicit per-chunk CRLF validation and malformed-input rejection tests.

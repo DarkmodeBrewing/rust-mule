@@ -1073,6 +1073,8 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     let downloads_json = response_json(downloads_resp).await;
     assert!(downloads_json.get("queue_len").is_some());
     assert!(downloads_json.get("recovered_on_start").is_some());
+    assert!(downloads_json.get("reserve_calls_total").is_some());
+    assert!(downloads_json.get("reserve_granted_blocks_total").is_some());
     assert!(
         downloads_json
             .get("reserve_denied_cooldown_total")
@@ -1086,6 +1088,12 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     assert!(
         downloads_json
             .get("reserve_denied_download_cap_total")
+            .is_some()
+    );
+    assert!(downloads_json.get("reserve_denied_state_total").is_some());
+    assert!(
+        downloads_json
+            .get("reserve_empty_no_missing_total")
             .is_some()
     );
     assert_eq!(

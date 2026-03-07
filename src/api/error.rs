@@ -4,6 +4,7 @@ use axum::{
     body::Bytes,
     extract::Request,
     http::StatusCode,
+    http::header::CONTENT_TYPE,
     middleware::Next,
     response::{IntoResponse, Response},
 };
@@ -48,7 +49,23 @@ pub(crate) fn parse_json_with_limit<T: serde::de::DeserializeOwned>(
     if bytes.len() > max_bytes {
         return Err(StatusCode::PAYLOAD_TOO_LARGE);
     }
-    serde_json::from_slice::<T>(&bytes).map_err(|_| StatusCode::BAD_REQUEST)
+    serde_json::from_slice::<T>(&bytes).map_err(|err| {
+        let excerpt = sanitize_log_excerpt(&bytes, 160);
+        tracing::warn!(
+            error = %err,
+            body_len = bytes.len(),
+            body_excerpt = %excerpt,
+            "json parse failed"
+        );
+        StatusCode::BAD_REQUEST
+    })
+}
+
+fn sanitize_log_excerpt(bytes: &[u8], max_len: usize) -> String {
+    String::from_utf8_lossy(&bytes[..bytes.len().min(max_len)])
+        .chars()
+        .map(|ch| if ch.is_control() { ' ' } else { ch })
+        .collect()
 }
 
 pub(crate) async fn error_envelope_mw(req: Request<Body>, next: Next) -> Response {
@@ -60,6 +77,15 @@ pub(crate) async fn error_envelope_mw(req: Request<Body>, next: Next) -> Respons
     if resp.status().is_success() {
         return resp;
     }
+    let has_json_body = resp
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok())
+        .map(|ct| ct.to_ascii_lowercase().starts_with("application/json"))
+        .unwrap_or(false);
+    if has_json_body {
+        return resp;
+    }
 
     let status = resp.status();
     let envelope_resp = status_with_message(status).into_response();
@@ -67,4 +93,16 @@ pub(crate) async fn error_envelope_mw(req: Request<Body>, next: Next) -> Respons
     let (envelope_parts, envelope_body) = envelope_resp.into_parts();
     orig_parts.headers.extend(envelope_parts.headers);
     Response::from_parts(orig_parts, envelope_body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sanitize_log_excerpt;
+
+    #[test]
+    fn sanitize_log_excerpt_replaces_control_chars() {
+        let raw = b"line1\r\nline2\t\x00end";
+        let sanitized = sanitize_log_excerpt(raw, 64);
+        assert_eq!(sanitized, "line1  line2  end");
+    }
 }

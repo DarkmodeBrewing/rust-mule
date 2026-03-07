@@ -1,5 +1,5 @@
-Status: DRAFT
-Last Reviewed: 2026-03-03
+Status: ACTIVE
+Last Reviewed: 2026-03-04
 
 # rust-mule API Design Specification (High Level)
 
@@ -23,10 +23,10 @@ The API is designed for:
 
 This document includes both:
 
-- currently implemented API behavior (`/api/v1` as of 2026-02-12), and
+- currently implemented API behavior (`/api/v1`, source of truth: `src/api/router.rs`), and
 - forward-looking endpoint ideas for later milestones.
 
-For executable endpoint usage, prefer `docs/api_curl.md`.
+For executable endpoint usage, prefer `docs/30_operations/api_curl.md`.
 
 ---
 
@@ -65,6 +65,22 @@ This spec assumes **v1 in path**.
 - REST endpoints use `Authorization: Bearer <token>`.
 - SSE (`GET /api/v1/events`) uses session-cookie auth.
 - Token query parameters for SSE are not used.
+
+### Debug endpoint hardening (planned)
+
+- Debug endpoints remain behind `[api].enable_debug_endpoints = true`.
+- Add a second-factor debug secret gate:
+  - config: `api.debug_token`
+  - header: `X-Debug-Token`
+- Expected behavior:
+  - debug disabled: `404`
+  - debug enabled + missing/invalid debug token: `403`
+- Keep standard auth/session checks in place; debug token is additive defense-in-depth.
+- Debug token lifecycle policy:
+  - do not auto-delete/rotate `api.debug_token` when debug endpoints are disabled
+  - when debug is disabled, token is inert (ignored at request path) and all debug routes stay `404`
+  - token rotation should be explicit admin action, not startup side-effect
+  - token must be redacted from logs and from any future `--print-effective-config` output
 
 ### Endpoints
 
@@ -105,6 +121,53 @@ Represents a single run of a search with its own timeline and results.
 ---
 
 ## Endpoints
+
+### Implemented Endpoint Surface (Current `/api/v1`)
+
+- Auth/session:
+  - `GET /api/v1/auth/bootstrap` (local-ui mode only)
+  - `POST /api/v1/session`
+  - `GET /api/v1/session/check`
+  - `POST /api/v1/session/logout`
+  - `POST /api/v1/token/rotate`
+- Core:
+  - `GET /api/v1/health`
+  - `GET /api/v1/status`
+  - `GET /api/v1/events` (SSE; session-cookie auth)
+  - `GET /api/v1/settings`
+  - `PATCH /api/v1/settings`
+- Searches:
+  - `GET /api/v1/searches`
+  - `GET /api/v1/searches/{search_id}`
+  - `POST /api/v1/searches/{search_id}/stop`
+  - `DELETE /api/v1/searches/{search_id}?purge_results=true|false`
+- Downloads:
+  - `GET /api/v1/downloads`
+  - `POST /api/v1/downloads`
+  - `POST /api/v1/downloads/{part_number}/pause`
+  - `POST /api/v1/downloads/{part_number}/resume`
+  - `POST /api/v1/downloads/{part_number}/cancel`
+  - `DELETE /api/v1/downloads/{part_number}`
+- KAD:
+  - `GET /api/v1/kad/peers`
+  - `GET /api/v1/kad/sources/{file_id_hex}`
+  - `GET /api/v1/kad/keyword_results/{keyword_id_hex}`
+  - `POST /api/v1/kad/search_sources`
+  - `POST /api/v1/kad/search_keyword`
+  - `POST /api/v1/kad/publish_source`
+  - `POST /api/v1/kad/publish_keyword`
+- Debug (only when `[api].enable_debug_endpoints = true`):
+  - `GET /api/v1/debug/routing/summary`
+  - `GET /api/v1/debug/routing/buckets`
+  - `GET /api/v1/debug/routing/nodes?bucket=N`
+  - `POST /api/v1/debug/lookup_once`
+  - `POST /api/v1/debug/probe_peer`
+  - `POST /api/v1/debug/trace_lookup` (planned; see `docs/10_architecture/KAD_TRACE_LOOKUP_DESIGN.md`)
+  - `POST /api/v1/debug/bootstrap/restart` (planned; see `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`)
+
+Everything below in this document should be read as design guidance and future expansion, unless it appears in the implemented list above.
+
+---
 
 ### Health & Meta
 
@@ -214,17 +277,14 @@ Current phase scope:
 
 ### Routing / Nodes (Operational)
 
-- `GET /api/v1/routing/summary`
-  - buckets count, occupied, stale, refresh age distribution
-
-- `GET /api/v1/nodes`
-  - known peers list (paged)
-
-- `POST /api/v1/bootstrap`
-  - triggers bootstrap cycle
-
-- `POST /api/v1/routing/refresh`
-  - triggers bucket refresh cycle
+- `GET /api/v1/kad/peers`
+  - known peers list
+- `GET /api/v1/debug/routing/summary` (debug endpoint)
+  - routing summary counters
+- `GET /api/v1/debug/routing/buckets` (debug endpoint)
+  - per-bucket occupancy and recency distribution
+- `GET /api/v1/debug/routing/nodes?bucket=N` (debug endpoint)
+  - node-level snapshot for one bucket
 
 ---
 
@@ -320,17 +380,16 @@ All events follow a consistent envelope:
   - 429 rate limit (optional)
   - 500 internal error
 
-- Error response shape (consistent):
+- Error response shape (current default envelope):
 
 ```json
 {
-  "error": {
-    "code": "SEARCH_NOT_FOUND",
-    "message": "Search id does not exist",
-    "details": {}
-  }
+  "code": 404,
+  "message": "not found"
 }
 ```
+
+Handler-specific endpoints may include richer payloads, but non-2xx responses are normalized to the envelope above.
 
 ---
 
@@ -356,9 +415,12 @@ All events follow a consistent envelope:
 
 ## Minimal v1 Checklist
 
-- [ ] Health/version endpoints
-- [ ] Create/list/get/delete searches
-- [ ] Start/stop searches
-- [ ] Search detail snapshot includes progress + results summary
-- [ ] SSE events with search_id and telemetry/log events
-- [ ] Routing summary endpoint (optional but valuable)
+- [x] Health endpoint
+- [ ] Version endpoint
+- [ ] Create search endpoint
+- [x] List/get/delete searches
+- [x] Stop search endpoint
+- [x] Download lifecycle endpoints
+- [x] SSE events
+- [x] KAD peer/source/keyword endpoints
+- [x] Debug routing summary/buckets/nodes endpoints
