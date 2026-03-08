@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Fixed false-positive resume monotonic failures caused by `part_number` reuse in churny soak scenarios.
+  - Updated `scripts/test/download_resume_soak.sh`:
+    - snapshot now captures persisted `.part.met` state alongside API download JSON
+    - monotonic check now matches downloads by persisted identity (`part_number + created_unix_secs`) instead of API `part_number` alone
+    - monotonic check now only compares matched persisted downloads, avoiding false failures when the scenario deletes/recreates downloads after restart
+- Decisions:
+  - `part_number` is not a stable identity under the concurrency scenario because the queue can delete and recreate downloads after restart.
+  - persisted `.part.met` metadata is the correct source for stable resume identity in soak assertions.
+- Next steps:
+  - rerun the phase0 acceptance command on this branch to verify the false-positive is eliminated.
+  - consider exposing a first-class durable `download_id` via the API if future tests need stable identity without filesystem access.
+- Change log:
+  - Updated `scripts/test/download_resume_soak.sh`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added fallback interop plan for blocked live iMule environment.
   - Updated `docs/governance/TASKS.md` with `Interop Fallback Strategy`:
     - offline interop harness using fixture/pcap-derived packet vectors
