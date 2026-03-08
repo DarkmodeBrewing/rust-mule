@@ -152,13 +152,18 @@ pub(crate) async fn shared_files(
         .snapshot_detailed()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let shared_files = state.shared_library.files();
+    let shared_publish_statuses = join_all(
+        shared_files
+            .iter()
+            .map(|file| shared_publish_status_for_file(&state, &file.file_hash_md4_hex)),
+    )
+    .await;
 
-    let mut files = Vec::with_capacity(state.shared_library.files().len());
-    for file in state.shared_library.files() {
+    let mut files = Vec::with_capacity(shared_files.len());
+    for (file, kad_publish_status) in shared_files.iter().zip(shared_publish_statuses) {
         let (queued_downloads, inflight_downloads) =
             download_activity_for_file(&downloads, &file.file_hash_md4_hex);
-        let kad_publish_status =
-            shared_publish_status_for_file(&state, &file.file_hash_md4_hex).await;
         let publish_status = state
             .publish_tracker
             .snapshot_for_hash(&file.file_hash_md4_hex);

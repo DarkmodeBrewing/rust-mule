@@ -278,6 +278,7 @@ struct KeywordJob {
     want_search: bool,
     publish: Option<KeywordPublishSpec>,
     got_publish_ack: bool,
+    publish_ack_file: Option<KadId>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -920,6 +921,7 @@ async fn start_keyword_job_search(
             want_search: true,
             publish: None,
             got_publish_ack: false,
+            publish_ack_file: None,
         });
 
     job.want_search = true;
@@ -959,6 +961,7 @@ async fn start_keyword_job_publish(
             want_search: false,
             publish: None,
             got_publish_ack: false,
+            publish_ack_file: None,
         });
 
     job.publish = Some(KeywordPublishSpec {
@@ -971,6 +974,7 @@ async fn start_keyword_job_publish(
     job.next_lookup_at = now;
     job.next_publish_at = now;
     job.got_publish_ack = false;
+    job.publish_ack_file = None;
     job.sent_to_publish.clear();
 
     progress_keyword_job(svc, sock, crypto, cfg, keyword, now).await?;
@@ -2756,9 +2760,10 @@ fn shared_publish_status_for_file(svc: &KadService, file: KadId) -> KadSharedPub
     let (keyword_publish_total, keyword_publish_acked) = svc
         .keyword_jobs
         .values()
-        .filter_map(|job| {
-            let publish = job.publish.as_ref()?;
-            (publish.file == file).then_some(job.got_publish_ack)
+        .filter_map(|job| match (job.publish.as_ref(), job.publish_ack_file) {
+            (Some(publish), _) if publish.file == file => Some(job.publish_ack_file.is_some()),
+            (None, Some(acked_file)) if acked_file == file => Some(true),
+            _ => None,
         })
         .fold((0usize, 0usize), |(total, acked), got_ack| {
             (total + 1, acked + usize::from(got_ack))

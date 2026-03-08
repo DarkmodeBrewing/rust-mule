@@ -158,6 +158,7 @@ fn stop_keyword_search_disables_active_job() {
                 file_type: None,
             }),
             got_publish_ack: false,
+            publish_ack_file: None,
         },
     );
 
@@ -188,6 +189,7 @@ fn delete_keyword_search_purges_cached_results() {
             want_search: true,
             publish: None,
             got_publish_ack: false,
+            publish_ack_file: None,
         },
     );
 
@@ -454,6 +456,7 @@ fn shared_publish_status_combines_source_and_keyword_response_state() {
                 file_type: None,
             }),
             got_publish_ack: true,
+            publish_ack_file: Some(file),
         },
     );
     svc.keyword_jobs.insert(
@@ -473,6 +476,7 @@ fn shared_publish_status_combines_source_and_keyword_response_state() {
                 file_type: None,
             }),
             got_publish_ack: false,
+            publish_ack_file: None,
         },
     );
 
@@ -481,6 +485,35 @@ fn shared_publish_status_combines_source_and_keyword_response_state() {
     assert!(status.source_publish_response_received);
     assert_eq!(status.source_publish_first_response_latency_ms, Some(40));
     assert_eq!(status.keyword_publish_total, 2);
+    assert_eq!(status.keyword_publish_acked, 1);
+}
+
+#[test]
+fn shared_publish_status_keeps_counting_acked_keywords_after_publish_is_cleared() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([1u8; 16]), rx);
+    let file = KadId([9u8; 16]);
+    let keyword = KadId([2u8; 16]);
+    let now = Instant::now();
+
+    svc.keyword_jobs.insert(
+        keyword,
+        KeywordJob {
+            created_at: now,
+            next_lookup_at: now,
+            next_search_at: now,
+            next_publish_at: now,
+            sent_to_search: HashSet::new(),
+            sent_to_publish: HashSet::new(),
+            want_search: false,
+            publish: None,
+            got_publish_ack: true,
+            publish_ack_file: Some(file),
+        },
+    );
+
+    let status = shared_publish_status_for_file(&svc, file);
+    assert_eq!(status.keyword_publish_total, 1);
     assert_eq!(status.keyword_publish_acked, 1);
 }
 

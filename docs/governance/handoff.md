@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-07
+Last Reviewed: 2026-03-08
 
 # Handoff / Continuation Notes
 
@@ -53,9 +53,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Decisions:
   - treat this as a formatting-only follow-up; no behavior changed.
 - Next steps:
-  - wait for PR `#44` CI to rerun on the pushed formatting fix.
+  - review and address any remaining PR `#44` review comments.
 - Change log:
   - Updated `src/kad/service.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Addressed actionable PR `#44` review comments on shared publish response status.
+  - Fixed `/api/v1/shared` shared-file KAD status lookups to run concurrently instead of sequentially.
+  - Corrected `Last Reviewed` metadata at the top of `docs/governance/handoff.md` to `2026-03-08`.
+  - Fixed keyword publish ACK accounting so file-level `acked/total` status does not regress after `job.publish` is cleared post-ack.
+  - Added a regression test that keeps counting acknowledged keyword publishes after publish work stops.
+- Decisions:
+  - preserve the existing scheduling behavior of `got_publish_ack`, but track actual acknowledged file identity separately for telemetry.
+  - keep the shared API on per-file KAD requests for now, but issue them concurrently; a batch KAD command can be considered later if the shared library grows large enough to justify it.
+- Next steps:
+  - wait for PR `#44` CI/rereview after the review-driven fixes.
+- Change log:
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/inbound.rs`.
+  - Updated `src/kad/service/tests.rs`.
   - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-08): Addressed actionable PR review feedback on the shared-library foundation branch.
