@@ -1220,7 +1220,7 @@ async fn shared_endpoint_lists_indexed_files() {
     let json = response_json(resp).await;
     assert_eq!(json["files"].as_array().map(Vec::len), Some(1));
     assert_eq!(json["files"][0]["file_name"].as_str(), Some("shared.bin"));
-    assert_eq!(json["files"][0]["source_count"].as_u64(), Some(1));
+    assert_eq!(json["files"][0]["source_count"].as_u64(), Some(0));
     assert_eq!(
         json["files"][0]["source_publish_attempts"].as_u64(),
         Some(1)

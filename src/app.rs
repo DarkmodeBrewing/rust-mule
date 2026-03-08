@@ -799,7 +799,8 @@ async fn run_download_transfer_pump(
                         &lease.file_hash,
                         lease.block.start,
                         lease.block.end,
-                    );
+                    )
+                    .await;
                     upload_activity.note_sending(
                         &crate::kad::KadId(lease.file_hash).to_hex_lower(),
                         lease.block.start,
@@ -908,7 +909,8 @@ async fn run_download_transfer_pump(
                     &file_hash.0,
                     block.start,
                     block.end,
-                );
+                )
+                .await;
                 upload_activity.note_sending(
                     &file_hash.to_hex_lower(),
                     block.start,
@@ -927,17 +929,56 @@ async fn run_download_transfer_pump(
     }
 }
 
-fn build_sending_part_payload(
+async fn build_sending_part_payload(
     shared_library: &crate::share::SharedLibrary,
     file_hash: &[u8; 16],
     start: u64,
     end: u64,
 ) -> Vec<u8> {
     let hash_hex = crate::kad::KadId(*file_hash).to_hex_lower();
-    let body = shared_library
-        .get_by_hash_hex(&hash_hex)
-        .and_then(|file| crate::share::read_shared_block(file, start, end).ok())
-        .unwrap_or_else(|| vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]);
+    let body = match shared_library.get_by_hash_hex(&hash_hex) {
+        Some(file) => match tokio::task::spawn_blocking({
+            let file = file.clone();
+            move || crate::share::read_shared_block(&file, start, end)
+        })
+        .await
+        {
+            Ok(Ok(body)) => body,
+            Ok(Err(err)) => {
+                if crate::logging::warn_throttled(
+                    "shared_upload_fallback_zero_fill",
+                    Duration::from_secs(30),
+                ) {
+                    tracing::warn!(
+                        hash = %hash_hex,
+                        path = %file.canonical_path.display(),
+                        start,
+                        end,
+                        error = %err,
+                        "shared upload fallback used zero-filled payload after read failure"
+                    );
+                }
+                vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]
+            }
+            Err(err) => {
+                if crate::logging::warn_throttled(
+                    "shared_upload_fallback_zero_fill_join",
+                    Duration::from_secs(30),
+                ) {
+                    tracing::warn!(
+                        hash = %hash_hex,
+                        path = %file.canonical_path.display(),
+                        start,
+                        end,
+                        error = %err,
+                        "shared upload fallback used zero-filled payload after blocking read join failure"
+                    );
+                }
+                vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]
+            }
+        },
+        None => vec![0u8; end.saturating_sub(start).saturating_add(1) as usize],
+    };
 
     let mut payload = Vec::with_capacity(16 + 8 + 8 + body.len());
     payload.extend_from_slice(file_hash);

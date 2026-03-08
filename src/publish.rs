@@ -57,10 +57,15 @@ impl SharedPublishTracker {
     }
 
     pub fn snapshot_for_hash(&self, hash_hex: &str) -> SharedPublishSnapshot {
-        let inner = self
-            .inner
-            .lock()
-            .expect("shared publish tracker lock poisoned");
+        let inner = match self.inner.lock() {
+            Ok(inner) => inner,
+            Err(poisoned) => {
+                tracing::warn!(
+                    "shared publish tracker lock poisoned; continuing with recovered state"
+                );
+                poisoned.into_inner()
+            }
+        };
         inner
             .get(&hash_hex.to_ascii_lowercase())
             .cloned()
@@ -68,10 +73,15 @@ impl SharedPublishTracker {
     }
 
     fn with_entry(&self, hash_hex: &str, f: impl FnOnce(&mut SharedPublishSnapshot)) {
-        let mut inner = self
-            .inner
-            .lock()
-            .expect("shared publish tracker lock poisoned");
+        let mut inner = match self.inner.lock() {
+            Ok(inner) => inner,
+            Err(poisoned) => {
+                tracing::warn!(
+                    "shared publish tracker lock poisoned; continuing with recovered state"
+                );
+                poisoned.into_inner()
+            }
+        };
         let entry = inner.entry(hash_hex.to_ascii_lowercase()).or_default();
         f(entry);
     }

@@ -57,7 +57,13 @@ impl UploadActivityTracker {
 
     pub fn snapshot_for_hash(&self, hash_hex: &str) -> UploadActivitySnapshot {
         let now = Instant::now();
-        let mut inner = self.inner.lock().expect("upload activity lock poisoned");
+        let mut inner = match self.inner.lock() {
+            Ok(inner) => inner,
+            Err(poisoned) => {
+                tracing::warn!("upload activity lock poisoned; continuing with recovered state");
+                poisoned.into_inner()
+            }
+        };
         let Some(file) = inner.get_mut(&hash_hex.to_ascii_lowercase()) else {
             return UploadActivitySnapshot::default();
         };
@@ -81,7 +87,13 @@ impl UploadActivityTracker {
     fn note(&self, hash_hex: &str, start: u64, end: u64, ttl: Duration, phase: UploadRangePhase) {
         let now = Instant::now();
         let expires_at = now + ttl;
-        let mut inner = self.inner.lock().expect("upload activity lock poisoned");
+        let mut inner = match self.inner.lock() {
+            Ok(inner) => inner,
+            Err(poisoned) => {
+                tracing::warn!("upload activity lock poisoned; continuing with recovered state");
+                poisoned.into_inner()
+            }
+        };
         let file = inner.entry(hash_hex.to_ascii_lowercase()).or_default();
         prune_expired(file, now);
 

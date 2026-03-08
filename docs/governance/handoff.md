@@ -11,6 +11,44 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed actionable PR review feedback on the shared-library foundation branch.
+  - Hardened shared-root/runtime-dir normalization:
+    - canonicalize `data_dir` consistently when validating share-root overlap
+    - added regression test for symlinked `data_dir`
+  - Hardened shared-file walking:
+    - track visited canonical directories to avoid recursive symlink loops
+    - added regression test for a cyclic directory symlink under a share root
+  - Hardened shared-library cache correctness:
+    - cache metadata now comes from the same snapshot used for the chosen file hash
+    - invalid cached MD4 hex now triggers rehash instead of panic/reuse
+    - added regression test for invalid cached hash recovery
+  - Hardened trackers:
+    - `SharedPublishTracker` and `UploadActivityTracker` now recover from poisoned locks instead of panicking
+  - Improved `/api/v1/downloads`:
+    - source-count lookups now run concurrently instead of sequentially
+  - Improved shared upload fallback visibility:
+    - zero-filled payload fallback now emits throttled warnings for shared-library read failures
+    - shared-file reads are now executed via `spawn_blocking` to avoid blocking Tokio worker threads
+  - Corrected `/api/v1/shared` semantics:
+    - `source_count` no longer incorrectly reports `1` for all local shared files; it now reports `0` until backed by real source-state plumbing
+- Decisions:
+  - prefer accurate “unknown/zero” source visibility over a misleading synthetic local source count
+  - keep synchronous disk reads off the async worker path even in the current phase0-style uploader flow
+  - treat cache corruption as recoverable and rehashable, never fatal
+- Next steps:
+  - decide whether to expose real local-source state separately from discovered-source count in `/api/v1/shared`
+  - decide whether KAD publish response handling should upgrade enqueue status into end-to-end publish status
+  - reply/resolve the PR review threads after the branch update is pushed
+- Change log:
+  - Updated `src/share.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/publish.rs`.
+  - Updated `src/upload.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added a repo-native Playwright smoke runner with explicit `nvm` bootstrap and container-safe launch defaults.
   - Added `scripts/test/ui_smoke.sh`:
     - sources `~/.nvm/nvm.sh`

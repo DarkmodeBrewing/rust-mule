@@ -1,4 +1,5 @@
 use axum::{Json, body::Bytes, extract::State, http::StatusCode};
+use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use tokio::sync::oneshot;
 
@@ -109,11 +110,17 @@ pub(crate) async fn downloads(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut downloads = Vec::with_capacity(items.len());
-    for item in &items {
-        let source_count = source_count_for_file(&state, &item.summary.file_hash_md4_hex).await;
-        downloads.push(download_entry_from_detail(item, source_count));
-    }
+    let source_counts = join_all(
+        items
+            .iter()
+            .map(|item| source_count_for_file(&state, &item.summary.file_hash_md4_hex)),
+    )
+    .await;
+    let downloads = items
+        .iter()
+        .zip(source_counts)
+        .map(|(item, source_count)| download_entry_from_detail(item, source_count))
+        .collect();
 
     Ok(Json(DownloadListResponse {
         queue_len: status.queue_len,
@@ -161,7 +168,7 @@ pub(crate) async fn shared_files(
             relative_path: file.relative_path.display().to_string(),
             file_hash_md4_hex: file.file_hash_md4_hex.clone(),
             file_size: file.file_size,
-            source_count: 1,
+            source_count: 0,
             source_publish_attempts: publish_status.source_attempts,
             source_publish_last_result: publish_status.source_last_result,
             source_publish_last_attempt_unix_secs: publish_status.source_last_attempt_unix_secs,

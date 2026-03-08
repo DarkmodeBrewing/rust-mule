@@ -143,7 +143,7 @@ const SHARED_PAYLOAD = {
       relative_path: 'folder/shared.bin',
       file_hash_md4_hex: '0123456789abcdef0123456789abcdef',
       file_size: 1048576,
-      source_count: 1,
+      source_count: 0,
       source_publish_attempts: 1,
       source_publish_last_result: 'queued',
       source_publish_last_attempt_unix_secs: 123,
