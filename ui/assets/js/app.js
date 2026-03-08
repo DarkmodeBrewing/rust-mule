@@ -113,6 +113,14 @@ function formatBytes(bytes) {
   return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${unit}`;
 }
 
+function formatUnixSecs(unixSecs) {
+  const value = Number(unixSecs);
+  if (!Number.isFinite(value) || value <= 0) {
+    return 'never';
+  }
+  return new Date(value * 1000).toLocaleString();
+}
+
 function normalizeRanges(ranges) {
   return Array.isArray(ranges)
     ? ranges
@@ -1081,6 +1089,7 @@ window.appDownloads = function appDownloads() {
     status: null,
     searchThreads: [],
     downloads: [],
+    uploads: [],
     sharedFiles: [],
     sharedActions: [],
     sharedActionBusy: false,
@@ -1126,8 +1135,9 @@ window.appDownloads = function appDownloads() {
     },
 
     async refreshData() {
-      const [downloadsResp, sharedResp] = await Promise.all([
+      const [downloadsResp, uploadsResp, sharedResp] = await Promise.all([
         apiGet('/downloads'),
+        apiGet('/uploads'),
         apiGet('/shared'),
       ]);
       this.downloads = Array.isArray(downloadsResp?.downloads)
@@ -1140,6 +1150,19 @@ window.appDownloads = function appDownloads() {
               item.inflight_range_spans,
               item.source_count,
             ),
+          }))
+        : [];
+      this.uploads = Array.isArray(uploadsResp?.uploads)
+        ? uploadsResp.uploads.map((item) => ({
+            ...item,
+            requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
+            held_ranges_label: (item.held_ranges || [])
+              .map((range) => `${range.start}-${range.end}`)
+              .join(', '),
+            sending_ranges_label: (item.sending_ranges || [])
+              .map((range) => `${range.start}-${range.end}`)
+              .join(', '),
+            last_requested_label: formatUnixSecs(item.last_requested_unix_secs),
           }))
         : [];
       this.sharedFiles = Array.isArray(sharedResp?.files)

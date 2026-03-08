@@ -171,6 +171,22 @@ const SHARED_PAYLOAD = {
   ],
 };
 
+const UPLOADS_PAYLOAD = {
+  uploads: [
+    {
+      file_name: 'shared.bin',
+      relative_path: 'folder/shared.bin',
+      file_hash_md4_hex: '0123456789abcdef0123456789abcdef',
+      total_upload_requests: 2,
+      requested_bytes_total: 131072,
+      last_requested_unix_secs: 123,
+      held_ranges: [{ start: 524288, end: 589823 }],
+      sending_ranges: [{ start: 262144, end: 327679 }],
+      active_request: true,
+    },
+  ],
+};
+
 const SHARED_ACTIONS_PAYLOAD = {
   actions: [
     {
@@ -307,6 +323,7 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/v1/token/rotate' && req.method === 'POST') return sendJson(res, 200, { token: 'rotated-token', sessions_cleared: true });
   if (p === '/api/v1/status') return sendJson(res, 200, STATUS_PAYLOAD);
   if (p === '/api/v1/downloads') return sendJson(res, 200, DOWNLOADS_PAYLOAD);
+  if (p === '/api/v1/uploads') return sendJson(res, 200, UPLOADS_PAYLOAD);
   if (p === '/api/v1/shared') return sendJson(res, 200, SHARED_PAYLOAD);
   if (p === '/api/v1/shared/actions') return sendJson(res, 200, SHARED_ACTIONS_PAYLOAD);
   if (p === '/api/v1/shared/actions/reindex' && req.method === 'POST') {
