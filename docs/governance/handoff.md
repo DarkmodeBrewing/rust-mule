@@ -11,6 +11,40 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Aligned operator-facing docs with the shared-library and uploader-service work.
+  - Updated `docs/index.md` to surface `SHARING_UPLOAD_CHECKLIST.md` in the main docs navigation.
+  - Updated `docs/30_operations/api_curl.md` with the current shared/uploader endpoints:
+    - `GET /api/v1/shared`
+    - `GET /api/v1/uploads`
+    - `GET /api/v1/shared/actions`
+    - `POST /api/v1/shared/actions/reindex`
+    - `POST /api/v1/shared/actions/republish_sources`
+    - `POST /api/v1/shared/actions/republish_keywords`
+  - Documented the shared action confirmation requirement and expected `202` / `409` /
+    `429` response model.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with an
+    "Implemented So Far" section covering:
+    - shared-library foundation
+    - operator danger-zone controls
+    - uploader-service foundation
+- Decisions:
+  - keep `docs/governance/handoff.md` as the most detailed continuity log, but align
+    `docs/index.md` and `docs/30_operations/api_curl.md` whenever shared/uploader API
+    surfaces change.
+  - document the operator-action model as part of operations docs, not only UI docs,
+    because `curl` users need the confirmation/cooldown semantics too.
+- Next steps:
+  - decide whether `docs/10_architecture/API_DESIGN.md` should gain a dedicated section
+    for shared-library and uploader endpoints, or whether `api_curl.md` plus
+    implementation-proximate docs are sufficient for now.
+  - keep `docs/30_operations/api_curl.md` in sync if `/api/v1/uploads` gains richer
+    uploader/session fields.
+- Change log:
+  - Updated `docs/index.md`.
+  - Updated `docs/30_operations/api_curl.md`.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added an uploader-service foundation and a dedicated uploads API surface.
   - Introduced `UploadService` in `src/upload.rs` as the first-class boundary for:
     - upload activity tracking
