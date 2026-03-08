@@ -11,6 +11,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Documented transfer sizing numbers and iMule interop risks.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with:
+    - current rust-mule transfer numbers (64 KiB block, reserve/lease caps, 3-range request shape)
+    - iMule reference values (`BLOCKSIZE/EMBLOCKSIZE=184320`, `PARTSIZE=9728000`)
+    - interop edge cases when block granularity differs
+    - implementation guidance to keep sizing configurable and validate via mixed-client soak
+- Decisions:
+  - treat block-size policy as a compatibility lever; avoid hardcoding non-interoperable defaults.
+- Next steps:
+  - add explicit config key/backlog for transfer block-size tuning with iMule-aligned default candidate.
+- Change log:
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Documented security edge cases for sharing/upload design.
   - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with explicit security edge-case section:
     - sensitive file leakage controls

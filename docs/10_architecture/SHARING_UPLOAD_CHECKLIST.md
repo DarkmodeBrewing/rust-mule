@@ -113,6 +113,32 @@ Track implementation guardrails for real file sharing and disk-backed upload ser
   - Share-root management and debug endpoints are sensitive.
   - Enforce same auth/rate-limit rigor and ensure debug does not bypass share policy.
 
+## Network Interop Numbers and Edge Cases
+
+- Current rust-mule transfer defaults (as of 2026-03-08)
+  - transfer pump reserve block size: `64 KiB` (`src/app.rs`, `BLOCK_SIZE = 64 * 1024`)
+  - max reserved blocks per pump call: `4` (`src/app.rs`, `MAX_BLOCKS_PER_RESERVE`)
+  - protocol request range slots per `OP_REQUESTPARTS`: `3` (`src/download/protocol.rs`)
+  - lease caps:
+    - per-peer inflight leases: `32` (`src/download/service.rs`)
+    - per-download inflight leases: `256` (`src/download/service.rs`)
+
+- iMule reference values (for compatibility baseline)
+  - `BLOCKSIZE` / `EMBLOCKSIZE`: `184320` bytes (`source_ref/.../Constants.h`)
+  - `PARTSIZE`: `9728000` bytes (`source_ref/.../Constants.h`)
+  - `OP_REQUESTPARTS` uses 3 ranges and `OP_SENDINGPART` payload shape is compatible (`source_ref/.../Client2Client/TCP.h`)
+
+- Interop edge cases to track
+  - Smaller-than-expected block size (64 KiB vs ~180 KiB) may increase overhead and degrade behavior with peers tuned for iMule-sized blocks.
+  - Request/response pacing windows can drift under mixed-client timing assumptions.
+  - Retry/timeout behavior can become noisy when block granularity differs from peer expectations.
+  - Completion latency can increase due to fragmented block scheduling.
+
+- Implementation guidance
+  - Keep protocol payload compatibility, but make transfer sizing policy configurable.
+  - Prefer iMule-aligned default block size for interop unless data proves otherwise.
+  - Validate changes via mixed-client soak runs before locking defaults.
+
 ## Non-Goals (initial slice)
 
 - Full media-library UX and advanced tagging/search.
