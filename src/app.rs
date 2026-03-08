@@ -310,7 +310,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             .map_err(|err| AppError::InvalidState(err.to_string()))?;
     let shared_library = Arc::new(tokio::sync::RwLock::new(shared_library_build.library));
     let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
-    let upload_activity = Arc::new(crate::upload::UploadActivityTracker::default());
+    let upload_service = Arc::new(crate::upload::UploadService::new(shared_library.clone()));
     let shared_library_len = shared_library.read().await.len();
     tracing::info!(
         share_roots = shared_roots.len(),
@@ -333,14 +333,12 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     if config.kad.service_enabled {
         let download_handle_for_pump = download_handle.clone();
         let kad_cmd_tx_for_pump = kad_cmd_tx.clone();
-        let shared_library_for_pump = Arc::clone(&shared_library);
-        let upload_activity_for_pump = Arc::clone(&upload_activity);
+        let upload_service_for_pump = Arc::clone(&upload_service);
         tokio::spawn(async move {
             run_download_transfer_pump(
                 download_handle_for_pump,
                 kad_cmd_tx_for_pump,
-                shared_library_for_pump,
-                upload_activity_for_pump,
+                upload_service_for_pump,
             )
             .await;
         });
@@ -401,7 +399,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             download_handle: download_handle_for_server,
             shared_library: shared_library.clone(),
             publish_tracker: publish_tracker.clone(),
-            upload_activity: upload_activity.clone(),
+            upload_service: upload_service.clone(),
         };
         if let Err(err) = crate::api::serve(&api_cfg, deps).await {
             tracing::error!(error = %err, "api server stopped");
@@ -684,8 +682,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
 async fn run_download_transfer_pump(
     download_handle: crate::download::DownloadServiceHandle,
     kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
-    shared_library: Arc<tokio::sync::RwLock<crate::share::SharedLibrary>>,
-    upload_activity: Arc<crate::upload::UploadActivityTracker>,
+    upload_service: Arc<crate::upload::UploadService>,
 ) {
     const PUMP_TICK: Duration = Duration::from_secs(2);
     const HOLD_TTL: Duration = Duration::from_secs(6);
@@ -740,14 +737,14 @@ async fn run_download_transfer_pump(
                     && front.held_at.elapsed() >= HOLD_TTL
                 {
                     let lease = leases.pop_front().expect("front exists");
-                    let payload = build_sending_part_payload(
-                        shared_library.as_ref(),
-                        &lease.file_hash,
-                        lease.block.start,
-                        lease.block.end,
-                    )
-                    .await;
-                    upload_activity.note_sending(
+                    let payload = upload_service
+                        .build_sending_part_payload(
+                            &lease.file_hash,
+                            lease.block.start,
+                            lease.block.end,
+                        )
+                        .await;
+                    upload_service.note_sending(
                         &crate::kad::KadId(lease.file_hash).to_hex_lower(),
                         lease.block.start,
                         lease.block.end,
@@ -755,7 +752,7 @@ async fn run_download_transfer_pump(
                     );
                     let packet = crate::download::service::InboundPacket {
                         opcode: crate::download::protocol::OP_SENDINGPART,
-                        payload,
+                        payload: payload.payload,
                     };
                     let _ = download_handle
                         .ingest_inbound_packet(d.part_number, lease.peer_id, packet)
@@ -836,7 +833,7 @@ async fn run_download_transfer_pump(
             let held_queue = held.entry(d.part_number).or_default();
             for (idx, block) in blocks.iter().copied().enumerate() {
                 if hold_last && idx == blocks.len() - 1 {
-                    upload_activity.note_held(
+                    upload_service.note_held(
                         &file_hash.to_hex_lower(),
                         block.start,
                         block.end,
@@ -850,14 +847,10 @@ async fn run_download_transfer_pump(
                     });
                     continue;
                 }
-                let payload = build_sending_part_payload(
-                    shared_library.as_ref(),
-                    &file_hash.0,
-                    block.start,
-                    block.end,
-                )
-                .await;
-                upload_activity.note_sending(
+                let payload = upload_service
+                    .build_sending_part_payload(&file_hash.0, block.start, block.end)
+                    .await;
+                upload_service.note_sending(
                     &file_hash.to_hex_lower(),
                     block.start,
                     block.end,
@@ -865,7 +858,7 @@ async fn run_download_transfer_pump(
                 );
                 let packet = crate::download::service::InboundPacket {
                     opcode: crate::download::protocol::OP_SENDINGPART,
-                    payload,
+                    payload: payload.payload,
                 };
                 let _ = download_handle
                     .ingest_inbound_packet(d.part_number, peer_id.clone(), packet)
@@ -873,70 +866,6 @@ async fn run_download_transfer_pump(
             }
         }
     }
-}
-
-async fn build_sending_part_payload(
-    shared_library: &tokio::sync::RwLock<crate::share::SharedLibrary>,
-    file_hash: &[u8; 16],
-    start: u64,
-    end: u64,
-) -> Vec<u8> {
-    let hash_hex = crate::kad::KadId(*file_hash).to_hex_lower();
-    let shared_file = shared_library
-        .read()
-        .await
-        .get_by_hash_hex(&hash_hex)
-        .cloned();
-    let body = match shared_file {
-        Some(file) => match tokio::task::spawn_blocking({
-            let file_for_read = file.clone();
-            move || crate::share::read_shared_block(&file_for_read, start, end)
-        })
-        .await
-        {
-            Ok(Ok(body)) => body,
-            Ok(Err(err)) => {
-                if crate::logging::warn_throttled(
-                    "shared_upload_fallback_zero_fill",
-                    Duration::from_secs(30),
-                ) {
-                    tracing::warn!(
-                        hash = %hash_hex,
-                        path = %file.canonical_path.display(),
-                        start,
-                        end,
-                        error = %err,
-                        "shared upload fallback used zero-filled payload after read failure"
-                    );
-                }
-                vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]
-            }
-            Err(err) => {
-                if crate::logging::warn_throttled(
-                    "shared_upload_fallback_zero_fill_join",
-                    Duration::from_secs(30),
-                ) {
-                    tracing::warn!(
-                        hash = %hash_hex,
-                        path = %file.canonical_path.display(),
-                        start,
-                        end,
-                        error = %err,
-                        "shared upload fallback used zero-filled payload after blocking read join failure"
-                    );
-                }
-                vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]
-            }
-        },
-        None => vec![0u8; end.saturating_sub(start).saturating_add(1) as usize],
-    };
-
-    let mut payload = Vec::with_capacity(16 + 8 + 8 + body.len());
-    payload.extend_from_slice(file_hash);
-    payload.extend_from_slice(&start.to_le_bytes());
-    payload.extend_from_slice(&(end.saturating_add(1)).to_le_bytes());
-    payload.extend(body);
-    payload
 }
 
 fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {

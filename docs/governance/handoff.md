@@ -11,6 +11,45 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added an uploader-service foundation and a dedicated uploads API surface.
+  - Introduced `UploadService` in `src/upload.rs` as the first-class boundary for:
+    - upload activity tracking
+    - shared-file payload reads
+    - zero-fill fallback behavior
+  - Added typed uploader payload build results:
+    - `UploadPayloadBuild`
+    - `UploadPayloadSource`
+  - Moved the download transfer pump in `src/app.rs` to depend on `UploadService` instead of directly calling:
+    - `share::read_shared_block`
+    - `UploadActivityTracker`
+  - Added `GET /api/v1/uploads` to expose uploader-side state directly instead of only surfacing upload hints through `/api/v1/shared`.
+  - Added uploader tests for:
+    - tracker snapshots
+    - shared-file payload reads
+    - zero-fill fallback
+    - `/api/v1/uploads` response shape
+- Decisions:
+  - keep the first uploader slice narrow: extract a service boundary and expose uploader state before attempting a larger transport/uploader redesign.
+  - preserve existing wire behavior for `OP_SENDINGPART`; this slice is architectural refactoring plus visibility, not a protocol change.
+  - retain zero-fill fallback for now, but move that behavior behind `UploadService` so future uploader hardening has one place to change it.
+- Next steps:
+  - decide whether `/api/v1/uploads` should be surfaced in the UI now or wait until uploader state becomes richer.
+  - decide whether uploader state should track peer/session identity in addition to file/range activity.
+  - consider the next uploader hardening slice:
+    - explicit upload session model
+    - file-missing/file-changed behavior policy
+    - dedicated uploader service tests around concurrent requests
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/router.rs`.
+  - Updated `src/api/handlers/mod.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Reworked shared-library maintenance controls into an explicit danger-zone model instead of debug gating.
   - Kept shared maintenance actions under normal authenticated admin access.
   - Added UI friction in `/ui/downloads`:

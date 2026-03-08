@@ -17,7 +17,7 @@ use crate::{
     publish::SharedPublishTracker,
     share::SharedLibrary,
     shared_ops::SharedOpsManager,
-    upload::UploadActivityTracker,
+    upload::UploadService,
 };
 
 mod auth;
@@ -72,7 +72,7 @@ pub struct ApiState {
     pub(crate) config: Arc<tokio::sync::Mutex<Config>>,
     pub(crate) shared_library: Arc<tokio::sync::RwLock<SharedLibrary>>,
     pub(crate) publish_tracker: Arc<SharedPublishTracker>,
-    pub(crate) upload_activity: Arc<UploadActivityTracker>,
+    pub(crate) upload_service: Arc<UploadService>,
     pub(crate) shared_ops: Arc<SharedOpsManager>,
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
     pub(crate) enable_debug_endpoints: bool,
@@ -97,7 +97,7 @@ pub struct ApiServeDeps {
     pub download_handle: DownloadServiceHandle,
     pub shared_library: Arc<tokio::sync::RwLock<SharedLibrary>>,
     pub publish_tracker: Arc<SharedPublishTracker>,
-    pub upload_activity: Arc<UploadActivityTracker>,
+    pub upload_service: Arc<UploadService>,
 }
 
 pub fn new_channels() -> (
@@ -164,7 +164,7 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         download_handle: deps.download_handle,
         shared_library: deps.shared_library,
         publish_tracker: deps.publish_tracker,
-        upload_activity: deps.upload_activity,
+        upload_service: deps.upload_service,
         shared_ops,
         config,
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),

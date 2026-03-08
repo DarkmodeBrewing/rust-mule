@@ -48,7 +48,7 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         config: config.clone(),
         shared_library: shared_library.clone(),
         publish_tracker: publish_tracker.clone(),
-        upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
+        upload_service: Arc::new(crate::upload::UploadService::new(shared_library.clone())),
         shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
             shared_library,
             config,
@@ -884,7 +884,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         config: config.clone(),
         shared_library: shared_library.clone(),
         publish_tracker: publish_tracker.clone(),
-        upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
+        upload_service: Arc::new(crate::upload::UploadService::new(shared_library.clone())),
         shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
             shared_library,
             config,
@@ -945,7 +945,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         config: config.clone(),
         shared_library: shared_library.clone(),
         publish_tracker: publish_tracker.clone(),
-        upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
+        upload_service: Arc::new(crate::upload::UploadService::new(shared_library.clone())),
         shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
             shared_library,
             config,
@@ -1246,10 +1246,10 @@ async fn shared_endpoint_lists_indexed_files() {
         .publish_tracker
         .note_keyword_queue_failed(&shared_hash);
     state
-        .upload_activity
+        .upload_service
         .note_held(&shared_hash, 0, 1023, Duration::from_secs(30));
     state
-        .upload_activity
+        .upload_service
         .note_sending(&shared_hash, 1024, 2047, Duration::from_secs(30));
     let responder = tokio::spawn(async move {
         while let Some(cmd) = kad_rx.recv().await {
@@ -1555,6 +1555,44 @@ async fn shared_actions_require_confirmation() {
         trigger_json["message"].as_str(),
         Some("confirmation required")
     );
+}
+
+#[tokio::test]
+async fn uploads_endpoint_lists_active_uploads() {
+    let (kad_tx, _kad_rx) = mpsc::channel(8);
+    let state = test_state(kad_tx);
+    state.upload_service.note_held(
+        "feedbeadfeedbeadfeedbeadfeedbead",
+        0,
+        1023,
+        Duration::from_secs(30),
+    );
+    state.upload_service.note_sending(
+        "feedbeadfeedbeadfeedbeadfeedbead",
+        1024,
+        2047,
+        Duration::from_secs(30),
+    );
+    let app = test_app(state);
+
+    let resp = app
+        .oneshot(authorized_api_get("/api/v1/uploads"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_json(resp).await;
+    let uploads = body["uploads"].as_array().expect("uploads array");
+    assert_eq!(uploads.len(), 1);
+    assert_eq!(
+        uploads[0]["file_hash_md4_hex"].as_str(),
+        Some("feedbeadfeedbeadfeedbeadfeedbead")
+    );
+    assert_eq!(uploads[0]["held_ranges"].as_array().map(Vec::len), Some(1));
+    assert_eq!(
+        uploads[0]["sending_ranges"].as_array().map(Vec::len),
+        Some(1)
+    );
+    assert_eq!(uploads[0]["active_request"].as_bool(), Some(true));
 }
 
 #[tokio::test]
