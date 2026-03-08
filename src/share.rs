@@ -1,3 +1,6 @@
+use crate::kad::{KadId, md4};
+use std::collections::HashMap;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,6 +17,42 @@ pub struct SharedFile {
     pub file_size: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SharedLibraryFile {
+    pub root_index: usize,
+    pub canonical_path: PathBuf,
+    pub relative_path: PathBuf,
+    pub file_size: u64,
+    pub file_id: KadId,
+    pub file_hash_md4_hex: String,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SharedLibrary {
+    files: Vec<SharedLibraryFile>,
+    by_hash: HashMap<String, usize>,
+}
+
+impl SharedLibrary {
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
+    pub fn files(&self) -> &[SharedLibraryFile] {
+        &self.files
+    }
+
+    pub fn get_by_hash_hex(&self, hash_hex: &str) -> Option<&SharedLibraryFile> {
+        self.by_hash
+            .get(&hash_hex.to_ascii_lowercase())
+            .and_then(|idx| self.files.get(*idx))
+    }
+}
+
 #[derive(Debug)]
 pub enum ShareError {
     EmptyPath,
@@ -23,6 +62,14 @@ pub enum ShareError {
         source: std::io::Error,
     },
     Metadata {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    OpenFile {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    ReadFile {
         path: PathBuf,
         source: std::io::Error,
     },
@@ -52,6 +99,12 @@ impl std::fmt::Display for ShareError {
             Self::Metadata { path, .. } => {
                 write!(f, "failed to stat shared path '{}'", path.display())
             }
+            Self::OpenFile { path, .. } => {
+                write!(f, "failed to open shared file '{}'", path.display())
+            }
+            Self::ReadFile { path, .. } => {
+                write!(f, "failed to read shared file '{}'", path.display())
+            }
             Self::ReadDir { path, .. } => {
                 write!(f, "failed to enumerate shared path '{}'", path.display())
             }
@@ -78,6 +131,8 @@ impl std::error::Error for ShareError {
             Self::CurrentDir(source) => Some(source),
             Self::Canonicalize { source, .. } => Some(source),
             Self::Metadata { source, .. } => Some(source),
+            Self::OpenFile { source, .. } => Some(source),
+            Self::ReadFile { source, .. } => Some(source),
             Self::ReadDir { source, .. } => Some(source),
             Self::EmptyPath
             | Self::UnsafeRoot(_)
@@ -128,6 +183,65 @@ pub fn enumerate_shared_files(roots: &[SharedRoot]) -> Result<Vec<SharedFile>> {
         walk_root(root_index, root, &root.canonical_path, &mut out)?;
     }
     Ok(out)
+}
+
+pub fn index_shared_files(roots: &[SharedRoot]) -> Result<SharedLibrary> {
+    let mut library = SharedLibrary::default();
+    for file in enumerate_shared_files(roots)? {
+        let file_id = hash_file_md4(&file.canonical_path)?;
+        let file_hash_md4_hex = file_id.to_hex_lower();
+        if let Some(existing_idx) = library.by_hash.get(&file_hash_md4_hex).copied() {
+            let existing = &library.files[existing_idx];
+            tracing::warn!(
+                file = %file.canonical_path.display(),
+                existing = %existing.canonical_path.display(),
+                hash = %file_hash_md4_hex,
+                "duplicate shared file hash; keeping first path for uploader"
+            );
+            continue;
+        }
+        let idx = library.files.len();
+        library.by_hash.insert(file_hash_md4_hex.clone(), idx);
+        library.files.push(SharedLibraryFile {
+            root_index: file.root_index,
+            canonical_path: file.canonical_path,
+            relative_path: file.relative_path,
+            file_size: file.file_size,
+            file_id,
+            file_hash_md4_hex,
+        });
+    }
+    Ok(library)
+}
+
+pub fn read_shared_block(file: &SharedLibraryFile, start: u64, end: u64) -> Result<Vec<u8>> {
+    if end < start || end >= file.file_size {
+        return Err(ShareError::OutsideRoot {
+            path: file.canonical_path.clone(),
+            root: file.canonical_path.clone(),
+        });
+    }
+
+    let mut handle =
+        std::fs::File::open(&file.canonical_path).map_err(|source| ShareError::OpenFile {
+            path: file.canonical_path.clone(),
+            source,
+        })?;
+    handle
+        .seek(SeekFrom::Start(start))
+        .map_err(|source| ShareError::ReadFile {
+            path: file.canonical_path.clone(),
+            source,
+        })?;
+    let len = end.saturating_sub(start).saturating_add(1) as usize;
+    let mut buf = vec![0u8; len];
+    handle
+        .read_exact(&mut buf)
+        .map_err(|source| ShareError::ReadFile {
+            path: file.canonical_path.clone(),
+            source,
+        })?;
+    Ok(buf)
 }
 
 fn walk_root(
@@ -205,6 +319,18 @@ fn canonicalize_existing_dir(path: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
+fn hash_file_md4(path: &Path) -> Result<KadId> {
+    let mut file = std::fs::File::open(path).map_err(|source| ShareError::OpenFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let digest = md4::digest_reader(&mut file).map_err(|source| ShareError::ReadFile {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    Ok(KadId(digest))
+}
+
 fn make_absolute(path: &Path) -> Result<PathBuf> {
     let cwd = std::env::current_dir().map_err(ShareError::CurrentDir)?;
     Ok(if path.is_absolute() {
@@ -264,7 +390,9 @@ fn is_known_unsafe_system_root(_path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{canonicalize_share_roots, enumerate_shared_files};
+    use super::{
+        canonicalize_share_roots, enumerate_shared_files, index_shared_files, read_shared_block,
+    };
 
     fn mktemp(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
@@ -341,5 +469,42 @@ mod tests {
             std::path::PathBuf::from("nested").join("b.bin")
         );
         assert_eq!(files[1].file_size, 5);
+    }
+
+    #[test]
+    fn indexes_shared_files_with_md4() {
+        let root = mktemp("index");
+        let data_dir = root.join("data");
+        let shared = root.join("shared");
+        std::fs::create_dir_all(&data_dir).expect("data dir");
+        std::fs::create_dir_all(&shared).expect("shared dir");
+        std::fs::write(shared.join("hello.txt"), b"hello world").expect("write file");
+
+        let roots = canonicalize_share_roots(&[shared.display().to_string()], &data_dir)
+            .expect("valid root");
+        let library = index_shared_files(&roots).expect("index");
+
+        assert_eq!(library.len(), 1);
+        assert_eq!(
+            library.files()[0].file_hash_md4_hex,
+            "aa010fbc1d14c795d86ef98c95479d17"
+        );
+    }
+
+    #[test]
+    fn reads_requested_shared_block() {
+        let root = mktemp("block");
+        let data_dir = root.join("data");
+        let shared = root.join("shared");
+        std::fs::create_dir_all(&data_dir).expect("data dir");
+        std::fs::create_dir_all(&shared).expect("shared dir");
+        std::fs::write(shared.join("chunk.bin"), b"0123456789abcdef").expect("write file");
+
+        let roots = canonicalize_share_roots(&[shared.display().to_string()], &data_dir)
+            .expect("valid root");
+        let library = index_shared_files(&roots).expect("index");
+        let block = read_shared_block(&library.files()[0], 4, 9).expect("read block");
+
+        assert_eq!(block, b"456789");
     }
 }

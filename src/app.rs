@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, mpsc, watch};
@@ -299,6 +300,18 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         create_kad_socket(&config, &mut sam, &kad_session_id, &keys).await?;
 
     let data_dir = Path::new(&config.general.data_dir);
+    let shared_roots =
+        crate::share::canonicalize_share_roots(&config.sharing.share_roots, data_dir)
+            .map_err(|err| AppError::InvalidState(err.to_string()))?;
+    let shared_library = Arc::new(
+        crate::share::index_shared_files(&shared_roots)
+            .map_err(|err| AppError::InvalidState(err.to_string()))?,
+    );
+    tracing::info!(
+        share_roots = shared_roots.len(),
+        shared_files = shared_library.len(),
+        "shared library indexed"
+    );
 
     // Download subsystem (phase 0): create runtime directories and run a lightweight
     // command-loop actor that we can extend with queue/transfer logic.
@@ -312,8 +325,34 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     if config.kad.service_enabled {
         let download_handle_for_pump = download_handle.clone();
         let kad_cmd_tx_for_pump = kad_cmd_tx.clone();
+        let shared_library_for_pump = Arc::clone(&shared_library);
         tokio::spawn(async move {
-            run_download_transfer_pump(download_handle_for_pump, kad_cmd_tx_for_pump).await;
+            run_download_transfer_pump(
+                download_handle_for_pump,
+                kad_cmd_tx_for_pump,
+                shared_library_for_pump,
+            )
+            .await;
+        });
+    }
+
+    if config.kad.service_enabled && !shared_library.is_empty() {
+        let kad_cmd_tx_for_publish = kad_cmd_tx.clone();
+        let shared_library_for_publish = Arc::clone(&shared_library);
+        tokio::spawn(async move {
+            for file in shared_library_for_publish.files() {
+                if kad_cmd_tx_for_publish
+                    .send(crate::kad::service::KadServiceCommand::PublishSource {
+                        file: file.file_id,
+                        file_size: file.file_size,
+                    })
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!("shared library publish queue stopped before completion");
+                    break;
+                }
+            }
         });
     }
 
@@ -631,6 +670,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
 async fn run_download_transfer_pump(
     download_handle: crate::download::DownloadServiceHandle,
     kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
+    shared_library: Arc<crate::share::SharedLibrary>,
 ) {
     const PUMP_TICK: Duration = Duration::from_secs(2);
     const HOLD_TTL: Duration = Duration::from_secs(6);
@@ -684,16 +724,12 @@ async fn run_download_transfer_pump(
                     && front.held_at.elapsed() >= HOLD_TTL
                 {
                     let lease = leases.pop_front().expect("front exists");
-                    let block_len = lease
-                        .block
-                        .end
-                        .saturating_sub(lease.block.start)
-                        .saturating_add(1) as usize;
-                    let mut payload = Vec::with_capacity(16 + 8 + 8 + block_len);
-                    payload.extend_from_slice(&lease.file_hash);
-                    payload.extend_from_slice(&lease.block.start.to_le_bytes());
-                    payload.extend_from_slice(&(lease.block.end.saturating_add(1)).to_le_bytes());
-                    payload.extend(std::iter::repeat_n(0u8, block_len));
+                    let payload = build_sending_part_payload(
+                        &shared_library,
+                        &lease.file_hash,
+                        lease.block.start,
+                        lease.block.end,
+                    );
                     let packet = crate::download::service::InboundPacket {
                         opcode: crate::download::protocol::OP_SENDINGPART,
                         payload,
@@ -785,13 +821,12 @@ async fn run_download_transfer_pump(
                     });
                     continue;
                 }
-
-                let block_len = block.end.saturating_sub(block.start).saturating_add(1) as usize;
-                let mut payload = Vec::with_capacity(16 + 8 + 8 + block_len);
-                payload.extend_from_slice(&file_hash.0);
-                payload.extend_from_slice(&block.start.to_le_bytes());
-                payload.extend_from_slice(&(block.end.saturating_add(1)).to_le_bytes());
-                payload.extend(std::iter::repeat_n(0u8, block_len));
+                let payload = build_sending_part_payload(
+                    &shared_library,
+                    &file_hash.0,
+                    block.start,
+                    block.end,
+                );
                 let packet = crate::download::service::InboundPacket {
                     opcode: crate::download::protocol::OP_SENDINGPART,
                     payload,
@@ -802,6 +837,26 @@ async fn run_download_transfer_pump(
             }
         }
     }
+}
+
+fn build_sending_part_payload(
+    shared_library: &crate::share::SharedLibrary,
+    file_hash: &[u8; 16],
+    start: u64,
+    end: u64,
+) -> Vec<u8> {
+    let hash_hex = crate::kad::KadId(*file_hash).to_hex_lower();
+    let body = shared_library
+        .get_by_hash_hex(&hash_hex)
+        .and_then(|file| crate::share::read_shared_block(file, start, end).ok())
+        .unwrap_or_else(|| vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]);
+
+    let mut payload = Vec::with_capacity(16 + 8 + 8 + body.len());
+    payload.extend_from_slice(file_hash);
+    payload.extend_from_slice(&start.to_le_bytes());
+    payload.extend_from_slice(&(end.saturating_add(1)).to_le_bytes());
+    payload.extend(body);
+    payload
 }
 
 fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {

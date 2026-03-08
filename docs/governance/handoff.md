@@ -11,6 +11,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added the first disk-backed shared-library/uploader slice.
+  - Built a startup shared-file index from validated `sharing.share_roots`.
+  - Added streaming MD4 hashing for shared files without loading whole files into memory.
+  - Queued automatic KAD source publishes for indexed shared files at startup.
+  - Updated the phase0 download transfer pump to serve real block bytes from indexed shared files when a matching local hash exists.
+  - Kept the synthetic zero-filled fallback for hashes not yet backed by the local shared library so existing non-library flows do not regress.
+- Decisions:
+  - keep this slice minimal: real shared-file backing first, full library persistence/UI/peer-side uploader hardening later.
+  - preserve fallback behavior until the synthetic path can be removed behind stronger end-to-end uploader coverage.
+- Next steps:
+  - add persisted shared-library metadata (path, size, md4, mtimes) to avoid full rehash on every startup.
+  - publish filename keywords for indexed shared files, not just sources.
+  - replace the remaining synthetic transfer path once real peer-side upload serving is wired end-to-end.
+- Change log:
+  - Updated `src/kad/md4.rs`.
+  - Updated `src/share.rs`.
+  - Updated `src/app.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Started the shared-library/uploader work with config and validation foundation.
   - Added `sharing` config section with `share_roots`.
   - Exposed `sharing.share_roots` through `/api/v1/settings` get/patch.
