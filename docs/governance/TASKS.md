@@ -42,6 +42,11 @@ Last Reviewed: 2026-03-03
   - support `rust-mule --version` for support/debug reporting
   - support `rust-mule --check-config` to validate config and exit
   - support `rust-mule --print-effective-config` for troubleshooting resolved runtime config
+- add timezone configuration + UI control backlog:
+  - add config key for timezone (IANA zone, e.g. `Europe/Stockholm`) with validation + fallback behavior
+  - expose timezone under Settings UI/API so it can be changed without manual file edits
+  - apply configured timezone to application log timestamps (instead of UTC-only output)
+  - document runtime behavior when timezone is invalid or unavailable
 - add debug lookup traceability backlog:
   - implement `POST /api/v1/debug/trace_lookup` as debug-only endpoint
   - use async execution (`202 Accepted` + `trace_id`) with poll endpoint
@@ -60,6 +65,22 @@ Last Reviewed: 2026-03-03
   - require debug second-factor secret (`api.debug_token`, `X-Debug-Token`)
   - enforce token lifecycle policy: no auto-delete on debug-disabled; explicit rotation only
   - reference design: `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`
+- add logging-surface cleanup backlog:
+  - audit trace/routing logs and move non-essential internals behind debug-enabled gating
+  - specifically gate verbose bucket/routing-table detail logs behind debug flag
+  - keep default logs operator-focused (health/progress/errors) and avoid high-cardinality noisy output
+- add acceptance/soak validation hardening backlog:
+  - fail phase0 gate when key metrics resolve to `nan`/unexpected `SKIP` unless explicitly allowlisted
+  - add lightweight script sanity mode in CI for soak scripts (env parsing, trap behavior, report/summary generation)
+  - add pass-with-degradation runbook guidance for suspicious-but-zero-exit runs
+- add soak artifact governance backlog:
+  - define canonical artifact bundle per run (`summary.txt`, `resume_report.txt`, diagnostics JSON, optional stack tarball)
+  - define retention period, naming rules, and archive cadence to prevent accidental data loss/sprawl
+- add post-restart download diagnostics backlog:
+  - expose explicit cancellation/queue transition reasons and timestamps for restart triage
+  - include reason fields in diagnostics snapshot so completion timeouts are directly explainable
+- add config evolution backlog:
+  - introduce config schema versioning + migration notes for future keys (timezone/debug/CLI-related additions)
 
 ## Definition Of Done
 
