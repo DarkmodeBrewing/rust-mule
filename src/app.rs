@@ -303,13 +303,18 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     let shared_roots =
         crate::share::canonicalize_share_roots(&config.sharing.share_roots, data_dir)
             .map_err(|err| AppError::InvalidState(err.to_string()))?;
-    let shared_library = Arc::new(
-        crate::share::index_shared_files(&shared_roots)
-            .map_err(|err| AppError::InvalidState(err.to_string()))?,
-    );
+    let shared_index_path = data_dir.join("shared_library.json");
+    let shared_library_build =
+        crate::share::load_or_rebuild_shared_library(&shared_roots, &shared_index_path)
+            .await
+            .map_err(|err| AppError::InvalidState(err.to_string()))?;
+    let shared_library = Arc::new(shared_library_build.library);
     tracing::info!(
         share_roots = shared_roots.len(),
         shared_files = shared_library.len(),
+        reused_entries = shared_library_build.stats.reused_entries,
+        hashed_entries = shared_library_build.stats.hashed_entries,
+        cache = %shared_index_path.display(),
         "shared library indexed"
     );
 

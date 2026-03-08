@@ -11,6 +11,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added best-effort persisted shared-library index caching.
+  - Added `data/shared_library.json` cache for shared-file metadata and MD4 hashes.
+  - Startup now reuses cached hashes when canonical path, file size, and mtime are unchanged.
+  - Changed files are rehashed automatically; missing/corrupt cache falls back to rebuild.
+  - Added tests covering cache reuse and cache invalidation on file change.
+- Decisions:
+  - cache is advisory only; startup must still succeed if the cache is missing or corrupt.
+  - correctness wins over startup speed: any size/mtime mismatch forces rehash.
+- Next steps:
+  - persist additional library metadata needed for keyword publishing and future UI/library views.
+  - publish filename keywords for indexed shared files.
+  - decide whether to expose shared-library/cache status in API/debug endpoints.
+- Change log:
+  - Updated `src/share.rs`.
+  - Updated `src/app.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added the first disk-backed shared-library/uploader slice.
   - Built a startup shared-file index from validated `sharing.share_roots`.
   - Added streaming MD4 hashing for shared files without loading whole files into memory.

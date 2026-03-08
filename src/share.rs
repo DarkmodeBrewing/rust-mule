@@ -1,7 +1,9 @@
 use crate::kad::{KadId, md4};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedRoot {
@@ -15,6 +17,8 @@ pub struct SharedFile {
     pub canonical_path: PathBuf,
     pub relative_path: PathBuf,
     pub file_size: u64,
+    pub modified_unix_secs: u64,
+    pub modified_subsec_nanos: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +35,18 @@ pub struct SharedLibraryFile {
 pub struct SharedLibrary {
     files: Vec<SharedLibraryFile>,
     by_hash: HashMap<String, usize>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SharedLibraryBuildStats {
+    pub reused_entries: usize,
+    pub hashed_entries: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct SharedLibraryBuild {
+    pub library: SharedLibrary,
+    pub stats: SharedLibraryBuildStats,
 }
 
 impl SharedLibrary {
@@ -188,30 +204,48 @@ pub fn enumerate_shared_files(roots: &[SharedRoot]) -> Result<Vec<SharedFile>> {
 pub fn index_shared_files(roots: &[SharedRoot]) -> Result<SharedLibrary> {
     let mut library = SharedLibrary::default();
     for file in enumerate_shared_files(roots)? {
-        let file_id = hash_file_md4(&file.canonical_path)?;
-        let file_hash_md4_hex = file_id.to_hex_lower();
-        if let Some(existing_idx) = library.by_hash.get(&file_hash_md4_hex).copied() {
-            let existing = &library.files[existing_idx];
-            tracing::warn!(
-                file = %file.canonical_path.display(),
-                existing = %existing.canonical_path.display(),
-                hash = %file_hash_md4_hex,
-                "duplicate shared file hash; keeping first path for uploader"
-            );
-            continue;
-        }
-        let idx = library.files.len();
-        library.by_hash.insert(file_hash_md4_hex.clone(), idx);
-        library.files.push(SharedLibraryFile {
-            root_index: file.root_index,
-            canonical_path: file.canonical_path,
-            relative_path: file.relative_path,
-            file_size: file.file_size,
-            file_id,
-            file_hash_md4_hex,
-        });
+        let file_hash_md4_hex = hash_file_md4(&file.canonical_path)?.to_hex_lower();
+        insert_library_file(&mut library, file, file_hash_md4_hex);
     }
     Ok(library)
+}
+
+pub async fn load_or_rebuild_shared_library(
+    roots: &[SharedRoot],
+    cache_path: &Path,
+) -> Result<SharedLibraryBuild> {
+    let cache = load_index_cache(cache_path).await;
+    let mut library = SharedLibrary::default();
+    let mut reused_entries = 0usize;
+    let mut hashed_entries = 0usize;
+
+    for file in enumerate_shared_files(roots)? {
+        let file_hash_md4_hex = if let Some(entry) = cache
+            .as_ref()
+            .and_then(|cache| cache.entries.get(&file.canonical_path))
+            .filter(|entry| {
+                entry.file_size == file.file_size
+                    && entry.modified_unix_secs == file.modified_unix_secs
+                    && entry.modified_subsec_nanos == file.modified_subsec_nanos
+            }) {
+            reused_entries += 1;
+            entry.file_hash_md4_hex.clone()
+        } else {
+            hashed_entries += 1;
+            hash_file_md4(&file.canonical_path)?.to_hex_lower()
+        };
+        insert_library_file(&mut library, file, file_hash_md4_hex);
+    }
+
+    store_index_cache(cache_path, &library).await;
+
+    Ok(SharedLibraryBuild {
+        library,
+        stats: SharedLibraryBuildStats {
+            reused_entries,
+            hashed_entries,
+        },
+    })
 }
 
 pub fn read_shared_block(file: &SharedLibraryFile, start: u64, end: u64) -> Result<Vec<u8>> {
@@ -297,6 +331,8 @@ fn walk_root(
             canonical_path,
             relative_path,
             file_size: metadata.len(),
+            modified_unix_secs: modified_unix_secs(&metadata),
+            modified_subsec_nanos: modified_subsec_nanos(&metadata),
         });
     }
     Ok(())
@@ -329,6 +365,120 @@ fn hash_file_md4(path: &Path) -> Result<KadId> {
         source,
     })?;
     Ok(KadId(digest))
+}
+
+fn insert_library_file(library: &mut SharedLibrary, file: SharedFile, file_hash_md4_hex: String) {
+    if let Some(existing_idx) = library.by_hash.get(&file_hash_md4_hex).copied() {
+        let existing = &library.files[existing_idx];
+        tracing::warn!(
+            file = %file.canonical_path.display(),
+            existing = %existing.canonical_path.display(),
+            hash = %file_hash_md4_hex,
+            "duplicate shared file hash; keeping first path for uploader"
+        );
+        return;
+    }
+    let idx = library.files.len();
+    let file_id = KadId::from_hex(&file_hash_md4_hex).expect("cached hash hex is valid");
+    library.by_hash.insert(file_hash_md4_hex.clone(), idx);
+    library.files.push(SharedLibraryFile {
+        root_index: file.root_index,
+        canonical_path: file.canonical_path,
+        relative_path: file.relative_path,
+        file_size: file.file_size,
+        file_id,
+        file_hash_md4_hex,
+    });
+}
+
+fn modified_unix_secs(metadata: &std::fs::Metadata) -> u64 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |dur| dur.as_secs())
+}
+
+fn modified_subsec_nanos(metadata: &std::fs::Metadata) -> u32 {
+    metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |dur| dur.subsec_nanos())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SharedLibraryCache {
+    entries: HashMap<PathBuf, SharedLibraryCacheEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SharedLibraryCacheEntry {
+    file_size: u64,
+    modified_unix_secs: u64,
+    modified_subsec_nanos: u32,
+    file_hash_md4_hex: String,
+}
+
+async fn load_index_cache(path: &Path) -> Option<SharedLibraryCache> {
+    let bytes = match tokio::fs::read(path).await {
+        Ok(bytes) => bytes,
+        Err(_) => return None,
+    };
+    match serde_json::from_slice::<SharedLibraryCache>(&bytes) {
+        Ok(cache) => Some(cache),
+        Err(err) => {
+            tracing::warn!(path = %path.display(), error = %err, "shared library cache parse failed; rebuilding");
+            None
+        }
+    }
+}
+
+async fn store_index_cache(path: &Path, library: &SharedLibrary) {
+    let mut entries = HashMap::new();
+    for file in library.files() {
+        let metadata = match std::fs::metadata(&file.canonical_path) {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                tracing::warn!(
+                    path = %file.canonical_path.display(),
+                    error = %err,
+                    "shared library cache skipped file with unreadable metadata"
+                );
+                continue;
+            }
+        };
+        entries.insert(
+            file.canonical_path.clone(),
+            SharedLibraryCacheEntry {
+                file_size: file.file_size,
+                modified_unix_secs: modified_unix_secs(&metadata),
+                modified_subsec_nanos: modified_subsec_nanos(&metadata),
+                file_hash_md4_hex: file.file_hash_md4_hex.clone(),
+            },
+        );
+    }
+    let cache = SharedLibraryCache { entries };
+    let bytes = match serde_json::to_vec_pretty(&cache) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            tracing::warn!(path = %path.display(), error = %err, "shared library cache serialize failed");
+            return;
+        }
+    };
+    let tmp = path.with_extension("tmp");
+    if let Err(err) = tokio::fs::write(&tmp, &bytes).await {
+        tracing::warn!(path = %tmp.display(), error = %err, "shared library cache write failed");
+        return;
+    }
+    if let Err(err) = tokio::fs::rename(&tmp, path).await {
+        tracing::warn!(
+            from = %tmp.display(),
+            to = %path.display(),
+            error = %err,
+            "shared library cache rename failed"
+        );
+    }
 }
 
 fn make_absolute(path: &Path) -> Result<PathBuf> {
@@ -391,7 +541,8 @@ fn is_known_unsafe_system_root(_path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        canonicalize_share_roots, enumerate_shared_files, index_shared_files, read_shared_block,
+        canonicalize_share_roots, enumerate_shared_files, index_shared_files,
+        load_or_rebuild_shared_library, read_shared_block,
     };
 
     fn mktemp(name: &str) -> std::path::PathBuf {
@@ -506,5 +657,60 @@ mod tests {
         let block = read_shared_block(&library.files()[0], 4, 9).expect("read block");
 
         assert_eq!(block, b"456789");
+    }
+
+    #[tokio::test]
+    async fn reuses_cached_hash_for_unchanged_file() {
+        let root = mktemp("cache_reuse");
+        let data_dir = root.join("data");
+        let shared = root.join("shared");
+        let cache = data_dir.join("shared_library.json");
+        std::fs::create_dir_all(&data_dir).expect("data dir");
+        std::fs::create_dir_all(&shared).expect("shared dir");
+        std::fs::write(shared.join("same.bin"), b"same-content").expect("write file");
+
+        let roots = canonicalize_share_roots(&[shared.display().to_string()], &data_dir)
+            .expect("valid root");
+        let first = load_or_rebuild_shared_library(&roots, &cache)
+            .await
+            .expect("first build");
+        let second = load_or_rebuild_shared_library(&roots, &cache)
+            .await
+            .expect("second build");
+
+        assert_eq!(first.stats.hashed_entries, 1);
+        assert_eq!(second.stats.reused_entries, 1);
+        assert_eq!(second.stats.hashed_entries, 0);
+    }
+
+    #[tokio::test]
+    async fn rehashes_file_after_change() {
+        let root = mktemp("cache_invalidate");
+        let data_dir = root.join("data");
+        let shared = root.join("shared");
+        let cache = data_dir.join("shared_library.json");
+        std::fs::create_dir_all(&data_dir).expect("data dir");
+        std::fs::create_dir_all(&shared).expect("shared dir");
+        let file_path = shared.join("change.bin");
+        std::fs::write(&file_path, b"before").expect("write file");
+
+        let roots = canonicalize_share_roots(&[shared.display().to_string()], &data_dir)
+            .expect("valid root");
+        let first = load_or_rebuild_shared_library(&roots, &cache)
+            .await
+            .expect("first build");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        std::fs::write(&file_path, b"after-change").expect("rewrite file");
+        let second = load_or_rebuild_shared_library(&roots, &cache)
+            .await
+            .expect("second build");
+
+        assert_eq!(first.stats.hashed_entries, 1);
+        assert_eq!(second.stats.hashed_entries, 1);
+        assert_eq!(second.stats.reused_entries, 0);
+        assert_ne!(
+            first.library.files()[0].file_hash_md4_hex,
+            second.library.files()[0].file_hash_md4_hex
+        );
     }
 }
