@@ -11,6 +11,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added explicit backlog for transfer-rate telemetry in downloads and uploads.
+  - Confirmed current uploader/download UI/API work does not yet expose first-class transfer
+    speed metrics.
+  - Added backlog to implement rolling bytes/sec telemetry for:
+    - per-download rates
+    - per-upload rates
+    - aggregate transfer rates where useful
+  - Added backlog requirement to surface those rates in `/ui/downloads`.
+- Decisions:
+  - treat transfer speed as first-class operator telemetry, not an optional cosmetic stat.
+  - when implemented, define explicit smoothing/window semantics instead of ad hoc
+    instantaneous rates so the UI remains stable and interpretable.
+- Next steps:
+  - when the next transfer-observability slice is chosen, add rate fields to
+    `/api/v1/downloads` and `/api/v1/uploads` first, then wire them into `/ui/downloads`.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Expanded uploader snapshots with peer identity and serving-source metadata.
   - `UploadService` / `UploadActivityTracker` now record:
     - per-range `peer_id_hex`

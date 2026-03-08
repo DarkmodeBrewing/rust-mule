@@ -94,6 +94,18 @@ Last Reviewed: 2026-03-03
   - normalize + canonicalize share paths before accept; prevent duplicate/overlapping entries by policy
   - expose scanner/index health + per-folder stats in settings/status UI for operator visibility
   - reference checklist: `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`
+- add transfer rate telemetry backlog:
+  - track download speed as rolling bytes/sec per download and aggregate download throughput
+  - track upload speed as rolling bytes/sec per active upload and aggregate upload throughput
+  - expose rate fields in API responses used by the downloads UI:
+    - `/api/v1/downloads`
+    - `/api/v1/uploads`
+    - optionally `/api/v1/status` aggregate transfer totals
+  - surface transfer rates in `/ui/downloads` for both download and upload sections
+  - define smoothing/window semantics explicitly (for example 5s / 30s rolling windows) so
+    UI values are stable and comparable across sessions
+  - ensure zero-fill fallback uploads still report served bytes/rates truthfully and can be
+    distinguished from shared-file-backed upload rates when needed
 
 ## v1 Stable Interop Release Gates
 
