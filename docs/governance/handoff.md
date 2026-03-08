@@ -11,6 +11,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed PR review feedback for the uploader UI visibility branch.
+  - Replaced raw markdown-style backticks in `ui/downloads.html` with an HTML
+    `<code>` element for `/api/v1/uploads`.
+- Decisions:
+  - keep HTML code-like endpoint labels as explicit `<code>` markup in static UI templates;
+    do not rely on markdown-style notation inside `.html` files.
+- Next steps:
+  - watch PR `#48` for any remaining UI-only review comments.
+- Change log:
+  - Updated `ui/downloads.html`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added a read-only uploader visibility section to `/ui/downloads`.
   - The downloads page now fetches `GET /api/v1/uploads` alongside:
     - `GET /api/v1/downloads`
