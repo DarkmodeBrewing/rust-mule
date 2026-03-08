@@ -11,6 +11,47 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed PR review feedback for the uploader UI visibility branch.
+  - Replaced raw markdown-style backticks in `ui/downloads.html` with an HTML
+    `<code>` element for `/api/v1/uploads`.
+- Decisions:
+  - keep HTML code-like endpoint labels as explicit `<code>` markup in static UI templates;
+    do not rely on markdown-style notation inside `.html` files.
+- Next steps:
+  - watch PR `#48` for any remaining UI-only review comments.
+- Change log:
+  - Updated `ui/downloads.html`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added a read-only uploader visibility section to `/ui/downloads`.
+  - The downloads page now fetches `GET /api/v1/uploads` alongside:
+    - `GET /api/v1/downloads`
+    - `GET /api/v1/shared`
+  - Added an `Active Uploads` section that shows:
+    - file name / relative path
+    - file hash
+    - total upload requests
+    - bytes requested
+    - held and sending ranges
+    - last requested timestamp
+  - Updated the UI mock server and Playwright smoke coverage to include the new section.
+- Decisions:
+  - keep the first uploader UI slice read-only; do not add uploader controls before the
+    uploader/session model is richer.
+  - expose uploader state on the existing downloads page instead of creating a separate UI
+    route; operators already use that page for transfer visibility.
+- Next steps:
+  - decide whether the next uploader slice should add peer/session identity to
+    `/api/v1/uploads`.
+  - decide whether uploader activity should eventually be cross-linked from shared-file
+    rows into a single richer uploader view, or kept as a separate table.
+- Change log:
+  - Updated `ui/downloads.html`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed PR review fixes for the uploader-service foundation branch.
   - Restored correct `OP_SENDINGPART` payload framing by adding
     `encode_sendingpart_payload(...)` in `src/download/protocol.rs`.
