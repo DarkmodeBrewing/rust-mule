@@ -48,6 +48,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `ui/tests/e2e/mock-server.mjs`.
   - Updated `docs/governance/handoff.md`.
 
+- Status (2026-03-08): Applied a CI-formatting follow-up on `feat/shared-publish-response-status`.
+  - Kept the `pub use types::{...}` re-export block in `src/kad/service.rs` in the rustfmt layout expected by CI.
+- Decisions:
+  - treat this as a formatting-only follow-up; no behavior changed.
+- Next steps:
+  - wait for PR `#44` CI to rerun on the pushed formatting fix.
+- Change log:
+  - Updated `src/kad/service.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed actionable PR review feedback on the shared-library foundation branch.
   - Hardened shared-root/runtime-dir normalization:
     - canonicalize `data_dir` consistently when validating share-root overlap

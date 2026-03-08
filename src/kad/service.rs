@@ -43,10 +43,9 @@ mod tests;
 mod types;
 
 pub use types::{
-    KadKeywordHit, KadKeywordHitOrigin, KadKeywordSearchInfo, KadPeerInfo,
-    KadServiceCommand, KadServiceConfig, KadServiceCrypto, KadServiceStatus,
-    KadSharedPublishStatus, KadSourceEntry, RoutingBucketSummary, RoutingNodeSummary,
-    RoutingSummary,
+    KadKeywordHit, KadKeywordHitOrigin, KadKeywordSearchInfo, KadPeerInfo, KadServiceCommand,
+    KadServiceConfig, KadServiceCrypto, KadServiceStatus, KadSharedPublishStatus, KadSourceEntry,
+    RoutingBucketSummary, RoutingNodeSummary, RoutingSummary,
 };
 use types::{KadServiceCumulative, KadServiceStats};
 
