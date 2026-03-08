@@ -65,6 +65,10 @@ Last Reviewed: 2026-03-03
   - require debug second-factor secret (`api.debug_token`, `X-Debug-Token`)
   - enforce token lifecycle policy: no auto-delete on debug-disabled; explicit rotation only
   - reference design: `docs/10_architecture/DEBUG_BOOTSTRAP_RESTART_DESIGN.md`
+- add logging-surface cleanup backlog:
+  - audit trace/routing logs and move non-essential internals behind debug-enabled gating
+  - specifically gate verbose bucket/routing-table detail logs behind debug flag
+  - keep default logs operator-focused (health/progress/errors) and avoid high-cardinality noisy output
 
 ## Definition Of Done
 

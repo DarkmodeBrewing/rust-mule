@@ -11,6 +11,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added logging-surface cleanup task for debug gating.
+  - Updated `docs/governance/TASKS.md` with explicit backlog item:
+    - audit trace/routing logs for debug gating
+    - move verbose bucket/routing-table details behind debug flag
+    - keep default logs focused on operator-relevant signals (health/progress/errors)
+- Decisions:
+  - verbose routing internals should not be emitted in default mode.
+- Next steps:
+  - inventory current `tracing` callsites for bucket/routing detail and classify default-vs-debug.
+  - implement gating and add regression checks for log verbosity expectations.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added timezone configuration/settings backlog item.
   - Updated `docs/governance/TASKS.md` with timezone scope:
     - config key for timezone (IANA zone id) with validation/fallback behavior
