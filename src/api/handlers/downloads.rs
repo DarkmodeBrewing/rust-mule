@@ -13,6 +13,7 @@ use crate::kad::{
     KadId,
     service::{KadServiceCommand, KadSharedPublishStatus},
 };
+use crate::shared_ops::SharedActionRejectReason;
 use crate::upload::{UploadActivitySnapshot, UploadRangePhase};
 
 #[derive(Debug, Clone, Serialize)]
@@ -100,7 +101,7 @@ pub(crate) struct SharedActionsResponse {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct SharedActionResponse {
     pub(crate) started: bool,
-    pub(crate) reason: Option<String>,
+    pub(crate) reason: Option<crate::shared_ops::SharedActionRejectReason>,
     pub(crate) status: crate::shared_ops::SharedActionStatus,
 }
 
@@ -506,10 +507,11 @@ fn map_download_error_envelope(err: DownloadError) -> (StatusCode, Json<ApiError
 fn map_shared_action_status(response: &crate::shared_ops::SharedActionStartResponse) -> StatusCode {
     if response.started {
         StatusCode::ACCEPTED
-    } else if response.reason.as_deref() == Some("cooldown_active") {
-        StatusCode::TOO_MANY_REQUESTS
     } else {
-        StatusCode::CONFLICT
+        match response.reason {
+            Some(SharedActionRejectReason::CooldownActive) => StatusCode::TOO_MANY_REQUESTS,
+            Some(SharedActionRejectReason::AlreadyRunning) | None => StatusCode::CONFLICT,
+        }
     }
 }
 

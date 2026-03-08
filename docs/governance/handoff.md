@@ -50,6 +50,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `ui/tests/e2e/mock-server.mjs`.
   - Updated `docs/governance/handoff.md`.
 
+- Status (2026-03-08): Addressed actionable PR `#46` review feedback on the shared action danger-zone slice.
+  - Restored the `apiPost` import in `ui/assets/js/app.js`; it is still used by other UI flows outside shared maintenance actions.
+  - Replaced the stringly-typed shared action reject reason with a typed enum:
+    - `AlreadyRunning`
+    - `CooldownActive`
+  - Updated HTTP status mapping to branch on the typed reject reason instead of matching string literals.
+- Decisions:
+  - keep the shared action reject reason typed end-to-end inside Rust and only serialize it at the API boundary.
+  - treat missing imports in the monolithic UI module as runtime correctness issues, not cosmetic cleanup.
+- Next steps:
+  - merge PR `#46` after CI/rereview is clean.
+- Change log:
+  - Updated `src/shared_ops.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed actionable PR `#45` review feedback on shared-library operator actions.
   - Republish actions now fail fast with a structured failed status when `kad.service_enabled = false`, instead of queueing work onto an unserviced channel.
   - Added missing API coverage for:

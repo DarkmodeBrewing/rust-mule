@@ -33,6 +33,13 @@ impl SharedActionKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SharedActionRejectReason {
+    AlreadyRunning,
+    CooldownActive,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SharedActionStatus {
     pub action: String,
@@ -71,7 +78,7 @@ impl SharedActionStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct SharedActionStartResponse {
     pub started: bool,
-    pub reason: Option<String>,
+    pub reason: Option<SharedActionRejectReason>,
     pub status: SharedActionStatus,
 }
 
@@ -152,7 +159,7 @@ impl SharedOpsManager {
             if status.state == "running" {
                 return SharedActionStartResponse {
                     started: false,
-                    reason: Some("already_running".to_string()),
+                    reason: Some(SharedActionRejectReason::AlreadyRunning),
                     status: status.clone(),
                 };
             }
@@ -162,7 +169,7 @@ impl SharedOpsManager {
             {
                 return SharedActionStartResponse {
                     started: false,
-                    reason: Some("cooldown_active".to_string()),
+                    reason: Some(SharedActionRejectReason::CooldownActive),
                     status: status.clone(),
                 };
             }
@@ -467,7 +474,10 @@ mod tests {
 
         let response = manager.start_reindex().await;
         assert!(!response.started);
-        assert_eq!(response.reason.as_deref(), Some("already_running"));
+        assert_eq!(
+            response.reason,
+            Some(SharedActionRejectReason::AlreadyRunning)
+        );
         assert_eq!(response.status.state, "running");
     }
 
@@ -502,7 +512,10 @@ mod tests {
 
         let response = manager.start_republish_sources().await;
         assert!(!response.started);
-        assert_eq!(response.reason.as_deref(), Some("cooldown_active"));
+        assert_eq!(
+            response.reason,
+            Some(SharedActionRejectReason::CooldownActive)
+        );
         assert_eq!(response.status.state, "succeeded");
     }
 
