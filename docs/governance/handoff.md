@@ -11,6 +11,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added dedicated sharing/upload implementation checklist doc.
+  - Added `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` covering:
+    - shared folder policy and unsafe-root rejection
+    - index/hash/publish-path binding requirements
+    - real disk-backed `OP_REQUESTPARTS` -> `OP_SENDINGPART` serving
+    - backpressure/abuse controls, observability, and tests
+  - Updated `docs/governance/TASKS.md` to reference the checklist.
+- Decisions:
+  - Treat sharing/upload as a constrained subsystem with explicit safety policy, not ad-hoc feature accretion.
+- Next steps:
+  - implement first minimal slice from checklist (single shared folder + real range-serving path + tests).
+  - add settings UI controls for share roots with validation errors surfaced clearly.
+- Change log:
+  - Added `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added backlog for shared library and real uploader implementation.
   - Updated `docs/governance/TASKS.md` with required scope:
     - configurable shared folders in config + settings UI/API

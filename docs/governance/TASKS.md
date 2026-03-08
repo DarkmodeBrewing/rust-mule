@@ -91,6 +91,7 @@ Last Reviewed: 2026-03-03
   - reject unsafe share roots by policy (system root `/`, core OS dirs, app/runtime data dirs) with clear validation errors
   - normalize + canonicalize share paths before accept; prevent duplicate/overlapping entries by policy
   - expose scanner/index health + per-folder stats in settings/status UI for operator visibility
+  - reference checklist: `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`
 
 ## Definition Of Done
 
