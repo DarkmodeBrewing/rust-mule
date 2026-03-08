@@ -422,6 +422,69 @@ fn source_probe_tracks_first_send_response_latency_and_results() {
 }
 
 #[test]
+fn shared_publish_status_combines_source_and_keyword_response_state() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([7u8; 16]), rx);
+    let file = KadId([9u8; 16]);
+    let keyword_a = KadId([1u8; 16]);
+    let keyword_b = KadId([2u8; 16]);
+    let t0 = Instant::now();
+    let t1 = t0 + Duration::from_millis(40);
+
+    svc.sources_by_file
+        .entry(file)
+        .or_default()
+        .insert(svc.routing.my_id(), [0u8; I2P_DEST_LEN]);
+    mark_source_publish_sent(&mut svc, file, t0);
+    on_source_publish_response(&mut svc, file, "peer-a", t1);
+    svc.keyword_jobs.insert(
+        keyword_a,
+        KeywordJob {
+            created_at: t0,
+            next_lookup_at: t0,
+            next_search_at: t0,
+            next_publish_at: t0,
+            sent_to_search: HashSet::new(),
+            sent_to_publish: HashSet::new(),
+            want_search: false,
+            publish: Some(KeywordPublishSpec {
+                file,
+                filename: "shared.bin".to_string(),
+                file_size: 1,
+                file_type: None,
+            }),
+            got_publish_ack: true,
+        },
+    );
+    svc.keyword_jobs.insert(
+        keyword_b,
+        KeywordJob {
+            created_at: t0,
+            next_lookup_at: t0,
+            next_search_at: t0,
+            next_publish_at: t0,
+            sent_to_search: HashSet::new(),
+            sent_to_publish: HashSet::new(),
+            want_search: false,
+            publish: Some(KeywordPublishSpec {
+                file,
+                filename: "shared.bin".to_string(),
+                file_size: 1,
+                file_type: None,
+            }),
+            got_publish_ack: false,
+        },
+    );
+
+    let status = shared_publish_status_for_file(&svc, file);
+    assert!(status.local_source_cached);
+    assert!(status.source_publish_response_received);
+    assert_eq!(status.source_publish_first_response_latency_ms, Some(40));
+    assert_eq!(status.keyword_publish_total, 2);
+    assert_eq!(status.keyword_publish_acked, 1);
+}
+
+#[test]
 fn cache_local_published_source_inserts_local_entry_once() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);

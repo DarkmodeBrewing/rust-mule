@@ -275,6 +275,10 @@ pub enum KadServiceCommand {
         file: KadId,
         file_size: u64,
     },
+    GetSharedPublishStatus {
+        file: KadId,
+        respond_to: oneshot::Sender<KadSharedPublishStatus>,
+    },
     GetSources {
         file: KadId,
         respond_to: oneshot::Sender<Vec<KadSourceEntry>>,
@@ -349,6 +353,15 @@ pub struct KadKeywordSearchInfo {
     pub want_search: bool,
     pub publish_enabled: bool,
     pub got_publish_ack: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct KadSharedPublishStatus {
+    pub local_source_cached: bool,
+    pub source_publish_response_received: bool,
+    pub source_publish_first_response_latency_ms: Option<u64>,
+    pub keyword_publish_total: usize,
+    pub keyword_publish_acked: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]

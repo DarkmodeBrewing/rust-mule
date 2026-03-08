@@ -11,6 +11,43 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added real KAD publish-response visibility for shared files and surfaced it in `/api/v1/shared` and `/ui/downloads`.
+  - Added `KadServiceCommand::GetSharedPublishStatus` and `KadSharedPublishStatus`.
+  - Added KAD service-side file-level publish status synthesis:
+    - `local_source_cached`
+    - `source_publish_response_received`
+    - `source_publish_first_response_latency_ms`
+    - `keyword_publish_total`
+    - `keyword_publish_acked`
+  - Extended `/api/v1/shared` to merge:
+    - enqueue status from `SharedPublishTracker`
+    - actual response/ack facts from the KAD service
+  - Updated `/ui/downloads` shared-library table to distinguish:
+    - local source cached state
+    - source publish queue state
+    - source publish response state
+    - keyword publish queue state
+    - keyword publish ack coverage
+  - Added service/API coverage for the new file-level publish status path.
+- Decisions:
+  - keep enqueue status and response status separate; they answer different operational questions.
+  - do not reinterpret `source_count` as “local source exists”; expose local-source cache state explicitly.
+  - model keyword publish response status as ack coverage (`acked/total`) because a shared file is published under multiple keywords.
+- Next steps:
+  - decide whether to track file-level publish responses durably across restart or keep them runtime-only.
+  - decide whether the next shared-library slice should add operator actions (`reindex`, `republish`) or deeper source/publish telemetry first.
+  - consider surfacing discovered-vs-local source state more explicitly if the shared UI needs stronger availability diagnostics.
+- Change log:
+  - Updated `src/kad/service/types.rs`.
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/tests.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed actionable PR review feedback on the shared-library foundation branch.
   - Hardened shared-root/runtime-dir normalization:
     - canonicalize `data_dir` consistently when validating share-root overlap

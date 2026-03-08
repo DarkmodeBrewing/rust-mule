@@ -1195,10 +1195,11 @@ async fn shared_endpoint_lists_indexed_files() {
             .await
             .expect("library");
 
-    let (kad_tx, _kad_rx) = mpsc::channel(8);
+    let (kad_tx, mut kad_rx) = mpsc::channel(8);
     let mut state = test_state(kad_tx);
     state.shared_library = Arc::new(build.library);
     let shared_hash = state.shared_library.files()[0].file_hash_md4_hex.clone();
+    let shared_file_id = state.shared_library.files()[0].file_id;
     state.publish_tracker.note_source_queued(&shared_hash);
     state.publish_tracker.note_keyword_queued(&shared_hash);
     state
@@ -1210,6 +1211,23 @@ async fn shared_endpoint_lists_indexed_files() {
     state
         .upload_activity
         .note_sending(&shared_hash, 1024, 2047, Duration::from_secs(30));
+    let responder = tokio::spawn(async move {
+        while let Some(cmd) = kad_rx.recv().await {
+            match cmd {
+                KadServiceCommand::GetSharedPublishStatus { file, respond_to } => {
+                    assert_eq!(file, shared_file_id);
+                    let _ = respond_to.send(crate::kad::service::KadSharedPublishStatus {
+                        local_source_cached: true,
+                        source_publish_response_received: true,
+                        source_publish_first_response_latency_ms: Some(40),
+                        keyword_publish_total: 3,
+                        keyword_publish_acked: 2,
+                    });
+                }
+                other => panic!("unexpected command: {other:?}"),
+            }
+        }
+    });
     let app = test_app(state);
 
     let resp = app
@@ -1222,12 +1240,24 @@ async fn shared_endpoint_lists_indexed_files() {
     assert_eq!(json["files"][0]["file_name"].as_str(), Some("shared.bin"));
     assert_eq!(json["files"][0]["source_count"].as_u64(), Some(0));
     assert_eq!(
+        json["files"][0]["local_source_cached"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
         json["files"][0]["source_publish_attempts"].as_u64(),
         Some(1)
     );
     assert_eq!(
         json["files"][0]["source_publish_last_result"].as_str(),
         Some("queued")
+    );
+    assert_eq!(
+        json["files"][0]["source_publish_response_received"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        json["files"][0]["source_publish_first_response_latency_ms"].as_u64(),
+        Some(40)
     );
     assert_eq!(
         json["files"][0]["keyword_publish_attempts"].as_u64(),
@@ -1239,6 +1269,8 @@ async fn shared_endpoint_lists_indexed_files() {
         json["files"][0]["keyword_publish_last_result"].as_str(),
         Some("queue_failed")
     );
+    assert_eq!(json["files"][0]["keyword_publish_total"].as_u64(), Some(3));
+    assert_eq!(json["files"][0]["keyword_publish_acked"].as_u64(), Some(2));
     assert_eq!(json["files"][0]["queued_uploads"].as_u64(), Some(1));
     assert_eq!(json["files"][0]["inflight_uploads"].as_u64(), Some(1));
     assert_eq!(json["files"][0]["total_upload_requests"].as_u64(), Some(2));
@@ -1254,6 +1286,7 @@ async fn shared_endpoint_lists_indexed_files() {
         json["files"][0]["inflight_upload_ranges"][0]["start"].as_u64(),
         Some(1024)
     );
+    responder.abort();
 
     let _ = tokio::fs::remove_dir_all(&root).await;
 }

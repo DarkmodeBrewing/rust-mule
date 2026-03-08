@@ -43,9 +43,10 @@ mod tests;
 mod types;
 
 pub use types::{
-    KadKeywordHit, KadKeywordHitOrigin, KadKeywordSearchInfo, KadPeerInfo, KadServiceCommand,
-    KadServiceConfig, KadServiceCrypto, KadServiceStatus, KadSourceEntry, RoutingBucketSummary,
-    RoutingNodeSummary, RoutingSummary,
+    KadKeywordHit, KadKeywordHitOrigin, KadKeywordSearchInfo, KadPeerInfo,
+    KadServiceCommand, KadServiceConfig, KadServiceCrypto, KadServiceStatus,
+    KadSharedPublishStatus, KadSourceEntry, RoutingBucketSummary, RoutingNodeSummary,
+    RoutingSummary,
 };
 use types::{KadServiceCumulative, KadServiceStats};
 
@@ -538,6 +539,10 @@ async fn handle_command(
             // can return this source before broader network convergence.
             cache_local_published_source(svc, crypto, file);
             send_publish_source(svc, sock, crypto, cfg, file, file_size).await?;
+        }
+        KadServiceCommand::GetSharedPublishStatus { file, respond_to } => {
+            let status = shared_publish_status_for_file(svc, file);
+            let _ = respond_to.send(status);
         }
         KadServiceCommand::GetSources { file, respond_to } => {
             let sources = svc
@@ -2729,6 +2734,44 @@ fn on_source_search_response(
     now: Instant,
 ) {
     source_probe::on_source_search_response_impl(svc, file, from_dest_b64, returned_sources, now);
+}
+
+fn shared_publish_status_for_file(svc: &KadService, file: KadId) -> KadSharedPublishStatus {
+    let local_source_cached = svc
+        .sources_by_file
+        .get(&file)
+        .is_some_and(|sources| sources.contains_key(&svc.routing.my_id()));
+    let (source_publish_response_received, source_publish_first_response_latency_ms) = svc
+        .source_probe_by_file
+        .get(&file)
+        .map(|state| {
+            let latency_ms = match (state.first_publish_sent_at, state.first_publish_res_at) {
+                (Some(sent_at), Some(response_at)) => {
+                    Some(response_at.saturating_duration_since(sent_at).as_millis() as u64)
+                }
+                _ => None,
+            };
+            (state.first_publish_res_at.is_some(), latency_ms)
+        })
+        .unwrap_or((false, None));
+    let (keyword_publish_total, keyword_publish_acked) = svc
+        .keyword_jobs
+        .values()
+        .filter_map(|job| {
+            let publish = job.publish.as_ref()?;
+            (publish.file == file).then_some(job.got_publish_ack)
+        })
+        .fold((0usize, 0usize), |(total, acked), got_ack| {
+            (total + 1, acked + usize::from(got_ack))
+        });
+
+    KadSharedPublishStatus {
+        local_source_cached,
+        source_publish_response_received,
+        source_publish_first_response_latency_ms,
+        keyword_publish_total,
+        keyword_publish_acked,
+    }
 }
 
 fn publish_status(
