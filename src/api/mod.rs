@@ -14,6 +14,9 @@ use crate::{
     config::{ApiAuthMode, ApiConfig, Config},
     download::DownloadServiceHandle,
     kad::service::{KadServiceCommand, KadServiceStatus},
+    publish::SharedPublishTracker,
+    share::SharedLibrary,
+    upload::UploadActivityTracker,
 };
 
 mod auth;
@@ -66,6 +69,9 @@ pub struct ApiState {
     pub(crate) kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
     pub(crate) download_handle: DownloadServiceHandle,
     pub(crate) config: Arc<tokio::sync::Mutex<Config>>,
+    pub(crate) shared_library: Arc<SharedLibrary>,
+    pub(crate) publish_tracker: Arc<SharedPublishTracker>,
+    pub(crate) upload_activity: Arc<UploadActivityTracker>,
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
     pub(crate) enable_debug_endpoints: bool,
     pub(crate) auth_mode: ApiAuthMode,
@@ -87,6 +93,9 @@ pub struct ApiServeDeps {
     pub status_events_tx: broadcast::Sender<KadServiceStatus>,
     pub kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
     pub download_handle: DownloadServiceHandle,
+    pub shared_library: Arc<SharedLibrary>,
+    pub publish_tracker: Arc<SharedPublishTracker>,
+    pub upload_activity: Arc<UploadActivityTracker>,
 }
 
 pub fn new_channels() -> (
@@ -144,6 +153,9 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         status_events_tx: deps.status_events_tx,
         kad_cmd_tx: deps.kad_cmd_tx,
         download_handle: deps.download_handle,
+        shared_library: deps.shared_library,
+        publish_tracker: deps.publish_tracker,
+        upload_activity: deps.upload_activity,
         config: Arc::new(tokio::sync::Mutex::new(deps.app_config)),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: cfg.enable_debug_endpoints,

@@ -10,6 +10,7 @@ test.describe('rust-mule ui smoke', () => {
     await ensureAuthenticated(page);
     await expect(page.getByRole('heading', { name: /Search Overview/i })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Searches' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Downloads' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Nodes / Routing' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Logs' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
@@ -36,7 +37,14 @@ test.describe('rust-mule ui smoke', () => {
     await expect(page.getByRole('table')).toBeVisible();
   });
 
-  test('logs and settings pages render key controls', async ({ page }) => {
+  test('downloads logs and settings pages render key controls', async ({ page }) => {
+    await ensureAuthenticated(page);
+    await page.goto('/ui/downloads');
+    await expect(
+      page.getByRole('heading', { level: 1, name: 'Downloads & Shared Files' }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Shared Library' })).toBeVisible();
+
     await ensureAuthenticated(page);
     await page.goto('/ui/log');
     await expect(page.getByRole('heading', { name: 'Logs' })).toBeVisible();

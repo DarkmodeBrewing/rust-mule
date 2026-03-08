@@ -12,8 +12,8 @@ use crate::api::{
         downloads_cancel, downloads_create, downloads_delete, downloads_pause, downloads_resume,
         events, health, kad_keyword_results, kad_peers, kad_publish_keyword, kad_publish_source,
         kad_search_keyword, kad_search_sources, kad_sources, search_delete, search_details,
-        search_stop, searches, session_check, session_logout, settings_get, settings_patch, status,
-        token_rotate,
+        search_stop, searches, session_check, session_logout, settings_get, settings_patch,
+        shared_files, status, token_rotate,
     },
     ui::{root_index_redirect, ui_asset, ui_auth, ui_fallback, ui_index, ui_page},
 };
@@ -27,6 +27,7 @@ pub(crate) fn build_app(state: ApiState) -> Router<()> {
         .route("/session/logout", post(session_logout))
         .route("/status", get(status))
         .route("/downloads", get(downloads).post(downloads_create))
+        .route("/shared", get(shared_files))
         .route("/downloads/:part_number/pause", post(downloads_pause))
         .route("/downloads/:part_number/resume", post(downloads_resume))
         .route("/downloads/:part_number/cancel", post(downloads_cancel))

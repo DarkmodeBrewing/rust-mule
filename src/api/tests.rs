@@ -41,6 +41,9 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         kad_cmd_tx,
         download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
+        shared_library: Arc::new(crate::share::SharedLibrary::default()),
+        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
+        upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
         auth_mode: ApiAuthMode::LocalUi,
@@ -491,6 +494,7 @@ async fn settings_get_returns_config_snapshot() {
         7
     );
     assert!(!resp.0.settings.general.auto_open_ui);
+    assert!(resp.0.settings.sharing.share_roots.is_empty());
     assert!(resp.0.restart_required);
 }
 
@@ -518,6 +522,9 @@ async fn settings_patch_updates_and_persists_config() {
                 "rate_limit_auth_bootstrap_max_per_window": 30,
                 "rate_limit_session_max_per_window": 30,
                 "rate_limit_token_rotate_max_per_window": 10
+            },
+            "sharing": {
+                "share_roots": []
             }
         }))
         .expect("serialize settings patch"),
@@ -543,9 +550,41 @@ async fn settings_patch_updates_and_persists_config() {
         resp.0.settings.api.rate_limit_token_rotate_max_per_window,
         10
     );
+    assert!(resp.0.settings.sharing.share_roots.is_empty());
     assert!(!resp.0.settings.general.log_to_file);
     assert!(!resp.0.settings.general.auto_open_ui);
     assert!(resp.0.restart_required);
+}
+
+#[tokio::test]
+async fn settings_patch_updates_share_roots() {
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let root = std::env::temp_dir().join(format!(
+        "rust_mule_settings_share_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create share root");
+
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "sharing": {
+                "share_roots": [root.display().to_string()]
+            }
+        }))
+        .expect("serialize sharing patch"),
+    );
+    let result = handlers::settings_patch(State(state), body).await;
+
+    let resp = result.expect("settings_patch should succeed");
+    assert_eq!(
+        resp.0.settings.sharing.share_roots,
+        vec![root.display().to_string()]
+    );
 }
 
 #[tokio::test]
@@ -595,6 +634,19 @@ async fn settings_patch_rejects_invalid_values() {
     );
     let resp_bad_rate_limit = handlers::settings_patch(State(state), body).await;
     assert!(matches!(resp_bad_rate_limit, Err(StatusCode::BAD_REQUEST)));
+
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "sharing": {
+                "share_roots": ["/"]
+            }
+        }))
+        .expect("serialize unsafe sharing patch"),
+    );
+    let resp_bad_share_root = handlers::settings_patch(State(state), body).await;
+    assert!(matches!(resp_bad_share_root, Err(StatusCode::BAD_REQUEST)));
 }
 
 #[tokio::test]
@@ -814,6 +866,9 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         kad_cmd_tx: tx,
         download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
+        shared_library: Arc::new(crate::share::SharedLibrary::default()),
+        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
+        upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::from([(
             "s1".to_string(),
             Instant::now() + Duration::from_secs(30),
@@ -861,6 +916,9 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         kad_cmd_tx: kad_tx,
         download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
+        shared_library: Arc::new(crate::share::SharedLibrary::default()),
+        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
+        upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
         auth_mode: ApiAuthMode::LocalUi,
@@ -1109,6 +1167,98 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
 }
 
 #[tokio::test]
+async fn shared_endpoint_lists_indexed_files() {
+    let root = std::env::temp_dir().join(format!(
+        "rust_mule_shared_api_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let data_dir = root.join("data");
+    let shared_dir = root.join("shared");
+    tokio::fs::create_dir_all(&data_dir)
+        .await
+        .expect("data dir");
+    tokio::fs::create_dir_all(&shared_dir)
+        .await
+        .expect("shared dir");
+    tokio::fs::write(shared_dir.join("shared.bin"), b"shared-content")
+        .await
+        .expect("file");
+    let roots =
+        crate::share::canonicalize_share_roots(&[shared_dir.display().to_string()], &data_dir)
+            .expect("roots");
+    let build =
+        crate::share::load_or_rebuild_shared_library(&roots, &data_dir.join("shared_library.json"))
+            .await
+            .expect("library");
+
+    let (kad_tx, _kad_rx) = mpsc::channel(8);
+    let mut state = test_state(kad_tx);
+    state.shared_library = Arc::new(build.library);
+    let shared_hash = state.shared_library.files()[0].file_hash_md4_hex.clone();
+    state.publish_tracker.note_source_queued(&shared_hash);
+    state.publish_tracker.note_keyword_queued(&shared_hash);
+    state
+        .publish_tracker
+        .note_keyword_queue_failed(&shared_hash);
+    state
+        .upload_activity
+        .note_held(&shared_hash, 0, 1023, Duration::from_secs(30));
+    state
+        .upload_activity
+        .note_sending(&shared_hash, 1024, 2047, Duration::from_secs(30));
+    let app = test_app(state);
+
+    let resp = app
+        .oneshot(authorized_api_get("/api/v1/shared"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = response_json(resp).await;
+    assert_eq!(json["files"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["files"][0]["file_name"].as_str(), Some("shared.bin"));
+    assert_eq!(json["files"][0]["source_count"].as_u64(), Some(0));
+    assert_eq!(
+        json["files"][0]["source_publish_attempts"].as_u64(),
+        Some(1)
+    );
+    assert_eq!(
+        json["files"][0]["source_publish_last_result"].as_str(),
+        Some("queued")
+    );
+    assert_eq!(
+        json["files"][0]["keyword_publish_attempts"].as_u64(),
+        Some(2)
+    );
+    assert_eq!(json["files"][0]["keyword_publish_queued"].as_u64(), Some(1));
+    assert_eq!(json["files"][0]["keyword_publish_failed"].as_u64(), Some(1));
+    assert_eq!(
+        json["files"][0]["keyword_publish_last_result"].as_str(),
+        Some("queue_failed")
+    );
+    assert_eq!(json["files"][0]["queued_uploads"].as_u64(), Some(1));
+    assert_eq!(json["files"][0]["inflight_uploads"].as_u64(), Some(1));
+    assert_eq!(json["files"][0]["total_upload_requests"].as_u64(), Some(2));
+    assert_eq!(
+        json["files"][0]["requested_bytes_total"].as_u64(),
+        Some(2048)
+    );
+    assert_eq!(
+        json["files"][0]["queued_upload_ranges"][0]["start"].as_u64(),
+        Some(0)
+    );
+    assert_eq!(
+        json["files"][0]["inflight_upload_ranges"][0]["start"].as_u64(),
+        Some(1024)
+    );
+
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
 async fn download_mutation_endpoints_update_service_state() {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1199,6 +1349,17 @@ async fn download_mutation_endpoints_update_service_state() {
     assert_eq!(
         list_json["downloads"][0]["state"].as_str(),
         Some("cancelled")
+    );
+    assert!(list_json["downloads"][0].get("source_count").is_some());
+    assert!(
+        list_json["downloads"][0]
+            .get("missing_range_spans")
+            .is_some()
+    );
+    assert!(
+        list_json["downloads"][0]
+            .get("inflight_range_spans")
+            .is_some()
     );
 
     let delete_resp = app

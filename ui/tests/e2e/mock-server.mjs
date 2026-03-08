@@ -97,8 +97,73 @@ const SETTINGS_PAYLOAD = {
       log_file_level: 'debug',
       auto_open_ui: false,
     },
+    sharing: {
+      share_roots: ['/tmp/shared-a', '/tmp/shared-b'],
+    },
   },
   restart_required: true,
+};
+
+const DOWNLOADS_PAYLOAD = {
+  queue_len: 1,
+  recovered_on_start: 0,
+  reserve_calls_total: 1,
+  reserve_granted_blocks_total: 1,
+  reserve_denied_cooldown_total: 0,
+  reserve_denied_peer_cap_total: 0,
+  reserve_denied_download_cap_total: 0,
+  reserve_denied_state_total: 0,
+  reserve_empty_no_missing_total: 0,
+  downloads: [
+    {
+      part_number: 1,
+      file_name: 'shared.bin',
+      file_hash_md4_hex: '0123456789abcdef0123456789abcdef',
+      file_size: 1048576,
+      state: 'downloading',
+      downloaded_bytes: 262144,
+      progress_pct: 25,
+      missing_ranges: 1,
+      inflight_ranges: 1,
+      retry_count: 0,
+      last_error: null,
+      source_count: 1,
+      missing_range_spans: [{ start: 524288, end: 1048575 }],
+      inflight_range_spans: [{ start: 262144, end: 524287 }],
+      created_unix_secs: 1,
+      updated_unix_secs: 2,
+    },
+  ],
+};
+
+const SHARED_PAYLOAD = {
+  files: [
+    {
+      file_name: 'shared.bin',
+      relative_path: 'folder/shared.bin',
+      file_hash_md4_hex: '0123456789abcdef0123456789abcdef',
+      file_size: 1048576,
+      source_count: 0,
+      source_publish_attempts: 1,
+      source_publish_last_result: 'queued',
+      source_publish_last_attempt_unix_secs: 123,
+      keyword_publish_attempts: 3,
+      keyword_publish_queued: 3,
+      keyword_publish_failed: 0,
+      keyword_publish_last_result: 'queued',
+      keyword_publish_last_attempt_unix_secs: 124,
+      queued_downloads: 1,
+      inflight_downloads: 1,
+      queued_uploads: 1,
+      inflight_uploads: 1,
+      total_upload_requests: 2,
+      requested_bytes_total: 131072,
+      last_requested_unix_secs: 123,
+      queued_upload_ranges: [{ start: 524288, end: 589823 }],
+      inflight_upload_ranges: [{ start: 262144, end: 327679 }],
+      active_request: true,
+    },
+  ],
 };
 
 function contentType(filePath) {
@@ -139,6 +204,7 @@ function mapUiPath(urlPath) {
     return path.join(uiRoot, 'index.html');
   }
   if (urlPath === '/ui/search') return path.join(uiRoot, 'search.html');
+  if (urlPath === '/ui/downloads') return path.join(uiRoot, 'downloads.html');
   if (urlPath === '/ui/search_details') return path.join(uiRoot, 'search_details.html');
   if (urlPath === '/ui/node_stats') return path.join(uiRoot, 'node_stats.html');
   if (urlPath === '/ui/log') return path.join(uiRoot, 'log.html');
@@ -150,6 +216,7 @@ function mapUiPath(urlPath) {
     return path.join(uiRoot, urlPath.slice(1));
   }
   if (urlPath === '/search.html') return path.join(uiRoot, 'search.html');
+  if (urlPath === '/downloads.html') return path.join(uiRoot, 'downloads.html');
   if (urlPath === '/search_details.html') return path.join(uiRoot, 'search_details.html');
   if (urlPath === '/node_stats.html') return path.join(uiRoot, 'node_stats.html');
   if (urlPath === '/log.html') return path.join(uiRoot, 'log.html');
@@ -187,6 +254,8 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/v1/session' && req.method === 'POST') return sendJson(res, 200, { ok: true });
   if (p === '/api/v1/token/rotate' && req.method === 'POST') return sendJson(res, 200, { token: 'rotated-token', sessions_cleared: true });
   if (p === '/api/v1/status') return sendJson(res, 200, STATUS_PAYLOAD);
+  if (p === '/api/v1/downloads') return sendJson(res, 200, DOWNLOADS_PAYLOAD);
+  if (p === '/api/v1/shared') return sendJson(res, 200, SHARED_PAYLOAD);
   if (p === '/api/v1/searches') {
     return sendJson(res, 200, {
       searches: [

@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
 const baseURL = process.env.UI_BASE_URL || 'http://127.0.0.1:17835';
+const browserName = process.env.UI_BROWSER || 'chromium';
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -12,10 +13,15 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL,
+    browserName,
     headless: true,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
+    launchOptions: {
+      chromiumSandbox: false,
+      args: ['--disable-dev-shm-usage'],
+    },
   },
   webServer: process.env.UI_BASE_URL
     ? undefined

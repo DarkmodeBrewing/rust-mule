@@ -97,6 +97,89 @@ function applyThemeValue(theme) {
   return next;
 }
 
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0 B';
+  }
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let size = value;
+  let unit = units[0];
+  for (let i = 1; i < units.length && size >= 1024; i += 1) {
+    size /= 1024;
+    unit = units[i];
+  }
+  return `${size >= 10 ? size.toFixed(0) : size.toFixed(1)} ${unit}`;
+}
+
+function normalizeRanges(ranges) {
+  return Array.isArray(ranges)
+    ? ranges
+        .map((range) => ({
+          start: Number(range?.start || 0),
+          end: Number(range?.end || 0),
+        }))
+        .filter((range) => Number.isFinite(range.start) && Number.isFinite(range.end) && range.end >= range.start)
+        .sort((a, b) => a.start - b.start)
+    : [];
+}
+
+function buildPartGraphSegments(fileSize, missingRanges, inflightRanges, sourceCount) {
+  const total = Math.max(Number(fileSize || 0), 1);
+  const missing = normalizeRanges(missingRanges);
+  const inflight = normalizeRanges(inflightRanges);
+  const points = new Set([0, total]);
+  for (const range of [...missing, ...inflight]) {
+    points.add(Math.max(0, Math.min(total, range.start)));
+    points.add(Math.max(0, Math.min(total, range.end + 1)));
+  }
+  const edges = Array.from(points).sort((a, b) => a - b);
+  const segments = [];
+  for (let i = 0; i < edges.length - 1; i += 1) {
+    const start = edges[i];
+    const endExclusive = edges[i + 1];
+    if (endExclusive <= start) {
+      continue;
+    }
+    const coveredByInflight = inflight.some(
+      (range) => start >= range.start && start <= range.end,
+    );
+    const coveredByMissing = missing.some(
+      (range) => start >= range.start && start <= range.end,
+    );
+    let kind = 'downloaded';
+    if (coveredByInflight) {
+      kind = 'inflight';
+    } else if (coveredByMissing) {
+      kind = sourceCount > 0 ? 'pending' : 'no_source';
+    }
+    segments.push({
+      kind,
+      bytes: endExclusive - start,
+      pct: ((endExclusive - start) / total) * 100,
+      title: `${kind} ${formatBytes(endExclusive - start)}`,
+    });
+  }
+  return segments.filter((segment) => segment.pct > 0);
+}
+
+function graphSegmentStyleValue(segment) {
+  const colors = {
+    downloaded: '#4caf50',
+    inflight: '#ff9800',
+    pending: '#607d8b',
+    no_source: '#ef5350',
+  };
+  return `width:${segment.pct}%;background:${colors[segment.kind] || '#607d8b'};height:100%;`;
+}
+
+function splitLines(text) {
+  return String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 function sessionControlMixin() {
   return {
     sessionActive: null,
@@ -988,6 +1071,99 @@ window.appLogs = function appLogs() {
   };
 };
 
+window.appDownloads = function appDownloads() {
+  return {
+    ...sessionControlMixin(),
+    loading: false,
+    error: '',
+    notice: '',
+    status: null,
+    searchThreads: [],
+    downloads: [],
+    sharedFiles: [],
+
+    get activeDownloadCount() {
+      return this.downloads.filter((item) =>
+        ['queued', 'downloading', 'paused', 'completing'].includes(item.state),
+      ).length;
+    },
+
+    get activeSharedRequests() {
+      return this.sharedFiles.filter((item) => item.active_request).length;
+    },
+
+    async init() {
+      this.loading = true;
+      this.error = '';
+      try {
+        const ok = await this.checkSession();
+        if (!ok) {
+          window.location.replace('/auth');
+          return;
+        }
+        await bootstrapToken();
+        await this.refreshThreads();
+        await this.refreshStatus();
+        await this.refreshData();
+      } catch (err) {
+        this.error = String(err?.message || err);
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async refreshThreads() {
+      await loadSearchThreads(this);
+    },
+
+    async refreshStatus() {
+      this.status = await apiGet('/status');
+    },
+
+    async refreshData() {
+      const [downloadsResp, sharedResp] = await Promise.all([
+        apiGet('/downloads'),
+        apiGet('/shared'),
+      ]);
+      this.downloads = Array.isArray(downloadsResp?.downloads)
+        ? downloadsResp.downloads.map((item) => ({
+            ...item,
+            pretty_size: formatBytes(item.file_size),
+            graph_segments: buildPartGraphSegments(
+              item.file_size,
+              item.missing_range_spans,
+              item.inflight_range_spans,
+              item.source_count,
+            ),
+          }))
+        : [];
+      this.sharedFiles = Array.isArray(sharedResp?.files)
+        ? sharedResp.files.map((item) => ({
+            ...item,
+            pretty_size: formatBytes(item.file_size),
+            requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
+            source_publish_label: item.source_publish_last_result
+              ? `${item.source_publish_last_result} (${item.source_publish_attempts})`
+              : 'not attempted',
+            keyword_publish_label: item.keyword_publish_last_result
+              ? `${item.keyword_publish_last_result} (${item.keyword_publish_queued}/${item.keyword_publish_attempts})`
+              : 'not attempted',
+            queued_upload_ranges_label: (item.queued_upload_ranges || [])
+              .map((range) => `${range.start}-${range.end}`)
+              .join(', '),
+            inflight_upload_ranges_label: (item.inflight_upload_ranges || [])
+              .map((range) => `${range.start}-${range.end}`)
+              .join(', '),
+          }))
+        : [];
+    },
+
+    graphSegmentStyle(segment) {
+      return graphSegmentStyleValue(segment);
+    },
+  };
+};
+
 window.appSettings = function appSettings() {
   return {
     ...sessionControlMixin(),
@@ -1010,6 +1186,7 @@ window.appSettings = function appSettings() {
       logToFile: true,
       logFileLevel: '',
       autoOpenUi: true,
+      shareRootsText: '',
     },
 
     get prettyStatus() {
@@ -1063,6 +1240,9 @@ window.appSettings = function appSettings() {
       this.form.logFileLevel =
         this.settings?.general?.log_file_level || 'debug';
       this.form.autoOpenUi = this.settings?.general?.auto_open_ui !== false;
+      this.form.shareRootsText = Array.isArray(this.settings?.sharing?.share_roots)
+        ? this.settings.sharing.share_roots.join('\n')
+        : '';
     },
 
     async saveSettings() {
@@ -1085,6 +1265,9 @@ window.appSettings = function appSettings() {
           api: {
             host: this.form.apiHost,
             port: Number(this.form.apiPort),
+          },
+          sharing: {
+            share_roots: splitLines(this.form.shareRootsText),
           },
         };
         const resp = await apiPatch('/settings', payload);

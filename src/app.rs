@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, mpsc, watch};
@@ -299,6 +300,25 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         create_kad_socket(&config, &mut sam, &kad_session_id, &keys).await?;
 
     let data_dir = Path::new(&config.general.data_dir);
+    let shared_roots =
+        crate::share::canonicalize_share_roots(&config.sharing.share_roots, data_dir)
+            .map_err(|err| AppError::InvalidState(err.to_string()))?;
+    let shared_index_path = data_dir.join("shared_library.json");
+    let shared_library_build =
+        crate::share::load_or_rebuild_shared_library(&shared_roots, &shared_index_path)
+            .await
+            .map_err(|err| AppError::InvalidState(err.to_string()))?;
+    let shared_library = Arc::new(shared_library_build.library);
+    let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
+    let upload_activity = Arc::new(crate::upload::UploadActivityTracker::default());
+    tracing::info!(
+        share_roots = shared_roots.len(),
+        shared_files = shared_library.len(),
+        reused_entries = shared_library_build.stats.reused_entries,
+        hashed_entries = shared_library_build.stats.hashed_entries,
+        cache = %shared_index_path.display(),
+        "shared library indexed"
+    );
 
     // Download subsystem (phase 0): create runtime directories and run a lightweight
     // command-loop actor that we can extend with queue/transfer logic.
@@ -312,8 +332,92 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     if config.kad.service_enabled {
         let download_handle_for_pump = download_handle.clone();
         let kad_cmd_tx_for_pump = kad_cmd_tx.clone();
+        let shared_library_for_pump = Arc::clone(&shared_library);
+        let upload_activity_for_pump = Arc::clone(&upload_activity);
         tokio::spawn(async move {
-            run_download_transfer_pump(download_handle_for_pump, kad_cmd_tx_for_pump).await;
+            run_download_transfer_pump(
+                download_handle_for_pump,
+                kad_cmd_tx_for_pump,
+                shared_library_for_pump,
+                upload_activity_for_pump,
+            )
+            .await;
+        });
+    }
+
+    if config.kad.service_enabled && !shared_library.is_empty() {
+        let kad_cmd_tx_for_publish = kad_cmd_tx.clone();
+        let shared_library_for_publish = Arc::clone(&shared_library);
+        let publish_tracker_for_publish = Arc::clone(&publish_tracker);
+        tokio::spawn(async move {
+            for file in shared_library_for_publish.files() {
+                tracing::info!(
+                    path = %file.relative_path.display(),
+                    hash = %file.file_hash_md4_hex,
+                    size = file.file_size,
+                    "shared file indexed for publish"
+                );
+                if kad_cmd_tx_for_publish
+                    .send(crate::kad::service::KadServiceCommand::PublishSource {
+                        file: file.file_id,
+                        file_size: file.file_size,
+                    })
+                    .await
+                    .is_err()
+                {
+                    publish_tracker_for_publish.note_source_queue_failed(&file.file_hash_md4_hex);
+                    tracing::warn!("shared library publish queue stopped before completion");
+                    break;
+                }
+                publish_tracker_for_publish.note_source_queued(&file.file_hash_md4_hex);
+                tracing::info!(
+                    path = %file.relative_path.display(),
+                    hash = %file.file_hash_md4_hex,
+                    "queued shared file source publish"
+                );
+
+                let filename = file
+                    .relative_path
+                    .file_name()
+                    .map(|v| v.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file.relative_path.display().to_string());
+                let file_type = file
+                    .relative_path
+                    .extension()
+                    .map(|v| v.to_string_lossy().to_string())
+                    .filter(|v| !v.is_empty());
+                for keyword in crate::kad::keyword::words(&filename) {
+                    let keyword_id = crate::kad::keyword::keyword_hash(&keyword);
+                    if kad_cmd_tx_for_publish
+                        .send(crate::kad::service::KadServiceCommand::PublishKeyword {
+                            keyword: keyword_id,
+                            file: file.file_id,
+                            filename: filename.clone(),
+                            file_size: file.file_size,
+                            file_type: file_type.clone(),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        publish_tracker_for_publish
+                            .note_keyword_queue_failed(&file.file_hash_md4_hex);
+                        tracing::warn!(
+                            path = %file.relative_path.display(),
+                            hash = %file.file_hash_md4_hex,
+                            keyword = %keyword,
+                            "shared library keyword publish queue stopped before completion"
+                        );
+                        break;
+                    }
+                    publish_tracker_for_publish.note_keyword_queued(&file.file_hash_md4_hex);
+                    tracing::info!(
+                        path = %file.relative_path.display(),
+                        hash = %file.file_hash_md4_hex,
+                        keyword = %keyword,
+                        "queued shared file keyword publish"
+                    );
+                }
+            }
         });
     }
 
@@ -349,6 +453,9 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             status_events_tx: etx_for_server,
             kad_cmd_tx: cmd_tx_for_server,
             download_handle: download_handle_for_server,
+            shared_library: shared_library.clone(),
+            publish_tracker: publish_tracker.clone(),
+            upload_activity: upload_activity.clone(),
         };
         if let Err(err) = crate::api::serve(&api_cfg, deps).await {
             tracing::error!(error = %err, "api server stopped");
@@ -631,9 +738,12 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
 async fn run_download_transfer_pump(
     download_handle: crate::download::DownloadServiceHandle,
     kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
+    shared_library: Arc<crate::share::SharedLibrary>,
+    upload_activity: Arc<crate::upload::UploadActivityTracker>,
 ) {
     const PUMP_TICK: Duration = Duration::from_secs(2);
     const HOLD_TTL: Duration = Duration::from_secs(6);
+    const UPLOAD_ACTIVITY_TTL: Duration = Duration::from_secs(15);
     const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
     const SEARCH_MIN_INTERVAL: Duration = Duration::from_secs(30);
     const MAX_BLOCKS_PER_RESERVE: usize = 4;
@@ -684,16 +794,19 @@ async fn run_download_transfer_pump(
                     && front.held_at.elapsed() >= HOLD_TTL
                 {
                     let lease = leases.pop_front().expect("front exists");
-                    let block_len = lease
-                        .block
-                        .end
-                        .saturating_sub(lease.block.start)
-                        .saturating_add(1) as usize;
-                    let mut payload = Vec::with_capacity(16 + 8 + 8 + block_len);
-                    payload.extend_from_slice(&lease.file_hash);
-                    payload.extend_from_slice(&lease.block.start.to_le_bytes());
-                    payload.extend_from_slice(&(lease.block.end.saturating_add(1)).to_le_bytes());
-                    payload.extend(std::iter::repeat_n(0u8, block_len));
+                    let payload = build_sending_part_payload(
+                        &shared_library,
+                        &lease.file_hash,
+                        lease.block.start,
+                        lease.block.end,
+                    )
+                    .await;
+                    upload_activity.note_sending(
+                        &crate::kad::KadId(lease.file_hash).to_hex_lower(),
+                        lease.block.start,
+                        lease.block.end,
+                        UPLOAD_ACTIVITY_TTL,
+                    );
                     let packet = crate::download::service::InboundPacket {
                         opcode: crate::download::protocol::OP_SENDINGPART,
                         payload,
@@ -777,6 +890,12 @@ async fn run_download_transfer_pump(
             let held_queue = held.entry(d.part_number).or_default();
             for (idx, block) in blocks.iter().copied().enumerate() {
                 if hold_last && idx == blocks.len() - 1 {
+                    upload_activity.note_held(
+                        &file_hash.to_hex_lower(),
+                        block.start,
+                        block.end,
+                        UPLOAD_ACTIVITY_TTL,
+                    );
                     held_queue.push_back(PumpHeldLease {
                         file_hash: file_hash.0,
                         peer_id: peer_id.clone(),
@@ -785,13 +904,19 @@ async fn run_download_transfer_pump(
                     });
                     continue;
                 }
-
-                let block_len = block.end.saturating_sub(block.start).saturating_add(1) as usize;
-                let mut payload = Vec::with_capacity(16 + 8 + 8 + block_len);
-                payload.extend_from_slice(&file_hash.0);
-                payload.extend_from_slice(&block.start.to_le_bytes());
-                payload.extend_from_slice(&(block.end.saturating_add(1)).to_le_bytes());
-                payload.extend(std::iter::repeat_n(0u8, block_len));
+                let payload = build_sending_part_payload(
+                    &shared_library,
+                    &file_hash.0,
+                    block.start,
+                    block.end,
+                )
+                .await;
+                upload_activity.note_sending(
+                    &file_hash.to_hex_lower(),
+                    block.start,
+                    block.end,
+                    UPLOAD_ACTIVITY_TTL,
+                );
                 let packet = crate::download::service::InboundPacket {
                     opcode: crate::download::protocol::OP_SENDINGPART,
                     payload,
@@ -802,6 +927,65 @@ async fn run_download_transfer_pump(
             }
         }
     }
+}
+
+async fn build_sending_part_payload(
+    shared_library: &crate::share::SharedLibrary,
+    file_hash: &[u8; 16],
+    start: u64,
+    end: u64,
+) -> Vec<u8> {
+    let hash_hex = crate::kad::KadId(*file_hash).to_hex_lower();
+    let body = match shared_library.get_by_hash_hex(&hash_hex) {
+        Some(file) => match tokio::task::spawn_blocking({
+            let file = file.clone();
+            move || crate::share::read_shared_block(&file, start, end)
+        })
+        .await
+        {
+            Ok(Ok(body)) => body,
+            Ok(Err(err)) => {
+                if crate::logging::warn_throttled(
+                    "shared_upload_fallback_zero_fill",
+                    Duration::from_secs(30),
+                ) {
+                    tracing::warn!(
+                        hash = %hash_hex,
+                        path = %file.canonical_path.display(),
+                        start,
+                        end,
+                        error = %err,
+                        "shared upload fallback used zero-filled payload after read failure"
+                    );
+                }
+                vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]
+            }
+            Err(err) => {
+                if crate::logging::warn_throttled(
+                    "shared_upload_fallback_zero_fill_join",
+                    Duration::from_secs(30),
+                ) {
+                    tracing::warn!(
+                        hash = %hash_hex,
+                        path = %file.canonical_path.display(),
+                        start,
+                        end,
+                        error = %err,
+                        "shared upload fallback used zero-filled payload after blocking read join failure"
+                    );
+                }
+                vec![0u8; end.saturating_sub(start).saturating_add(1) as usize]
+            }
+        },
+        None => vec![0u8; end.saturating_sub(start).saturating_add(1) as usize],
+    };
+
+    let mut payload = Vec::with_capacity(16 + 8 + 8 + body.len());
+    payload.extend_from_slice(file_hash);
+    payload.extend_from_slice(&start.to_le_bytes());
+    payload.extend_from_slice(&(end.saturating_add(1)).to_le_bytes());
+    payload.extend(body);
+    payload
 }
 
 fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {

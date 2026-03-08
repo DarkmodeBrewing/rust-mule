@@ -41,6 +41,7 @@ enum ConfigValidationError {
     },
     InvalidControlTimeout(u64),
     InvalidApiPort(u16),
+    InvalidShareRoot(rust_mule::share::ShareError),
 }
 
 impl std::fmt::Display for ConfigValidationError {
@@ -55,6 +56,7 @@ impl std::fmt::Display for ConfigValidationError {
             }
             Self::InvalidControlTimeout(v) => write!(f, "Invalid sam.control_timeout_secs '{}'", v),
             Self::InvalidApiPort(port) => write!(f, "Invalid api.port '{}'", port),
+            Self::InvalidShareRoot(source) => write!(f, "{source}"),
         }
     }
 }
@@ -69,6 +71,7 @@ impl std::error::Error for ConfigValidationError {
             | Self::InvalidSessionName(_)
             | Self::InvalidControlTimeout(_)
             | Self::InvalidApiPort(_) => None,
+            Self::InvalidShareRoot(source) => Some(source),
         }
     }
 }
@@ -136,6 +139,12 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> Result<(), ConfigValidationE
     if !(1..=65535).contains(&cfg.api.port) {
         return Err(ConfigValidationError::InvalidApiPort(cfg.api.port));
     }
+
+    rust_mule::share::canonicalize_share_roots(
+        &cfg.sharing.share_roots,
+        std::path::Path::new(&cfg.general.data_dir),
+    )
+    .map_err(ConfigValidationError::InvalidShareRoot)?;
 
     Ok(())
 }

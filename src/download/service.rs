@@ -65,6 +65,15 @@ pub struct DownloadSummary {
     pub last_error: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DownloadDetail {
+    pub summary: DownloadSummary,
+    pub missing_ranges: Vec<ByteRange>,
+    pub inflight_ranges: Vec<ByteRange>,
+    pub created_unix_secs: u64,
+    pub updated_unix_secs: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct CreateDownloadRequest {
     pub file_name: String,
@@ -97,6 +106,9 @@ pub enum DownloadCommand {
     },
     Snapshot {
         reply: oneshot::Sender<(DownloadServiceStatus, Vec<DownloadSummary>)>,
+    },
+    SnapshotDetailed {
+        reply: oneshot::Sender<(DownloadServiceStatus, Vec<DownloadDetail>)>,
     },
     CreateDownload {
         req: CreateDownloadRequest,
@@ -204,6 +216,15 @@ impl DownloadServiceHandle {
         let (tx, rx) = oneshot::channel();
         self.tx
             .send(DownloadCommand::Snapshot { reply: tx })
+            .await
+            .map_err(|_| DownloadError::ChannelClosed)?;
+        rx.await.map_err(|_| DownloadError::ChannelClosed)
+    }
+
+    pub async fn snapshot_detailed(&self) -> Result<(DownloadServiceStatus, Vec<DownloadDetail>)> {
+        let (tx, rx) = oneshot::channel();
+        self.tx
+            .send(DownloadCommand::SnapshotDetailed { reply: tx })
             .await
             .map_err(|_| DownloadError::ChannelClosed)?;
         rx.await.map_err(|_| DownloadError::ChannelClosed)
@@ -395,8 +416,9 @@ impl DownloadServiceHandle {
 
     #[cfg(test)]
     pub fn test_handle() -> Self {
-        let (tx, mut rx) = mpsc::channel::<DownloadCommand>(64);
+        let (tx, rx) = mpsc::channel::<DownloadCommand>(64);
         tokio::spawn(async move {
+            let mut rx = rx;
             while let Some(cmd) = rx.recv().await {
                 match cmd {
                     DownloadCommand::Ping { reply } => {
@@ -421,6 +443,24 @@ impl DownloadServiceHandle {
                         });
                     }
                     DownloadCommand::Snapshot { reply } => {
+                        let _ = reply.send((
+                            DownloadServiceStatus {
+                                running: false,
+                                queue_len: 0,
+                                recovered_on_start: 0,
+                                reserve_calls_total: 0,
+                                reserve_granted_blocks_total: 0,
+                                reserve_denied_cooldown_total: 0,
+                                reserve_denied_peer_cap_total: 0,
+                                reserve_denied_download_cap_total: 0,
+                                reserve_denied_state_total: 0,
+                                reserve_empty_no_missing_total: 0,
+                                started_at: Instant::now(),
+                            },
+                            Vec::new(),
+                        ));
+                    }
+                    DownloadCommand::SnapshotDetailed { reply } => {
                         let _ = reply.send((
                             DownloadServiceStatus {
                                 running: false,
@@ -633,6 +673,18 @@ async fn run_service(
                                 pipeline_stats,
                             ),
                             list_summaries(&downloads),
+                        ));
+                    }
+                    DownloadCommand::SnapshotDetailed { reply } => {
+                        let _ = reply.send((
+                            make_status(
+                                true,
+                                downloads.len(),
+                                recovered_on_start,
+                                started_at,
+                                pipeline_stats,
+                            ),
+                            list_details(&downloads),
                         ));
                     }
                     DownloadCommand::CreateDownload { req, reply } => {
@@ -921,6 +973,12 @@ fn list_summaries(
     downloads.values().map(summary_from_download).collect()
 }
 
+fn list_details(
+    downloads: &std::collections::BTreeMap<u16, ManagedDownload>,
+) -> Vec<DownloadDetail> {
+    downloads.values().map(detail_from_download).collect()
+}
+
 fn summary_from_download(d: &ManagedDownload) -> DownloadSummary {
     let progress = if d.met.file_size == 0 {
         0
@@ -939,6 +997,16 @@ fn summary_from_download(d: &ManagedDownload) -> DownloadSummary {
         inflight_ranges: d.met.inflight_ranges.len(),
         retry_count: d.met.retry_count,
         last_error: d.met.last_error.clone(),
+    }
+}
+
+fn detail_from_download(d: &ManagedDownload) -> DownloadDetail {
+    DownloadDetail {
+        summary: summary_from_download(d),
+        missing_ranges: d.met.missing_ranges.clone(),
+        inflight_ranges: d.met.inflight_ranges.clone(),
+        created_unix_secs: d.met.created_unix_secs,
+        updated_unix_secs: d.met.updated_unix_secs,
     }
 }
 

@@ -11,6 +11,246 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed actionable PR review feedback on the shared-library foundation branch.
+  - Hardened shared-root/runtime-dir normalization:
+    - canonicalize `data_dir` consistently when validating share-root overlap
+    - added regression test for symlinked `data_dir`
+  - Hardened shared-file walking:
+    - track visited canonical directories to avoid recursive symlink loops
+    - added regression test for a cyclic directory symlink under a share root
+  - Hardened shared-library cache correctness:
+    - cache metadata now comes from the same snapshot used for the chosen file hash
+    - invalid cached MD4 hex now triggers rehash instead of panic/reuse
+    - added regression test for invalid cached hash recovery
+  - Hardened trackers:
+    - `SharedPublishTracker` and `UploadActivityTracker` now recover from poisoned locks instead of panicking
+  - Improved `/api/v1/downloads`:
+    - source-count lookups now run concurrently instead of sequentially
+  - Improved shared upload fallback visibility:
+    - zero-filled payload fallback now emits throttled warnings for shared-library read failures
+    - shared-file reads are now executed via `spawn_blocking` to avoid blocking Tokio worker threads
+  - Corrected `/api/v1/shared` semantics:
+    - `source_count` no longer incorrectly reports `1` for all local shared files; it now reports `0` until backed by real source-state plumbing
+- Decisions:
+  - prefer accurate “unknown/zero” source visibility over a misleading synthetic local source count
+  - keep synchronous disk reads off the async worker path even in the current phase0-style uploader flow
+  - treat cache corruption as recoverable and rehashable, never fatal
+- Next steps:
+  - decide whether to expose real local-source state separately from discovered-source count in `/api/v1/shared`
+  - decide whether KAD publish response handling should upgrade enqueue status into end-to-end publish status
+  - reply/resolve the PR review threads after the branch update is pushed
+- Change log:
+  - Updated `src/share.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/publish.rs`.
+  - Updated `src/upload.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added a repo-native Playwright smoke runner with explicit `nvm` bootstrap and container-safe launch defaults.
+  - Added `scripts/test/ui_smoke.sh`:
+    - sources `~/.nvm/nvm.sh`
+    - verifies `npm` is available
+    - runs `ui` Playwright smoke tests
+    - emits a targeted diagnostic when browser runtime libraries are missing
+  - Updated `ui/playwright.config.mjs`:
+    - explicit browser selection via `UI_BROWSER`
+    - disabled Chromium sandbox for container/CI friendliness
+    - added `--disable-dev-shm-usage`
+  - Verified that `npm` is available in this environment only after sourcing `nvm`.
+  - Verified current blocker was not headless mode; it was missing host browser libraries (`libglib2.0-0`, `libnss3`, `libgbm1`, etc.).
+  - After installing the host browser dependencies, `bash scripts/test/ui_smoke.sh` passes.
+  - Tightened the downloads-page Playwright assertion to target the `Shared Library` section heading explicitly.
+- Decisions:
+  - keep Playwright headless; there is no need for a headed flow in CI/container environments.
+  - bootstrap `nvm` in the repo runner rather than relying on shell startup files.
+  - treat missing browser runtime packages as an environment prerequisite, not a UI code failure.
+- Next steps:
+  - decide whether to wire `scripts/test/ui_smoke.sh` into a broader CI/check workflow.
+  - if needed later, add a small README note for UI verification prerequisites.
+- Change log:
+  - Added `scripts/test/ui_smoke.sh`.
+  - Updated `ui/playwright.config.mjs`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added shared publish enqueue status tracking and surfaced it in the shared-library API/UI.
+  - Added `SharedPublishTracker` to record per-shared-file publish enqueue activity.
+  - Tracked source publish enqueue status:
+    - attempt count
+    - last attempt timestamp
+    - last result (`queued` / `queue_failed`)
+  - Tracked keyword publish enqueue status:
+    - attempt count
+    - queued count
+    - failed count
+    - last attempt timestamp
+    - last result (`queued` / `queue_failed`)
+  - Expanded `/api/v1/shared` to expose publish enqueue status per indexed file.
+  - Updated `/ui/downloads` shared-library table to show source/keyword publish status alongside uploader activity.
+- Decisions:
+  - keep publish status honest to the current architecture: this tracks command enqueue outcomes, not remote KAD store acknowledgment.
+  - use enqueue visibility now rather than inventing a false `published` state without service-side completion evidence.
+  - preserve a path to later upgrade this into end-to-end publish status once the KAD service exposes completion/response callbacks.
+- Next steps:
+  - decide whether KAD publish response handling should feed a stronger `published/failed` file-level status model.
+  - add optional shared-library operator actions (reindex / republish) only after the status model is explicit enough to justify them.
+  - wire frontend checks through sourced `nvm`/`npm` and headless browser configuration in environments where Playwright is available.
+- Change log:
+  - Added `src/publish.rs`.
+  - Updated `src/lib.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added first-class uploader activity tracking and surfaced it in the shared-library UI/API.
+  - Added `UploadActivityTracker` to track recent held/sending upload ranges per shared file hash.
+  - Wired the phase0 transfer pump to record:
+    - held upload ranges
+    - sending upload ranges
+    - total upload request count
+    - total requested bytes
+    - last request timestamp
+  - Expanded `/api/v1/shared` to return uploader activity:
+    - `queued_uploads`
+    - `inflight_uploads`
+    - `total_upload_requests`
+    - `requested_bytes_total`
+    - `last_requested_unix_secs`
+    - `queued_upload_ranges`
+    - `inflight_upload_ranges`
+  - Updated `/ui/downloads` shared-library table to show real upload-side activity instead of only inferring from local download state.
+- Decisions:
+  - keep uploader activity tracking TTL-based for now; the goal is operational visibility, not durable historical accounting.
+  - treat `held` and `sending` as the two useful operator states until a standalone uploader subsystem exists.
+  - keep download-side queue/inflight counts in the shared view, but clearly separate them from upload-side activity.
+- Next steps:
+  - expose publish/cache/debug status for shared files if operators need to distinguish `indexed`, `publish queued`, and `published`.
+  - consider a dedicated uploader subsystem/state model once uploads are no longer driven through the phase0 transfer pump.
+  - add browser-side verification for `/ui/downloads` in an environment with `npm`/Playwright available.
+- Change log:
+  - Added `src/upload.rs`.
+  - Updated `src/lib.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added shared-library inspection UI/API and richer download visibility.
+  - Added `/api/v1/shared` for shared-library inspection.
+  - Expanded `/api/v1/downloads` with source counts and detailed missing/inflight ranges.
+  - Added `/ui/downloads` page showing:
+    - shared files
+    - active shared-file requests/inflight activity
+    - download cards with simple part-state graphs
+  - Added `sharing.share_roots` editing to `/ui/settings`.
+  - Added startup keyword publishing for indexed shared files, alongside source publishing.
+  - Added explicit indexing/cache-reuse/publish log lines for shared files.
+- Decisions:
+  - keep the part graph simple and range-based for now; do not add a separate graph model until the uploader/availability model is more mature.
+  - use `source_count == 0` as the UI signal for `no source` missing segments; this is file-level availability, not per-range source attribution.
+  - treat the shared-library UI as operator visibility, not a full media-library workflow yet.
+- Next steps:
+  - expose stronger shared-library status/debug metadata (publish state, cache stats, failures) if the UI needs deeper triage.
+  - decide whether shared-file activity should be backed by a dedicated uploader activity tracker instead of download/self-serve inference.
+  - add a lightweight frontend verification path in environments that have `npm`/Playwright available.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/router.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/handlers/mod.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/share.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Added `ui/downloads.html`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/settings.html`.
+  - Updated `ui/index.html`.
+  - Updated `ui/search.html`.
+  - Updated `ui/search_details.html`.
+  - Updated `ui/node_stats.html`.
+  - Updated `ui/log.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added best-effort persisted shared-library index caching.
+  - Added `data/shared_library.json` cache for shared-file metadata and MD4 hashes.
+  - Startup now reuses cached hashes when canonical path, file size, and mtime are unchanged.
+  - Changed files are rehashed automatically; missing/corrupt cache falls back to rebuild.
+  - Added tests covering cache reuse and cache invalidation on file change.
+- Decisions:
+  - cache is advisory only; startup must still succeed if the cache is missing or corrupt.
+  - correctness wins over startup speed: any size/mtime mismatch forces rehash.
+- Next steps:
+  - persist additional library metadata needed for keyword publishing and future UI/library views.
+  - publish filename keywords for indexed shared files.
+  - decide whether to expose shared-library/cache status in API/debug endpoints.
+- Change log:
+  - Updated `src/share.rs`.
+  - Updated `src/app.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added the first disk-backed shared-library/uploader slice.
+  - Built a startup shared-file index from validated `sharing.share_roots`.
+  - Added streaming MD4 hashing for shared files without loading whole files into memory.
+  - Queued automatic KAD source publishes for indexed shared files at startup.
+  - Updated the phase0 download transfer pump to serve real block bytes from indexed shared files when a matching local hash exists.
+  - Kept the synthetic zero-filled fallback for hashes not yet backed by the local shared library so existing non-library flows do not regress.
+- Decisions:
+  - keep this slice minimal: real shared-file backing first, full library persistence/UI/peer-side uploader hardening later.
+  - preserve fallback behavior until the synthetic path can be removed behind stronger end-to-end uploader coverage.
+- Next steps:
+  - add persisted shared-library metadata (path, size, md4, mtimes) to avoid full rehash on every startup.
+  - publish filename keywords for indexed shared files, not just sources.
+  - replace the remaining synthetic transfer path once real peer-side upload serving is wired end-to-end.
+- Change log:
+  - Updated `src/kad/md4.rs`.
+  - Updated `src/share.rs`.
+  - Updated `src/app.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Started the shared-library/uploader work with config and validation foundation.
+  - Added `sharing` config section with `share_roots`.
+  - Exposed `sharing.share_roots` through `/api/v1/settings` get/patch.
+  - Added new `src/share.rs` module:
+    - canonicalizes and validates share roots
+    - rejects empty roots, runtime data-dir overlap, and overlapping share roots
+    - enumerates files beneath validated roots for later indexing/uploader use
+  - Added tests for:
+    - settings API share-root update/rejection
+    - share-root validation rules
+    - basic shared-file enumeration
+- Decisions:
+  - start with a trustworthy shared-root boundary before implementing disk-backed uploader serving.
+  - keep uploader wiring as the next slice; this change only establishes config/API/backend foundation.
+- Next steps:
+  - add a persisted library index model (path, size, md4, timestamps) on top of validated share roots.
+  - replace synthetic upload payload generation with real disk-backed range reads from indexed files.
+  - add settings UI controls for share-root management.
+- Change log:
+  - Added `src/share.rs`.
+  - Updated `src/config.rs`.
+  - Updated `src/main.rs`.
+  - Updated `src/api/handlers/settings.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Fixed false-positive resume monotonic failures caused by `part_number` reuse in churny soak scenarios.
   - Updated `scripts/test/download_resume_soak.sh`:
     - snapshot now captures persisted `.part.met` state alongside API download JSON
