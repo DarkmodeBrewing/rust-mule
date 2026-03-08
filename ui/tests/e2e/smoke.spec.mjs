@@ -43,7 +43,7 @@ test.describe('rust-mule ui smoke', () => {
     await expect(
       page.getByRole('heading', { level: 1, name: 'Downloads & Shared Files' }),
     ).toBeVisible();
-    await expect(page.getByText(/Shared Library/i)).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Shared Library' })).toBeVisible();
 
     await ensureAuthenticated(page);
     await page.goto('/ui/log');

@@ -22,18 +22,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - disabled Chromium sandbox for container/CI friendliness
     - added `--disable-dev-shm-usage`
   - Verified that `npm` is available in this environment only after sourcing `nvm`.
-  - Verified current blocker is not headless mode; it is missing host browser libraries (`libglib2.0-0`, `libnss3`, `libgbm1`, etc.).
+  - Verified current blocker was not headless mode; it was missing host browser libraries (`libglib2.0-0`, `libnss3`, `libgbm1`, etc.).
+  - After installing the host browser dependencies, `bash scripts/test/ui_smoke.sh` passes.
+  - Tightened the downloads-page Playwright assertion to target the `Shared Library` section heading explicitly.
 - Decisions:
   - keep Playwright headless; there is no need for a headed flow in CI/container environments.
   - bootstrap `nvm` in the repo runner rather than relying on shell startup files.
   - treat missing browser runtime packages as an environment prerequisite, not a UI code failure.
 - Next steps:
-  - install Playwright browser dependencies on the host (`sudo npx playwright install-deps`) and rerun `bash scripts/test/ui_smoke.sh`.
-  - once browser libraries are present, decide whether to wire `scripts/test/ui_smoke.sh` into a broader CI/check workflow.
+  - decide whether to wire `scripts/test/ui_smoke.sh` into a broader CI/check workflow.
   - if needed later, add a small README note for UI verification prerequisites.
 - Change log:
   - Added `scripts/test/ui_smoke.sh`.
   - Updated `ui/playwright.config.mjs`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs`.
   - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-08): Added shared publish enqueue status tracking and surfaced it in the shared-library API/UI.
