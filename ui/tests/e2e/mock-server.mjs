@@ -178,6 +178,7 @@ const SHARED_ACTIONS_PAYLOAD = {
       state: 'idle',
       started_unix_secs: null,
       finished_unix_secs: null,
+      cooldown_until_unix_secs: null,
       items_total: 0,
       queued_total: 0,
       failed_total: 0,
@@ -191,6 +192,7 @@ const SHARED_ACTIONS_PAYLOAD = {
       state: 'idle',
       started_unix_secs: null,
       finished_unix_secs: null,
+      cooldown_until_unix_secs: null,
       items_total: 1,
       queued_total: 1,
       failed_total: 0,
@@ -204,6 +206,7 @@ const SHARED_ACTIONS_PAYLOAD = {
       state: 'idle',
       started_unix_secs: null,
       finished_unix_secs: null,
+      cooldown_until_unix_secs: null,
       items_total: 3,
       queued_total: 3,
       failed_total: 0,
@@ -307,13 +310,13 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/v1/shared') return sendJson(res, 200, SHARED_PAYLOAD);
   if (p === '/api/v1/shared/actions') return sendJson(res, 200, SHARED_ACTIONS_PAYLOAD);
   if (p === '/api/v1/shared/actions/reindex' && req.method === 'POST') {
-    return sendJson(res, 202, { started: true, status: SHARED_ACTIONS_PAYLOAD.actions[0] });
+    return sendJson(res, 202, { started: true, reason: null, status: SHARED_ACTIONS_PAYLOAD.actions[0] });
   }
   if (p === '/api/v1/shared/actions/republish_sources' && req.method === 'POST') {
-    return sendJson(res, 202, { started: true, status: SHARED_ACTIONS_PAYLOAD.actions[1] });
+    return sendJson(res, 202, { started: true, reason: null, status: SHARED_ACTIONS_PAYLOAD.actions[1] });
   }
   if (p === '/api/v1/shared/actions/republish_keywords' && req.method === 'POST') {
-    return sendJson(res, 202, { started: true, status: SHARED_ACTIONS_PAYLOAD.actions[2] });
+    return sendJson(res, 202, { started: true, reason: null, status: SHARED_ACTIONS_PAYLOAD.actions[2] });
   }
   if (p === '/api/v1/searches') {
     return sendJson(res, 200, {
