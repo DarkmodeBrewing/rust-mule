@@ -42,6 +42,11 @@ Last Reviewed: 2026-03-03
   - support `rust-mule --version` for support/debug reporting
   - support `rust-mule --check-config` to validate config and exit
   - support `rust-mule --print-effective-config` for troubleshooting resolved runtime config
+- add timezone configuration + UI control backlog:
+  - add config key for timezone (IANA zone, e.g. `Europe/Stockholm`) with validation + fallback behavior
+  - expose timezone under Settings UI/API so it can be changed without manual file edits
+  - apply configured timezone to application log timestamps (instead of UTC-only output)
+  - document runtime behavior when timezone is invalid or unavailable
 - add debug lookup traceability backlog:
   - implement `POST /api/v1/debug/trace_lookup` as debug-only endpoint
   - use async execution (`202 Accepted` + `trace_id`) with poll endpoint

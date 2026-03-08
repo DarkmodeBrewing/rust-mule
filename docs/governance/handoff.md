@@ -11,6 +11,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added timezone configuration/settings backlog item.
+  - Updated `docs/governance/TASKS.md` with timezone scope:
+    - config key for timezone (IANA zone id) with validation/fallback behavior
+    - expose timezone in settings UI/API
+    - apply configured timezone to log timestamps (avoid UTC-only output)
+- Decisions:
+  - treat timezone support as explicit product behavior (config + API/UI + logging), not a one-off script override.
+- Next steps:
+  - design config schema (`timezone` field), validation rules, and startup fallback semantics.
+  - implement settings endpoint/UI wiring, then update logging timestamp formatter.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-07): Ignored local acceptance archives by default.
   - Updated `.gitignore` to include `/artifacts`.
   - Rationale: keep large soak/archive outputs local unless intentionally versioned via explicit commit.
