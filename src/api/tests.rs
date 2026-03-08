@@ -32,18 +32,29 @@ use tower::util::ServiceExt as _;
 fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
     let (_status_tx, status_rx) = watch::channel(None);
     let (status_events_tx, _status_events_rx) = broadcast::channel(16);
+    let config = Arc::new(tokio::sync::Mutex::new(Config::default()));
+    let shared_library = Arc::new(tokio::sync::RwLock::new(
+        crate::share::SharedLibrary::default(),
+    ));
+    let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
     ApiState {
         token: Arc::new(tokio::sync::RwLock::new("test-token".to_string())),
         token_path: Arc::new(PathBuf::from("data/api.token")),
         config_path: Arc::new(unique_test_config_path()),
         status_rx,
         status_events_tx,
-        kad_cmd_tx,
+        kad_cmd_tx: kad_cmd_tx.clone(),
         download_handle: DownloadServiceHandle::test_handle(),
-        config: Arc::new(tokio::sync::Mutex::new(Config::default())),
-        shared_library: Arc::new(crate::share::SharedLibrary::default()),
-        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
+        config: config.clone(),
+        shared_library: shared_library.clone(),
+        publish_tracker: publish_tracker.clone(),
         upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
+        shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
+            shared_library,
+            config,
+            publish_tracker,
+            kad_cmd_tx,
+        )),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
         auth_mode: ApiAuthMode::LocalUi,
@@ -857,18 +868,29 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
 
     let (_status_tx, status_rx) = watch::channel(None);
     let (status_events_tx, _status_events_rx) = broadcast::channel(16);
+    let config = Arc::new(tokio::sync::Mutex::new(Config::default()));
+    let shared_library = Arc::new(tokio::sync::RwLock::new(
+        crate::share::SharedLibrary::default(),
+    ));
+    let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new("old-token".to_string())),
         token_path: Arc::new(token_path.clone()),
         config_path: Arc::new(unique_test_config_path()),
         status_rx,
         status_events_tx,
-        kad_cmd_tx: tx,
+        kad_cmd_tx: tx.clone(),
         download_handle: DownloadServiceHandle::test_handle(),
-        config: Arc::new(tokio::sync::Mutex::new(Config::default())),
-        shared_library: Arc::new(crate::share::SharedLibrary::default()),
-        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
+        config: config.clone(),
+        shared_library: shared_library.clone(),
+        publish_tracker: publish_tracker.clone(),
         upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
+        shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
+            shared_library,
+            config,
+            publish_tracker,
+            tx,
+        )),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::from([(
             "s1".to_string(),
             Instant::now() + Duration::from_secs(30),
@@ -907,18 +929,29 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     let (kad_tx, mut kad_rx) = mpsc::channel(16);
     let (status_tx, status_rx) = watch::channel(Some(sample_status()));
     let (status_events_tx, _status_events_rx) = broadcast::channel(16);
+    let config = Arc::new(tokio::sync::Mutex::new(Config::default()));
+    let shared_library = Arc::new(tokio::sync::RwLock::new(
+        crate::share::SharedLibrary::default(),
+    ));
+    let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new("test-token".to_string())),
         token_path: Arc::new(PathBuf::from("data/api.token")),
         config_path: Arc::new(unique_test_config_path()),
         status_rx,
         status_events_tx,
-        kad_cmd_tx: kad_tx,
+        kad_cmd_tx: kad_tx.clone(),
         download_handle: DownloadServiceHandle::test_handle(),
-        config: Arc::new(tokio::sync::Mutex::new(Config::default())),
-        shared_library: Arc::new(crate::share::SharedLibrary::default()),
-        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
+        config: config.clone(),
+        shared_library: shared_library.clone(),
+        publish_tracker: publish_tracker.clone(),
         upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
+        shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
+            shared_library,
+            config,
+            publish_tracker,
+            kad_tx,
+        )),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
         auth_mode: ApiAuthMode::LocalUi,
@@ -1197,9 +1230,16 @@ async fn shared_endpoint_lists_indexed_files() {
 
     let (kad_tx, mut kad_rx) = mpsc::channel(8);
     let mut state = test_state(kad_tx);
-    state.shared_library = Arc::new(build.library);
-    let shared_hash = state.shared_library.files()[0].file_hash_md4_hex.clone();
-    let shared_file_id = state.shared_library.files()[0].file_id;
+    state.shared_library = Arc::new(tokio::sync::RwLock::new(build.library));
+    state.shared_ops = Arc::new(crate::shared_ops::SharedOpsManager::new(
+        state.shared_library.clone(),
+        state.config.clone(),
+        state.publish_tracker.clone(),
+        state.kad_cmd_tx.clone(),
+    ));
+    let shared_snapshot = state.shared_library.read().await.clone();
+    let shared_hash = shared_snapshot.files()[0].file_hash_md4_hex.clone();
+    let shared_file_id = shared_snapshot.files()[0].file_id;
     state.publish_tracker.note_source_queued(&shared_hash);
     state.publish_tracker.note_keyword_queued(&shared_hash);
     state
@@ -1288,6 +1328,90 @@ async fn shared_endpoint_lists_indexed_files() {
     );
     responder.abort();
 
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn shared_actions_endpoint_lists_and_starts_republish_sources() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "rust_mule_shared_actions_test_{}_{}",
+        std::process::id(),
+        stamp
+    ));
+    let data_dir = root.join("data");
+    let shared_dir = root.join("shared");
+    tokio::fs::create_dir_all(&data_dir)
+        .await
+        .expect("data dir");
+    tokio::fs::create_dir_all(&shared_dir)
+        .await
+        .expect("shared dir");
+    tokio::fs::write(shared_dir.join("shared.bin"), b"shared-content")
+        .await
+        .expect("file");
+    let roots =
+        crate::share::canonicalize_share_roots(&[shared_dir.display().to_string()], &data_dir)
+            .expect("roots");
+    let build =
+        crate::share::load_or_rebuild_shared_library(&roots, &data_dir.join("shared_library.json"))
+            .await
+            .expect("library");
+
+    let (kad_tx, mut kad_rx) = mpsc::channel(8);
+    let mut state = test_state(kad_tx);
+    {
+        let mut config = state.config.lock().await;
+        config.general.data_dir = data_dir.display().to_string();
+        config.sharing.share_roots = vec![shared_dir.display().to_string()];
+    }
+    state.shared_library = Arc::new(tokio::sync::RwLock::new(build.library));
+    state.shared_ops = Arc::new(crate::shared_ops::SharedOpsManager::new(
+        state.shared_library.clone(),
+        state.config.clone(),
+        state.publish_tracker.clone(),
+        state.kad_cmd_tx.clone(),
+    ));
+    let shared_file_id = state.shared_library.read().await.files()[0].file_id;
+
+    let waiter = tokio::spawn(async move {
+        let cmd = kad_rx.recv().await.expect("expected command");
+        match cmd {
+            KadServiceCommand::PublishSource { file, .. } => assert_eq!(file, shared_file_id),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    });
+
+    let app = test_app(state.clone());
+
+    let actions_resp = app
+        .clone()
+        .oneshot(authorized_api_get("/api/v1/shared/actions"))
+        .await
+        .unwrap();
+    assert_eq!(actions_resp.status(), StatusCode::OK);
+    let actions_json = response_json(actions_resp).await;
+    assert_eq!(actions_json["actions"].as_array().map(Vec::len), Some(3));
+
+    let trigger_resp = app
+        .oneshot(authorized_api_post(
+            "/api/v1/shared/actions/republish_sources",
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(trigger_resp.status(), StatusCode::ACCEPTED);
+    let trigger_json = response_json(trigger_resp).await;
+    assert_eq!(trigger_json["started"].as_bool(), Some(true));
+    assert_eq!(
+        trigger_json["status"]["action"].as_str(),
+        Some("republish_sources")
+    );
+
+    waiter.await.unwrap();
     let _ = tokio::fs::remove_dir_all(&root).await;
 }
 

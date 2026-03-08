@@ -308,12 +308,13 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         crate::share::load_or_rebuild_shared_library(&shared_roots, &shared_index_path)
             .await
             .map_err(|err| AppError::InvalidState(err.to_string()))?;
-    let shared_library = Arc::new(shared_library_build.library);
+    let shared_library = Arc::new(tokio::sync::RwLock::new(shared_library_build.library));
     let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
     let upload_activity = Arc::new(crate::upload::UploadActivityTracker::default());
+    let shared_library_len = shared_library.read().await.len();
     tracing::info!(
         share_roots = shared_roots.len(),
-        shared_files = shared_library.len(),
+        shared_files = shared_library_len,
         reused_entries = shared_library_build.stats.reused_entries,
         hashed_entries = shared_library_build.stats.hashed_entries,
         cache = %shared_index_path.display(),
@@ -345,79 +346,24 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         });
     }
 
-    if config.kad.service_enabled && !shared_library.is_empty() {
+    if config.kad.service_enabled && shared_library_len > 0 {
         let kad_cmd_tx_for_publish = kad_cmd_tx.clone();
         let shared_library_for_publish = Arc::clone(&shared_library);
         let publish_tracker_for_publish = Arc::clone(&publish_tracker);
         tokio::spawn(async move {
-            for file in shared_library_for_publish.files() {
-                tracing::info!(
-                    path = %file.relative_path.display(),
-                    hash = %file.file_hash_md4_hex,
-                    size = file.file_size,
-                    "shared file indexed for publish"
-                );
-                if kad_cmd_tx_for_publish
-                    .send(crate::kad::service::KadServiceCommand::PublishSource {
-                        file: file.file_id,
-                        file_size: file.file_size,
-                    })
-                    .await
-                    .is_err()
-                {
-                    publish_tracker_for_publish.note_source_queue_failed(&file.file_hash_md4_hex);
-                    tracing::warn!("shared library publish queue stopped before completion");
-                    break;
-                }
-                publish_tracker_for_publish.note_source_queued(&file.file_hash_md4_hex);
-                tracing::info!(
-                    path = %file.relative_path.display(),
-                    hash = %file.file_hash_md4_hex,
-                    "queued shared file source publish"
-                );
-
-                let filename = file
-                    .relative_path
-                    .file_name()
-                    .map(|v| v.to_string_lossy().to_string())
-                    .unwrap_or_else(|| file.relative_path.display().to_string());
-                let file_type = file
-                    .relative_path
-                    .extension()
-                    .map(|v| v.to_string_lossy().to_string())
-                    .filter(|v| !v.is_empty());
-                for keyword in crate::kad::keyword::words(&filename) {
-                    let keyword_id = crate::kad::keyword::keyword_hash(&keyword);
-                    if kad_cmd_tx_for_publish
-                        .send(crate::kad::service::KadServiceCommand::PublishKeyword {
-                            keyword: keyword_id,
-                            file: file.file_id,
-                            filename: filename.clone(),
-                            file_size: file.file_size,
-                            file_type: file_type.clone(),
-                        })
-                        .await
-                        .is_err()
-                    {
-                        publish_tracker_for_publish
-                            .note_keyword_queue_failed(&file.file_hash_md4_hex);
-                        tracing::warn!(
-                            path = %file.relative_path.display(),
-                            hash = %file.file_hash_md4_hex,
-                            keyword = %keyword,
-                            "shared library keyword publish queue stopped before completion"
-                        );
-                        break;
-                    }
-                    publish_tracker_for_publish.note_keyword_queued(&file.file_hash_md4_hex);
-                    tracing::info!(
-                        path = %file.relative_path.display(),
-                        hash = %file.file_hash_md4_hex,
-                        keyword = %keyword,
-                        "queued shared file keyword publish"
-                    );
-                }
-            }
+            let library = shared_library_for_publish.read().await.clone();
+            let _ = crate::shared_ops::queue_source_publishes(
+                library.files(),
+                &kad_cmd_tx_for_publish,
+                &publish_tracker_for_publish,
+            )
+            .await;
+            let _ = crate::shared_ops::queue_keyword_publishes(
+                library.files(),
+                &kad_cmd_tx_for_publish,
+                &publish_tracker_for_publish,
+            )
+            .await;
         });
     }
 
@@ -738,7 +684,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
 async fn run_download_transfer_pump(
     download_handle: crate::download::DownloadServiceHandle,
     kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
-    shared_library: Arc<crate::share::SharedLibrary>,
+    shared_library: Arc<tokio::sync::RwLock<crate::share::SharedLibrary>>,
     upload_activity: Arc<crate::upload::UploadActivityTracker>,
 ) {
     const PUMP_TICK: Duration = Duration::from_secs(2);
@@ -795,7 +741,7 @@ async fn run_download_transfer_pump(
                 {
                     let lease = leases.pop_front().expect("front exists");
                     let payload = build_sending_part_payload(
-                        &shared_library,
+                        shared_library.as_ref(),
                         &lease.file_hash,
                         lease.block.start,
                         lease.block.end,
@@ -905,7 +851,7 @@ async fn run_download_transfer_pump(
                     continue;
                 }
                 let payload = build_sending_part_payload(
-                    &shared_library,
+                    shared_library.as_ref(),
                     &file_hash.0,
                     block.start,
                     block.end,
@@ -930,16 +876,21 @@ async fn run_download_transfer_pump(
 }
 
 async fn build_sending_part_payload(
-    shared_library: &crate::share::SharedLibrary,
+    shared_library: &tokio::sync::RwLock<crate::share::SharedLibrary>,
     file_hash: &[u8; 16],
     start: u64,
     end: u64,
 ) -> Vec<u8> {
     let hash_hex = crate::kad::KadId(*file_hash).to_hex_lower();
-    let body = match shared_library.get_by_hash_hex(&hash_hex) {
+    let shared_file = shared_library
+        .read()
+        .await
+        .get_by_hash_hex(&hash_hex)
+        .cloned();
+    let body = match shared_file {
         Some(file) => match tokio::task::spawn_blocking({
-            let file = file.clone();
-            move || crate::share::read_shared_block(&file, start, end)
+            let file_for_read = file.clone();
+            move || crate::share::read_shared_block(&file_for_read, start, end)
         })
         .await
         {

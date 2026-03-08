@@ -157,6 +157,33 @@
 
         <div class="card">
           <h2>Shared Library</h2>
+          <div class="flex gap-2 flex-wrap mt-3">
+            <button class="btn" x-on:click="reindexSharedLibrary()" x-bind:disabled="sharedActionBusy">
+              Reindex Library
+            </button>
+            <button class="btn" x-on:click="republishSharedSources()" x-bind:disabled="sharedActionBusy">
+              Republish Sources
+            </button>
+            <button class="btn" x-on:click="republishSharedKeywords()" x-bind:disabled="sharedActionBusy">
+              Republish Keywords
+            </button>
+          </div>
+          <div class="grid gap-3 mt-3" x-show="sharedActions.length > 0">
+            <template x-for="action in sharedActions" :key="action.action">
+              <div class="card">
+                <div class="flex gap-2 flex-wrap">
+                  <strong x-text="action.action"></strong>
+                  <span class="badge" x-bind:class="action.state === 'running' ? 'state-running' : (action.state === 'succeeded' ? 'state-done' : 'state-idle')" x-text="action.state"></span>
+                </div>
+                <div class="mt-2">
+                  <small x-text="action.summary"></small>
+                </div>
+                <div class="mt-2" x-show="action.last_error">
+                  <small>x-error: <span x-text="action.last_error"></span></small>
+                </div>
+              </div>
+            </template>
+          </div>
           <table class="table mt-3">
             <caption class="sr-only">
               Shared file inspection table

@@ -171,6 +171,50 @@ const SHARED_PAYLOAD = {
   ],
 };
 
+const SHARED_ACTIONS_PAYLOAD = {
+  actions: [
+    {
+      action: 'reindex',
+      state: 'idle',
+      started_unix_secs: null,
+      finished_unix_secs: null,
+      items_total: 0,
+      queued_total: 0,
+      failed_total: 0,
+      library_files_total: 1,
+      reused_entries: 1,
+      hashed_entries: 0,
+      last_error: null,
+    },
+    {
+      action: 'republish_sources',
+      state: 'idle',
+      started_unix_secs: null,
+      finished_unix_secs: null,
+      items_total: 1,
+      queued_total: 1,
+      failed_total: 0,
+      library_files_total: 1,
+      reused_entries: null,
+      hashed_entries: null,
+      last_error: null,
+    },
+    {
+      action: 'republish_keywords',
+      state: 'idle',
+      started_unix_secs: null,
+      finished_unix_secs: null,
+      items_total: 3,
+      queued_total: 3,
+      failed_total: 0,
+      library_files_total: 1,
+      reused_entries: null,
+      hashed_entries: null,
+      last_error: null,
+    },
+  ],
+};
+
 function contentType(filePath) {
   if (filePath.endsWith('.html')) return 'text/html; charset=utf-8';
   if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
@@ -261,6 +305,16 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/v1/status') return sendJson(res, 200, STATUS_PAYLOAD);
   if (p === '/api/v1/downloads') return sendJson(res, 200, DOWNLOADS_PAYLOAD);
   if (p === '/api/v1/shared') return sendJson(res, 200, SHARED_PAYLOAD);
+  if (p === '/api/v1/shared/actions') return sendJson(res, 200, SHARED_ACTIONS_PAYLOAD);
+  if (p === '/api/v1/shared/actions/reindex' && req.method === 'POST') {
+    return sendJson(res, 202, { started: true, status: SHARED_ACTIONS_PAYLOAD.actions[0] });
+  }
+  if (p === '/api/v1/shared/actions/republish_sources' && req.method === 'POST') {
+    return sendJson(res, 202, { started: true, status: SHARED_ACTIONS_PAYLOAD.actions[1] });
+  }
+  if (p === '/api/v1/shared/actions/republish_keywords' && req.method === 'POST') {
+    return sendJson(res, 202, { started: true, status: SHARED_ACTIONS_PAYLOAD.actions[2] });
+  }
   if (p === '/api/v1/searches') {
     return sendJson(res, 200, {
       searches: [

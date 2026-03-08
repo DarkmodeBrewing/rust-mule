@@ -11,6 +11,53 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added shared-library operator actions for reindexing and republishing.
+  - Added `src/shared_ops.rs` with `SharedOpsManager` and background actions:
+    - `reindex`
+    - `republish_sources`
+    - `republish_keywords`
+  - Moved runtime shared-library state behind `Arc<RwLock<SharedLibrary>>` so reindexing updates:
+    - `/api/v1/shared`
+    - the upload transfer pump
+    - future operator actions
+  - Added new API endpoints:
+    - `GET /api/v1/shared/actions`
+    - `POST /api/v1/shared/actions/reindex`
+    - `POST /api/v1/shared/actions/republish_sources`
+    - `POST /api/v1/shared/actions/republish_keywords`
+  - Added structured action status reporting:
+    - `state`
+    - `started_unix_secs`
+    - `finished_unix_secs`
+    - `items_total`
+    - `queued_total`
+    - `failed_total`
+    - reindex stats (`library_files_total`, `reused_entries`, `hashed_entries`)
+  - Updated `/ui/downloads` shared-library section with operator buttons and action status cards.
+  - Reused shared publish queue helpers for both startup publishing and operator-triggered republishing.
+- Decisions:
+  - keep operator actions as background tasks; API endpoints should trigger work, not do long blocking rebuilds inline.
+  - separate `reindex` from `republish_*` even though operators will often run them together; this keeps the action semantics explicit.
+  - keep republish actions idempotent at the API level and report queue results structurally instead of returning a bare success code.
+- Next steps:
+  - decide whether these controls should remain ordinary authenticated UI actions or move behind a stricter debug/operator gate.
+  - decide whether `reindex` should optionally auto-chain into republish for newly discovered files.
+  - consider adding per-file failure detail if queue failures become common enough that aggregate counts are not sufficient.
+- Change log:
+  - Added `src/shared_ops.rs`.
+  - Updated `src/lib.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/router.rs`.
+  - Updated `src/api/handlers/mod.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added real KAD publish-response visibility for shared files and surfaced it in `/api/v1/shared` and `/ui/downloads`.
   - Added `KadServiceCommand::GetSharedPublishStatus` and `KadSharedPublishStatus`.
   - Added KAD service-side file-level publish status synthesis:

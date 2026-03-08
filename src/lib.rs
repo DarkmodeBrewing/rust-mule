@@ -9,5 +9,6 @@ pub mod logging;
 pub mod nodes;
 pub mod publish;
 pub mod share;
+pub mod shared_ops;
 pub mod single_instance;
 pub mod upload;
