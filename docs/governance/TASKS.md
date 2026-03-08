@@ -81,6 +81,16 @@ Last Reviewed: 2026-03-03
   - include reason fields in diagnostics snapshot so completion timeouts are directly explainable
 - add config evolution backlog:
   - introduce config schema versioning + migration notes for future keys (timezone/debug/CLI-related additions)
+- add shared library + real upload serving backlog:
+  - add configurable shared folders list in config + settings API/UI (multi-path support)
+  - implement library scanner/indexer that hashes files and builds publishable source metadata
+  - publish source records from indexed shared files (not only synthetic/manual publish calls)
+  - track file path binding for published sources so inbound transfer requests map to real local file bytes
+  - implement real uploader path for peer requests (`OP_REQUESTPARTS` -> `OP_SENDINGPART`) reading block ranges from disk
+  - add safeguards for path traversal/symlink policy/permission failures in shared folders
+  - reject unsafe share roots by policy (system root `/`, core OS dirs, app/runtime data dirs) with clear validation errors
+  - normalize + canonicalize share paths before accept; prevent duplicate/overlapping entries by policy
+  - expose scanner/index health + per-folder stats in settings/status UI for operator visibility
 
 ## Definition Of Done
 

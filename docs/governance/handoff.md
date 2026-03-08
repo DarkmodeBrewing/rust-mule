@@ -11,6 +11,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added backlog for shared library and real uploader implementation.
+  - Updated `docs/governance/TASKS.md` with required scope:
+    - configurable shared folders in config + settings UI/API
+    - file scanner/indexer + publish integration
+    - source-to-path mapping for published files
+    - real disk-backed upload serving path (`OP_REQUESTPARTS` -> `OP_SENDINGPART`)
+    - shared-folder safety rules and scanner/index observability
+    - explicit blocklist policy for unsafe share roots (`/`, core OS dirs, runtime/app dirs)
+- Decisions:
+  - KAD source publish should represent files that are actually readable from local shared storage.
+  - upload path must be disk-backed and range-accurate, not synthetic packet injection.
+  - sharing system-critical directories must be denied by validation (fail-closed).
+- Next steps:
+  - write short architecture note for shared library index model + uploader flow boundaries.
+  - implement minimal first slice: one shared folder + single-file requestpart->sendingpart read path with tests.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Expanded governance backlog to reduce test/ops drift.
   - Updated `docs/governance/TASKS.md` with additional backlog items:
     - phase0 gate hardening for `nan`/unexpected `SKIP` metrics
