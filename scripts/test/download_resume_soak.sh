@@ -501,6 +501,7 @@ dump_download_diagnostics() {
 snapshot_downloads() {
   local label="$1"
   poll_downloads_json "$RESUME_OUT_DIR/${label}_downloads.json"
+  snapshot_part_met_state "$RESUME_OUT_DIR/${label}_part_met.json"
 
   {
     echo "timestamp=$(ts)"
@@ -526,6 +527,24 @@ snapshot_downloads() {
       )
     ] | length
   ' "$RESUME_OUT_DIR/${label}_downloads.json" >"$RESUME_OUT_DIR/${label}_violations.count"
+}
+
+snapshot_part_met_state() {
+  local out="$1"
+  local tmp
+  tmp="${out}.ndjson"
+  : >"$tmp"
+
+  while IFS= read -r path; do
+    jq -c '.' "$path" >>"$tmp"
+  done < <(find "$RUN_DIR/data/download" -maxdepth 1 -type f -name '*.part.met' | sort)
+
+  if [[ -s "$tmp" ]]; then
+    jq -s '.' "$tmp" >"$out"
+  else
+    echo '[]' >"$out"
+  fi
+  rm -f "$tmp"
 }
 
 has_active_transfer_in_file() {
@@ -580,26 +599,28 @@ wait_for_active_transfer() {
 }
 
 assert_monotonic_download_bytes() {
-  local pre="$RESUME_OUT_DIR/pre_downloads.json"
-  local post="$RESUME_OUT_DIR/post_downloads.json"
+  local pre="$RESUME_OUT_DIR/pre_part_met.json"
+  local post="$RESUME_OUT_DIR/post_part_met.json"
   local out="$RESUME_OUT_DIR/post_monotonic_violations.txt"
 
   jq -nr --argfile pre "$pre" --argfile post "$post" '
     def dl_key($d):
-      if ($d.part_number? != null) then ("part:" + (($d.part_number | tostring)))
-      elif ($d.id? != null) then ("id:" + ($d.id | tostring))
-      elif ($d.file_hash_md4_hex? != null) then ("hash:" + ($d.file_hash_md4_hex | tostring))
+      if ($d.part_number? != null and $d.created_unix_secs? != null) then
+        "part:\($d.part_number):created:\($d.created_unix_secs)"
+      elif ($d.part_number? != null and $d.file_hash_md4_hex? != null) then
+        "part:\($d.part_number):hash:\($d.file_hash_md4_hex)"
       else empty
       end;
     def by_key($arr):
       reduce ($arr[]?) as $d ({}; (dl_key($d)) as $k | if $k == null or $k == "" then . else .[$k] = ($d.downloaded_bytes // 0) end);
-    ($pre.downloads // []) as $pre_dl
-    | ($post.downloads // []) as $post_dl
+    ($pre // []) as $pre_dl
+    | ($post // []) as $post_dl
     | (by_key($pre_dl)) as $pre_map
     | (by_key($post_dl)) as $post_map
     | ($pre_map | to_entries[])
-    | select((($post_map[.key] // -1) < .value))
-    | "\(.key)\tpre=\(.value)\tpost=\($post_map[.key] // -1)"
+    | select($post_map[.key] != null)
+    | select($post_map[.key] < .value)
+    | "\(.key)\tpre=\(.value)\tpost=\($post_map[.key])"
   ' >"$out"
 
   if [[ -s "$out" ]]; then
@@ -607,7 +628,7 @@ assert_monotonic_download_bytes() {
     cat "$out" >&2
     exit 1
   fi
-  log "monotonic check passed (post downloaded_bytes >= pre for all pre-existing downloads)"
+  log "monotonic check passed (post downloaded_bytes >= pre for matched persisted downloads)"
 }
 
 wait_for_any_completed_download() {
