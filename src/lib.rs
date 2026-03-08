@@ -9,3 +9,4 @@ pub mod logging;
 pub mod nodes;
 pub mod share;
 pub mod single_instance;
+pub mod upload;

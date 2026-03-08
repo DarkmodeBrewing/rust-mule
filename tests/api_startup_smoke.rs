@@ -102,6 +102,7 @@ async fn startup_auth_and_session_smoke_flow() {
         kad_cmd_tx,
         download_handle: download_handle.clone(),
         shared_library: std::sync::Arc::new(rust_mule::share::SharedLibrary::default()),
+        upload_activity: std::sync::Arc::new(rust_mule::upload::UploadActivityTracker::default()),
     };
     let mut serve_handle = tokio::spawn(async move { api::serve(&api_cfg, deps).await });
 

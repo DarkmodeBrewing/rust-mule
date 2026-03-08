@@ -168,7 +168,7 @@
                 <th scope="col">Hash</th>
                 <th scope="col">Sources</th>
                 <th scope="col">Downloads</th>
-                <th scope="col">Inflight</th>
+                <th scope="col">Upload Activity</th>
               </tr>
             </thead>
             <tbody>
@@ -188,13 +188,41 @@
                   <td x-text="file.pretty_size"></td>
                   <td><code x-text="file.file_hash_md4_hex"></code></td>
                   <td x-text="file.source_count"></td>
-                  <td x-text="file.queued_downloads"></td>
                   <td>
-                    <span
-                      class="badge"
-                      x-bind:class="file.active_request ? 'state-running' : 'state-idle'"
-                      x-text="file.inflight_downloads"
-                    ></span>
+                    <div>
+                      <small>
+                        queued dl: <span x-text="file.queued_downloads"></span> · inflight dl:
+                        <span x-text="file.inflight_downloads"></span>
+                      </small>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="flex gap-2 flex-wrap">
+                      <span
+                        class="badge"
+                        x-bind:class="file.active_request ? 'state-running' : 'state-idle'"
+                        x-text="'held: ' + file.queued_uploads"
+                      ></span>
+                      <span class="badge" x-text="'sending: ' + file.inflight_uploads"></span>
+                      <span class="badge" x-text="'requests: ' + file.total_upload_requests"></span>
+                    </div>
+                    <div class="mt-2">
+                      <small>
+                        bytes served: <span x-text="file.requested_bytes_total_pretty"></span>
+                      </small>
+                    </div>
+                    <div class="mt-2" x-show="file.queued_upload_ranges_label">
+                      <small>
+                        held ranges:
+                        <span x-text="file.queued_upload_ranges_label"></span>
+                      </small>
+                    </div>
+                    <div class="mt-2" x-show="file.inflight_upload_ranges_label">
+                      <small>
+                        sending ranges:
+                        <span x-text="file.inflight_upload_ranges_label"></span>
+                      </small>
+                    </div>
                   </td>
                 </tr>
               </template>

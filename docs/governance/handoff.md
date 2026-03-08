@@ -11,6 +11,44 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added first-class uploader activity tracking and surfaced it in the shared-library UI/API.
+  - Added `UploadActivityTracker` to track recent held/sending upload ranges per shared file hash.
+  - Wired the phase0 transfer pump to record:
+    - held upload ranges
+    - sending upload ranges
+    - total upload request count
+    - total requested bytes
+    - last request timestamp
+  - Expanded `/api/v1/shared` to return uploader activity:
+    - `queued_uploads`
+    - `inflight_uploads`
+    - `total_upload_requests`
+    - `requested_bytes_total`
+    - `last_requested_unix_secs`
+    - `queued_upload_ranges`
+    - `inflight_upload_ranges`
+  - Updated `/ui/downloads` shared-library table to show real upload-side activity instead of only inferring from local download state.
+- Decisions:
+  - keep uploader activity tracking TTL-based for now; the goal is operational visibility, not durable historical accounting.
+  - treat `held` and `sending` as the two useful operator states until a standalone uploader subsystem exists.
+  - keep download-side queue/inflight counts in the shared view, but clearly separate them from upload-side activity.
+- Next steps:
+  - expose publish/cache/debug status for shared files if operators need to distinguish `indexed`, `publish queued`, and `published`.
+  - consider a dedicated uploader subsystem/state model once uploads are no longer driven through the phase0 transfer pump.
+  - add browser-side verification for `/ui/downloads` in an environment with `npm`/Playwright available.
+- Change log:
+  - Added `src/upload.rs`.
+  - Updated `src/lib.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added shared-library inspection UI/API and richer download visibility.
   - Added `/api/v1/shared` for shared-library inspection.
   - Expanded `/api/v1/downloads` with source counts and detailed missing/inflight ranges.

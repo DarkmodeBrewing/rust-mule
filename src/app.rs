@@ -309,6 +309,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             .await
             .map_err(|err| AppError::InvalidState(err.to_string()))?;
     let shared_library = Arc::new(shared_library_build.library);
+    let upload_activity = Arc::new(crate::upload::UploadActivityTracker::default());
     tracing::info!(
         share_roots = shared_roots.len(),
         shared_files = shared_library.len(),
@@ -331,11 +332,13 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         let download_handle_for_pump = download_handle.clone();
         let kad_cmd_tx_for_pump = kad_cmd_tx.clone();
         let shared_library_for_pump = Arc::clone(&shared_library);
+        let upload_activity_for_pump = Arc::clone(&upload_activity);
         tokio::spawn(async move {
             run_download_transfer_pump(
                 download_handle_for_pump,
                 kad_cmd_tx_for_pump,
                 shared_library_for_pump,
+                upload_activity_for_pump,
             )
             .await;
         });
@@ -444,6 +447,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             kad_cmd_tx: cmd_tx_for_server,
             download_handle: download_handle_for_server,
             shared_library: shared_library.clone(),
+            upload_activity: upload_activity.clone(),
         };
         if let Err(err) = crate::api::serve(&api_cfg, deps).await {
             tracing::error!(error = %err, "api server stopped");
@@ -727,9 +731,11 @@ async fn run_download_transfer_pump(
     download_handle: crate::download::DownloadServiceHandle,
     kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
     shared_library: Arc<crate::share::SharedLibrary>,
+    upload_activity: Arc<crate::upload::UploadActivityTracker>,
 ) {
     const PUMP_TICK: Duration = Duration::from_secs(2);
     const HOLD_TTL: Duration = Duration::from_secs(6);
+    const UPLOAD_ACTIVITY_TTL: Duration = Duration::from_secs(15);
     const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
     const SEARCH_MIN_INTERVAL: Duration = Duration::from_secs(30);
     const MAX_BLOCKS_PER_RESERVE: usize = 4;
@@ -785,6 +791,12 @@ async fn run_download_transfer_pump(
                         &lease.file_hash,
                         lease.block.start,
                         lease.block.end,
+                    );
+                    upload_activity.note_sending(
+                        &crate::kad::KadId(lease.file_hash).to_hex_lower(),
+                        lease.block.start,
+                        lease.block.end,
+                        UPLOAD_ACTIVITY_TTL,
                     );
                     let packet = crate::download::service::InboundPacket {
                         opcode: crate::download::protocol::OP_SENDINGPART,
@@ -869,6 +881,12 @@ async fn run_download_transfer_pump(
             let held_queue = held.entry(d.part_number).or_default();
             for (idx, block) in blocks.iter().copied().enumerate() {
                 if hold_last && idx == blocks.len() - 1 {
+                    upload_activity.note_held(
+                        &file_hash.to_hex_lower(),
+                        block.start,
+                        block.end,
+                        UPLOAD_ACTIVITY_TTL,
+                    );
                     held_queue.push_back(PumpHeldLease {
                         file_hash: file_hash.0,
                         peer_id: peer_id.clone(),
@@ -882,6 +900,12 @@ async fn run_download_transfer_pump(
                     &file_hash.0,
                     block.start,
                     block.end,
+                );
+                upload_activity.note_sending(
+                    &file_hash.to_hex_lower(),
+                    block.start,
+                    block.end,
+                    UPLOAD_ACTIVITY_TTL,
                 );
                 let packet = crate::download::service::InboundPacket {
                     opcode: crate::download::protocol::OP_SENDINGPART,

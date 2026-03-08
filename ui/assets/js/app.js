@@ -1141,6 +1141,13 @@ window.appDownloads = function appDownloads() {
         ? sharedResp.files.map((item) => ({
             ...item,
             pretty_size: formatBytes(item.file_size),
+            requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
+            queued_upload_ranges_label: (item.queued_upload_ranges || [])
+              .map((range) => `${range.start}-${range.end}`)
+              .join(', '),
+            inflight_upload_ranges_label: (item.inflight_upload_ranges || [])
+              .map((range) => `${range.start}-${range.end}`)
+              .join(', '),
           }))
         : [];
     },

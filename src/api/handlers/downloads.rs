@@ -6,9 +6,10 @@ use crate::api::{
     ApiState,
     error::{ApiErrorEnvelope, parse_json_with_limit, status_with_message},
 };
-use crate::download::{CreateDownloadRequest, DownloadError, DownloadSummary};
 use crate::download::service::DownloadDetail;
+use crate::download::{CreateDownloadRequest, DownloadError, DownloadSummary};
 use crate::kad::{KadId, service::KadServiceCommand};
+use crate::upload::{UploadActivitySnapshot, UploadRangePhase};
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct DownloadEntry {
@@ -59,6 +60,13 @@ pub(crate) struct SharedFileEntry {
     pub(crate) source_count: usize,
     pub(crate) queued_downloads: usize,
     pub(crate) inflight_downloads: usize,
+    pub(crate) queued_uploads: usize,
+    pub(crate) inflight_uploads: usize,
+    pub(crate) total_upload_requests: u64,
+    pub(crate) requested_bytes_total: u64,
+    pub(crate) last_requested_unix_secs: Option<u64>,
+    pub(crate) queued_upload_ranges: Vec<ByteRangeEntry>,
+    pub(crate) inflight_upload_ranges: Vec<ByteRangeEntry>,
     pub(crate) active_request: bool,
 }
 
@@ -124,21 +132,14 @@ pub(crate) async fn shared_files(
 
     let mut files = Vec::with_capacity(state.shared_library.files().len());
     for file in state.shared_library.files() {
-        let mut queued_downloads = 0usize;
-        let mut inflight_downloads = 0usize;
-        for download in &downloads {
-            if !download
-                .summary
-                .file_hash_md4_hex
-                .eq_ignore_ascii_case(&file.file_hash_md4_hex)
-            {
-                continue;
-            }
-            queued_downloads += 1;
-            if !download.inflight_ranges.is_empty() {
-                inflight_downloads += 1;
-            }
-        }
+        let (queued_downloads, inflight_downloads) =
+            download_activity_for_file(&downloads, &file.file_hash_md4_hex);
+        let upload_activity = state
+            .upload_activity
+            .snapshot_for_hash(&file.file_hash_md4_hex);
+        let queued_upload_ranges = upload_ranges_by_phase(&upload_activity, UploadRangePhase::Held);
+        let inflight_upload_ranges =
+            upload_ranges_by_phase(&upload_activity, UploadRangePhase::Sending);
 
         files.push(SharedFileEntry {
             file_name: file
@@ -152,7 +153,14 @@ pub(crate) async fn shared_files(
             source_count: 1,
             queued_downloads,
             inflight_downloads,
-            active_request: inflight_downloads > 0,
+            queued_uploads: queued_upload_ranges.len(),
+            inflight_uploads: inflight_upload_ranges.len(),
+            total_upload_requests: upload_activity.total_requests,
+            requested_bytes_total: upload_activity.requested_bytes_total,
+            last_requested_unix_secs: upload_activity.last_requested_unix_secs,
+            queued_upload_ranges,
+            inflight_upload_ranges,
+            active_request: !upload_activity.active_ranges.is_empty(),
         });
     }
     Ok(Json(SharedFilesResponse { files }))
@@ -338,6 +346,43 @@ fn map_download_error_envelope(err: DownloadError) -> (StatusCode, Json<ApiError
         ),
         other => status_with_message(map_download_error(other)),
     }
+}
+
+fn download_activity_for_file(
+    downloads: &[DownloadDetail],
+    file_hash_md4_hex: &str,
+) -> (usize, usize) {
+    let mut queued_downloads = 0usize;
+    let mut inflight_downloads = 0usize;
+    for download in downloads {
+        if !download
+            .summary
+            .file_hash_md4_hex
+            .eq_ignore_ascii_case(file_hash_md4_hex)
+        {
+            continue;
+        }
+        queued_downloads += 1;
+        if !download.inflight_ranges.is_empty() {
+            inflight_downloads += 1;
+        }
+    }
+    (queued_downloads, inflight_downloads)
+}
+
+fn upload_ranges_by_phase(
+    activity: &UploadActivitySnapshot,
+    phase: UploadRangePhase,
+) -> Vec<ByteRangeEntry> {
+    activity
+        .active_ranges
+        .iter()
+        .filter(|range| range.phase == phase)
+        .map(|range| ByteRangeEntry {
+            start: range.start,
+            end: range.end,
+        })
+        .collect()
 }
 
 #[cfg(test)]
