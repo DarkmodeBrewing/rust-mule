@@ -1156,6 +1156,9 @@ window.appDownloads = function appDownloads() {
         ? uploadsResp.uploads.map((item) => ({
             ...item,
             requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
+            active_peer_ids_label: Array.isArray(item.active_peer_ids)
+              ? item.active_peer_ids.join(', ')
+              : '',
             held_ranges_label: (item.held_ranges || [])
               .map((range) => `${range.start}-${range.end}`)
               .join(', '),
@@ -1163,6 +1166,8 @@ window.appDownloads = function appDownloads() {
               .map((range) => `${range.start}-${range.end}`)
               .join(', '),
             last_requested_label: formatUnixSecs(item.last_requested_unix_secs),
+            active_since_label: formatUnixSecs(item.active_since_unix_secs),
+            payload_source_label: item.last_payload_source || 'unknown',
           }))
         : [];
       this.sharedFiles = Array.isArray(sharedResp?.files)

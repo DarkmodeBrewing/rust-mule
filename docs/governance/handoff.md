@@ -11,6 +11,76 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed PR review feedback for the richer uploader-state branch.
+  - Preserved first-seen timestamps for tracked upload ranges so
+    `active_since_unix_secs` reflects when uploader activity actually began, not the latest
+    held/sending transition update.
+  - Updated `docs/governance/TASKS.md` `Last Reviewed` date after adding the transfer-rate
+    telemetry backlog note.
+- Decisions:
+  - define `active_since_unix_secs` as earliest active-start time for live ranges, not
+    latest update time.
+- Next steps:
+  - watch PR `#49` for any remaining uploader-state comments.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added explicit backlog for transfer-rate telemetry in downloads and uploads.
+  - Confirmed current uploader/download UI/API work does not yet expose first-class transfer
+    speed metrics.
+  - Added backlog to implement rolling bytes/sec telemetry for:
+    - per-download rates
+    - per-upload rates
+    - aggregate transfer rates where useful
+  - Added backlog requirement to surface those rates in `/ui/downloads`.
+- Decisions:
+  - treat transfer speed as first-class operator telemetry, not an optional cosmetic stat.
+  - when implemented, define explicit smoothing/window semantics instead of ad hoc
+    instantaneous rates so the UI remains stable and interpretable.
+- Next steps:
+  - when the next transfer-observability slice is chosen, add rate fields to
+    `/api/v1/downloads` and `/api/v1/uploads` first, then wire them into `/ui/downloads`.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Expanded uploader snapshots with peer identity and serving-source metadata.
+  - `UploadService` / `UploadActivityTracker` now record:
+    - per-range `peer_id_hex`
+    - per-range request timestamp
+    - `last_peer_id_hex`
+    - `active_peer_ids`
+    - `active_since_unix_secs`
+    - `last_payload_source`
+  - `GET /api/v1/uploads` now exposes the richer uploader identity/state fields.
+  - `/ui/downloads` `Active Uploads` now shows:
+    - active peers
+    - last peer
+    - last payload source
+    - active-since timestamp
+- Decisions:
+  - keep the uploader model snapshot-based for this slice; add identity/source metadata
+    without introducing a heavier upload-session subsystem yet.
+  - treat payload source as operator/debug metadata (`shared_file` vs
+    `zero_fill_fallback`), because it is the most direct signal of whether uploads are
+    serving real shared bytes.
+- Next steps:
+  - decide whether the next uploader slice should track a stronger per-upload session id
+    or a per-peer upload history view.
+  - decide whether `zero_fill_fallback` should remain visible in normal operator UI or be
+    progressively treated as a warning/debug-only state once real uploader serving is stricter.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed PR review feedback for the uploader UI visibility branch.
   - Replaced raw markdown-style backticks in `ui/downloads.html` with an HTML
     `<code>` element for `/api/v1/uploads`.
