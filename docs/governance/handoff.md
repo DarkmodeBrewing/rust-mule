@@ -11,6 +11,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Documented security edge cases for sharing/upload design.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with explicit security edge-case section:
+    - sensitive file leakage controls
+    - TOCTOU/mutation checks between index and serve
+    - symlink/hardlink escape checks
+    - large/sparse file abuse limits
+    - path normalization, overlap ambiguity, metadata leak controls
+    - upload amplification controls
+    - MD4 compatibility caveat and stronger local integrity metadata
+    - auth/rate-limit rigor for settings/debug surfaces
+- Decisions:
+  - security edge cases should be first-class checklist items before uploader implementation.
+- Next steps:
+  - convert each edge case into concrete acceptance criteria per implementation slice.
+- Change log:
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added dedicated sharing/upload implementation checklist doc.
   - Added `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` covering:
     - shared folder policy and unsafe-root rejection

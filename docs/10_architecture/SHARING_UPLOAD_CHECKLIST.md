@@ -71,6 +71,48 @@ Track implementation guardrails for real file sharing and disk-backed upload ser
     - symlink/path traversal denial
     - permission/read failure handling
 
+## Security Edge Cases
+
+- Hidden/sensitive file leakage
+  - Prevent accidental sharing of secrets in dotfiles/profile dirs/key stores.
+  - Add default deny patterns with explicit allow override policy.
+
+- TOCTOU file mutation between index and serve
+  - File content/size may change after indexing and before serving.
+  - Re-validate file identity (size/mtime/inode or hash window) at serve time.
+
+- Symlink/hardlink escape
+  - Links can resolve outside allowed share roots.
+  - Re-check resolved canonical path on each open, not only during scan.
+
+- Oversized/sparse file abuse
+  - Large or sparse files can exhaust resources during hashing/serving.
+  - Enforce max file-size and bounded hashing/serving rates.
+
+- Unicode/path normalization confusion
+  - Different normalization forms can bypass duplicate/policy checks.
+  - Normalize and compare paths/filenames consistently.
+
+- Overlapping share-root ambiguity
+  - Nested roots can create policy gaps.
+  - Reject overlap by default or enforce explicit precedence with warnings.
+
+- Metadata disclosure through API/logs
+  - Absolute local paths should not leak to default API responses/logs/events.
+  - Use redacted/logical identifiers in default operator views.
+
+- Upload amplification patterns
+  - Tiny, fragmented range requests can maximize overhead.
+  - Enforce batching, per-peer budgets, and minimum practical block policy.
+
+- MD4 compatibility risk
+  - Protocol requires MD4 but MD4 is weak.
+  - Track stronger local integrity metadata alongside MD4 for local trust decisions.
+
+- Settings/debug authorization drift
+  - Share-root management and debug endpoints are sensitive.
+  - Enforce same auth/rate-limit rigor and ensure debug does not bypass share policy.
+
 ## Non-Goals (initial slice)
 
 - Full media-library UX and advanced tagging/search.
