@@ -173,13 +173,22 @@
               <div class="card">
                 <div class="flex gap-2 flex-wrap">
                   <strong x-text="action.action"></strong>
-                  <span class="badge" x-bind:class="action.state === 'running' ? 'state-running' : (action.state === 'succeeded' ? 'state-done' : 'state-idle')" x-text="action.state"></span>
+                  <span
+                    class="badge"
+                    x-bind:class="action.state === 'running'
+                      ? 'state-running'
+                      : (action.state === 'succeeded'
+                        ? 'state-done'
+                        : (action.state === 'failed'
+                          ? 'state-failed'
+                          : 'state-idle'))"
+                    x-text="action.state"></span>
                 </div>
                 <div class="mt-2">
                   <small x-text="action.summary"></small>
                 </div>
                 <div class="mt-2" x-show="action.last_error">
-                  <small>x-error: <span x-text="action.last_error"></span></small>
+                  <small>Error: <span x-text="action.last_error"></span></small>
                 </div>
               </div>
             </template>

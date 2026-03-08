@@ -1416,6 +1416,127 @@ async fn shared_actions_endpoint_lists_and_starts_republish_sources() {
 }
 
 #[tokio::test]
+async fn shared_actions_endpoint_starts_reindex() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "rust_mule_shared_reindex_test_{}_{}",
+        std::process::id(),
+        stamp
+    ));
+    let data_dir = root.join("data");
+    let shared_dir = root.join("shared");
+    tokio::fs::create_dir_all(&data_dir)
+        .await
+        .expect("data dir");
+    tokio::fs::create_dir_all(&shared_dir)
+        .await
+        .expect("shared dir");
+    tokio::fs::write(shared_dir.join("shared.bin"), b"shared-content")
+        .await
+        .expect("file");
+
+    let (kad_tx, _kad_rx) = mpsc::channel(8);
+    let state = test_state(kad_tx);
+    {
+        let mut config = state.config.lock().await;
+        config.general.data_dir = data_dir.display().to_string();
+        config.sharing.share_roots = vec![shared_dir.display().to_string()];
+    }
+    let app = test_app(state);
+
+    let trigger_resp = app
+        .oneshot(authorized_api_post(
+            "/api/v1/shared/actions/reindex",
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(trigger_resp.status(), StatusCode::ACCEPTED);
+    let trigger_json = response_json(trigger_resp).await;
+    assert_eq!(trigger_json["started"].as_bool(), Some(true));
+    assert_eq!(trigger_json["status"]["action"].as_str(), Some("reindex"));
+
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn shared_actions_endpoint_starts_republish_keywords() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "rust_mule_shared_keywords_test_{}_{}",
+        std::process::id(),
+        stamp
+    ));
+    let data_dir = root.join("data");
+    let shared_dir = root.join("shared");
+    tokio::fs::create_dir_all(&data_dir)
+        .await
+        .expect("data dir");
+    tokio::fs::create_dir_all(&shared_dir)
+        .await
+        .expect("shared dir");
+    tokio::fs::write(shared_dir.join("shared.bin"), b"shared-content")
+        .await
+        .expect("file");
+    let roots =
+        crate::share::canonicalize_share_roots(&[shared_dir.display().to_string()], &data_dir)
+            .expect("roots");
+    let build =
+        crate::share::load_or_rebuild_shared_library(&roots, &data_dir.join("shared_library.json"))
+            .await
+            .expect("library");
+
+    let (kad_tx, mut kad_rx) = mpsc::channel(32);
+    let mut state = test_state(kad_tx);
+    {
+        let mut config = state.config.lock().await;
+        config.general.data_dir = data_dir.display().to_string();
+        config.sharing.share_roots = vec![shared_dir.display().to_string()];
+    }
+    state.shared_library = Arc::new(tokio::sync::RwLock::new(build.library));
+    state.shared_ops = Arc::new(crate::shared_ops::SharedOpsManager::new(
+        state.shared_library.clone(),
+        state.config.clone(),
+        state.publish_tracker.clone(),
+        state.kad_cmd_tx.clone(),
+    ));
+    let shared_file_id = state.shared_library.read().await.files()[0].file_id;
+
+    let waiter = tokio::spawn(async move {
+        let cmd = kad_rx.recv().await.expect("expected command");
+        match cmd {
+            KadServiceCommand::PublishKeyword { file, .. } => assert_eq!(file, shared_file_id),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    });
+
+    let app = test_app(state);
+    let trigger_resp = app
+        .oneshot(authorized_api_post(
+            "/api/v1/shared/actions/republish_keywords",
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(trigger_resp.status(), StatusCode::ACCEPTED);
+    let trigger_json = response_json(trigger_resp).await;
+    assert_eq!(trigger_json["started"].as_bool(), Some(true));
+    assert_eq!(
+        trigger_json["status"]["action"].as_str(),
+        Some("republish_keywords")
+    );
+
+    waiter.await.unwrap();
+    let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
 async fn download_mutation_endpoints_update_service_state() {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

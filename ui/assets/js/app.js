@@ -1192,10 +1192,17 @@ window.appDownloads = function appDownloads() {
       this.notice = '';
       try {
         const response = await apiPost(path, {});
-        this.notice = response?.started ? successNotice : `${response?.status?.action || 'action'} is already running`;
+        this.notice = response?.started
+          ? successNotice
+          : `${response?.status?.action || 'action'} is already running`;
         await this.refreshData();
       } catch (err) {
-        this.error = String(err?.message || err);
+        const message = String(err?.message || err);
+        if (message.includes(': 409 ')) {
+          this.notice = 'action is already running';
+        } else {
+          this.error = message;
+        }
       } finally {
         this.sharedActionBusy = false;
       }

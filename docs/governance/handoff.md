@@ -11,6 +11,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed actionable PR `#45` review feedback on shared-library operator actions.
+  - Republish actions now fail fast with a structured failed status when `kad.service_enabled = false`, instead of queueing work onto an unserviced channel.
+  - Added missing API coverage for:
+    - `POST /api/v1/shared/actions/reindex`
+    - `POST /api/v1/shared/actions/republish_keywords`
+  - Fixed shared-actions UI conflict handling so HTTP `409` reports a friendly notice instead of a raw error.
+  - Fixed shared-actions UI polish:
+    - corrected `Error:` label text
+    - added distinct `state-failed` styling
+- Decisions:
+  - keep HTTP `409 CONFLICT` for duplicate action triggers; fix the UI to respect the existing API contract instead of weakening the handler semantics.
+  - reject republish actions when KAD is disabled; operator actions should not appear to succeed when no consumer exists.
+- Next steps:
+  - wait for rereview on PR `#45`.
+  - decide whether shared operator actions should remain normal authenticated controls or move behind a stricter debug/operator gate.
+- Change log:
+  - Updated `src/shared_ops.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/assets/css/base.css`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added shared-library operator actions for reindexing and republishing.
   - Added `src/shared_ops.rs` with `SharedOpsManager` and background actions:
     - `reindex`

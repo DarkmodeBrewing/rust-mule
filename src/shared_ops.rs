@@ -240,6 +240,7 @@ impl SharedOpsManager {
     }
 
     async fn run_republish_sources(&self) -> std::result::Result<SharedActionStatus, String> {
+        self.ensure_kad_service_enabled().await?;
         let library = self.library_snapshot().await;
         let (queued_total, failed_total) =
             queue_source_publishes(library.files(), &self.kad_cmd_tx, &self.publish_tracker).await;
@@ -265,6 +266,7 @@ impl SharedOpsManager {
     }
 
     async fn run_republish_keywords(&self) -> std::result::Result<SharedActionStatus, String> {
+        self.ensure_kad_service_enabled().await?;
         let library = self.library_snapshot().await;
         let (items_total, queued_total, failed_total) =
             queue_keyword_publishes(library.files(), &self.kad_cmd_tx, &self.publish_tracker).await;
@@ -287,6 +289,15 @@ impl SharedOpsManager {
             last_error: (failed_total > 0)
                 .then(|| "one or more keyword publishes failed to queue".to_string()),
         })
+    }
+
+    async fn ensure_kad_service_enabled(&self) -> std::result::Result<(), String> {
+        let config = self.config.lock().await;
+        if config.kad.service_enabled {
+            Ok(())
+        } else {
+            Err("KAD service is disabled".to_string())
+        }
     }
 }
 
@@ -393,6 +404,10 @@ fn now_unix_secs() -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::publish::SharedPublishTracker;
+    use crate::share::SharedLibrary;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, mpsc};
 
     #[tokio::test]
     async fn start_reindex_rejects_duplicate_running_action() {
@@ -425,5 +440,61 @@ mod tests {
         let response = manager.start_reindex().await;
         assert!(!response.started);
         assert_eq!(response.status.state, "running");
+    }
+
+    #[tokio::test]
+    async fn republish_sources_fails_when_kad_service_disabled() {
+        let mut config = Config::default();
+        config.kad.service_enabled = false;
+        let manager = SharedOpsManager::new(
+            Arc::new(RwLock::new(SharedLibrary::default())),
+            Arc::new(tokio::sync::Mutex::new(config)),
+            Arc::new(SharedPublishTracker::default()),
+            mpsc::channel(1).0,
+        );
+
+        let response = manager.start_republish_sources().await;
+        assert!(response.started);
+
+        tokio::task::yield_now().await;
+        let snapshot = manager.action_snapshot().await;
+        let status = snapshot
+            .actions
+            .into_iter()
+            .find(|action| action.action == "republish_sources")
+            .expect("republish_sources status");
+        assert_eq!(status.state, "failed");
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("KAD service is disabled")
+        );
+    }
+
+    #[tokio::test]
+    async fn republish_keywords_fails_when_kad_service_disabled() {
+        let mut config = Config::default();
+        config.kad.service_enabled = false;
+        let manager = SharedOpsManager::new(
+            Arc::new(RwLock::new(SharedLibrary::default())),
+            Arc::new(tokio::sync::Mutex::new(config)),
+            Arc::new(SharedPublishTracker::default()),
+            mpsc::channel(1).0,
+        );
+
+        let response = manager.start_republish_keywords().await;
+        assert!(response.started);
+
+        tokio::task::yield_now().await;
+        let snapshot = manager.action_snapshot().await;
+        let status = snapshot
+            .actions
+            .into_iter()
+            .find(|action| action.action == "republish_keywords")
+            .expect("republish_keywords status");
+        assert_eq!(status.state, "failed");
+        assert_eq!(
+            status.last_error.as_deref(),
+            Some("KAD service is disabled")
+        );
     }
 }
