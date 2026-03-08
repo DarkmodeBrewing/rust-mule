@@ -108,6 +108,9 @@ Last Reviewed: 2026-03-03
   - restart/resume transfer
   - complete and verify resulting file/hash
 - enforce no-regression checks on those interop paths before v1 tag
+- enforce shaper compatibility contract:
+  - shaping may change timing/order/rate policy, but must not alter wire format/semantics
+  - run before/after decode-equivalence and mixed-client soak verification for shaping changes
 
 ## Definition Of Done
 

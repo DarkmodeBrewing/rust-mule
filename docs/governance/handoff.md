@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added explicit shaper compatibility contract documentation.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with `Shaper Compatibility Contract`:
+    - wire invariants that shaping must not change
+    - shaping-only policy knobs that are safe to vary
+    - required decode-equivalence + mixed-client soak checks
+  - Updated `docs/governance/TASKS.md` v1 gates with shaper contract enforcement.
+- Decisions:
+  - traffic shaping is policy-layer only; wire compatibility remains invariant.
+- Next steps:
+  - add executable verification script/checklist for shaper before/after payload equivalence.
+- Change log:
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added explicit v1 stable interop objective and release gates.
   - Updated `docs/governance/TASKS.md`:
     - added current-priority objective for seamless `rust-mule <-> iMule` operation over I2P

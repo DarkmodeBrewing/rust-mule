@@ -139,6 +139,23 @@ Track implementation guardrails for real file sharing and disk-backed upload ser
   - Prefer iMule-aligned default block size for interop unless data proves otherwise.
   - Validate changes via mixed-client soak runs before locking defaults.
 
+## Shaper Compatibility Contract
+
+- Wire invariants (must not change via shaping)
+  - Packet formats/opcodes/field encodings.
+  - Request/response semantics for supported flows.
+  - Range bounds validation and error handling semantics.
+
+- Shaper policy knobs (allowed to change)
+  - Send timing, pacing, and jitter.
+  - Queue ordering and tie-break behavior.
+  - Per-peer/global rate limits and backoff windows.
+
+- Required safety checks for shaping changes
+  - Packet decode-equivalence checks for payload correctness before/after shaping changes.
+  - Mixed-client soak (`rust-mule <-> iMule`) remains green on core transfer/discovery flows.
+  - No regression in malformed/decode failure counters attributable to shaper output.
+
 ## Non-Goals (initial slice)
 
 - Full media-library UX and advanced tagging/search.
