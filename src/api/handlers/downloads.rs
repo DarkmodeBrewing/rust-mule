@@ -1,11 +1,14 @@
 use axum::{Json, body::Bytes, extract::State, http::StatusCode};
 use serde::{Deserialize, Serialize};
+use tokio::sync::oneshot;
 
 use crate::api::{
     ApiState,
     error::{ApiErrorEnvelope, parse_json_with_limit, status_with_message},
 };
-use crate::download::{CreateDownloadRequest, DownloadError};
+use crate::download::{CreateDownloadRequest, DownloadError, DownloadSummary};
+use crate::download::service::DownloadDetail;
+use crate::kad::{KadId, service::KadServiceCommand};
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct DownloadEntry {
@@ -20,6 +23,17 @@ pub(crate) struct DownloadEntry {
     pub(crate) inflight_ranges: usize,
     pub(crate) retry_count: u32,
     pub(crate) last_error: Option<String>,
+    pub(crate) source_count: usize,
+    pub(crate) missing_range_spans: Vec<ByteRangeEntry>,
+    pub(crate) inflight_range_spans: Vec<ByteRangeEntry>,
+    pub(crate) created_unix_secs: u64,
+    pub(crate) updated_unix_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ByteRangeEntry {
+    pub(crate) start: u64,
+    pub(crate) end: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -34,6 +48,23 @@ pub(crate) struct DownloadListResponse {
     pub(crate) reserve_denied_state_total: u64,
     pub(crate) reserve_empty_no_missing_total: u64,
     pub(crate) downloads: Vec<DownloadEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SharedFileEntry {
+    pub(crate) file_name: String,
+    pub(crate) relative_path: String,
+    pub(crate) file_hash_md4_hex: String,
+    pub(crate) file_size: u64,
+    pub(crate) source_count: usize,
+    pub(crate) queued_downloads: usize,
+    pub(crate) inflight_downloads: usize,
+    pub(crate) active_request: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SharedFilesResponse {
+    pub(crate) files: Vec<SharedFileEntry>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -58,26 +89,15 @@ pub(crate) async fn downloads(
 ) -> Result<Json<DownloadListResponse>, StatusCode> {
     let (status, items) = state
         .download_handle
-        .snapshot()
+        .snapshot_detailed()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let downloads = items
-        .iter()
-        .map(|d| DownloadEntry {
-            part_number: d.part_number,
-            file_name: d.file_name.clone(),
-            file_hash_md4_hex: d.file_hash_md4_hex.clone(),
-            file_size: d.file_size,
-            state: format!("{:?}", d.state).to_lowercase(),
-            downloaded_bytes: d.downloaded_bytes,
-            progress_pct: d.progress_pct,
-            missing_ranges: d.missing_ranges,
-            inflight_ranges: d.inflight_ranges,
-            retry_count: d.retry_count,
-            last_error: d.last_error.clone(),
-        })
-        .collect::<Vec<_>>();
+    let mut downloads = Vec::with_capacity(items.len());
+    for item in &items {
+        let source_count = source_count_for_file(&state, &item.summary.file_hash_md4_hex).await;
+        downloads.push(download_entry_from_detail(item, source_count));
+    }
 
     Ok(Json(DownloadListResponse {
         queue_len: status.queue_len,
@@ -91,6 +111,51 @@ pub(crate) async fn downloads(
         reserve_empty_no_missing_total: status.reserve_empty_no_missing_total,
         downloads,
     }))
+}
+
+pub(crate) async fn shared_files(
+    State(state): State<ApiState>,
+) -> Result<Json<SharedFilesResponse>, StatusCode> {
+    let (_status, downloads) = state
+        .download_handle
+        .snapshot_detailed()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut files = Vec::with_capacity(state.shared_library.files().len());
+    for file in state.shared_library.files() {
+        let mut queued_downloads = 0usize;
+        let mut inflight_downloads = 0usize;
+        for download in &downloads {
+            if !download
+                .summary
+                .file_hash_md4_hex
+                .eq_ignore_ascii_case(&file.file_hash_md4_hex)
+            {
+                continue;
+            }
+            queued_downloads += 1;
+            if !download.inflight_ranges.is_empty() {
+                inflight_downloads += 1;
+            }
+        }
+
+        files.push(SharedFileEntry {
+            file_name: file
+                .relative_path
+                .file_name()
+                .map(|v| v.to_string_lossy().to_string())
+                .unwrap_or_else(|| file.relative_path.display().to_string()),
+            relative_path: file.relative_path.display().to_string(),
+            file_hash_md4_hex: file.file_hash_md4_hex.clone(),
+            file_size: file.file_size,
+            source_count: 1,
+            queued_downloads,
+            inflight_downloads,
+            active_request: inflight_downloads > 0,
+        });
+    }
+    Ok(Json(SharedFilesResponse { files }))
 }
 
 pub(crate) async fn downloads_create(
@@ -112,19 +177,7 @@ pub(crate) async fn downloads_create(
     Ok((
         StatusCode::CREATED,
         Json(DownloadActionResponse {
-            download: DownloadEntry {
-                part_number: summary.part_number,
-                file_name: summary.file_name,
-                file_hash_md4_hex: summary.file_hash_md4_hex,
-                file_size: summary.file_size,
-                state: format!("{:?}", summary.state).to_lowercase(),
-                downloaded_bytes: summary.downloaded_bytes,
-                progress_pct: summary.progress_pct,
-                missing_ranges: summary.missing_ranges,
-                inflight_ranges: summary.inflight_ranges,
-                retry_count: summary.retry_count,
-                last_error: summary.last_error,
-            },
+            download: download_entry_from_summary(&summary),
         }),
     ))
 }
@@ -139,19 +192,7 @@ pub(crate) async fn downloads_pause(
         .await
         .map_err(map_download_error)?;
     Ok(Json(DownloadActionResponse {
-        download: DownloadEntry {
-            part_number: summary.part_number,
-            file_name: summary.file_name,
-            file_hash_md4_hex: summary.file_hash_md4_hex,
-            file_size: summary.file_size,
-            state: format!("{:?}", summary.state).to_lowercase(),
-            downloaded_bytes: summary.downloaded_bytes,
-            progress_pct: summary.progress_pct,
-            missing_ranges: summary.missing_ranges,
-            inflight_ranges: summary.inflight_ranges,
-            retry_count: summary.retry_count,
-            last_error: summary.last_error,
-        },
+        download: download_entry_from_summary(&summary),
     }))
 }
 
@@ -165,19 +206,7 @@ pub(crate) async fn downloads_resume(
         .await
         .map_err(map_download_error)?;
     Ok(Json(DownloadActionResponse {
-        download: DownloadEntry {
-            part_number: summary.part_number,
-            file_name: summary.file_name,
-            file_hash_md4_hex: summary.file_hash_md4_hex,
-            file_size: summary.file_size,
-            state: format!("{:?}", summary.state).to_lowercase(),
-            downloaded_bytes: summary.downloaded_bytes,
-            progress_pct: summary.progress_pct,
-            missing_ranges: summary.missing_ranges,
-            inflight_ranges: summary.inflight_ranges,
-            retry_count: summary.retry_count,
-            last_error: summary.last_error,
-        },
+        download: download_entry_from_summary(&summary),
     }))
 }
 
@@ -191,19 +220,7 @@ pub(crate) async fn downloads_cancel(
         .await
         .map_err(map_download_error)?;
     Ok(Json(DownloadActionResponse {
-        download: DownloadEntry {
-            part_number: summary.part_number,
-            file_name: summary.file_name,
-            file_hash_md4_hex: summary.file_hash_md4_hex,
-            file_size: summary.file_size,
-            state: format!("{:?}", summary.state).to_lowercase(),
-            downloaded_bytes: summary.downloaded_bytes,
-            progress_pct: summary.progress_pct,
-            missing_ranges: summary.missing_ranges,
-            inflight_ranges: summary.inflight_ranges,
-            retry_count: summary.retry_count,
-            last_error: summary.last_error,
-        },
+        download: download_entry_from_summary(&summary),
     }))
 }
 
@@ -228,6 +245,85 @@ fn map_download_error(err: DownloadError) -> StatusCode {
         DownloadError::Store(_) | DownloadError::ServiceJoin(_) => {
             StatusCode::INTERNAL_SERVER_ERROR
         }
+    }
+}
+
+fn download_entry_from_detail(detail: &DownloadDetail, source_count: usize) -> DownloadEntry {
+    DownloadEntry {
+        part_number: detail.summary.part_number,
+        file_name: detail.summary.file_name.clone(),
+        file_hash_md4_hex: detail.summary.file_hash_md4_hex.clone(),
+        file_size: detail.summary.file_size,
+        state: format!("{:?}", detail.summary.state).to_lowercase(),
+        downloaded_bytes: detail.summary.downloaded_bytes,
+        progress_pct: detail.summary.progress_pct,
+        missing_ranges: detail.summary.missing_ranges,
+        inflight_ranges: detail.summary.inflight_ranges,
+        retry_count: detail.summary.retry_count,
+        last_error: detail.summary.last_error.clone(),
+        source_count,
+        missing_range_spans: detail
+            .missing_ranges
+            .iter()
+            .map(|r| ByteRangeEntry {
+                start: r.start,
+                end: r.end,
+            })
+            .collect(),
+        inflight_range_spans: detail
+            .inflight_ranges
+            .iter()
+            .map(|r| ByteRangeEntry {
+                start: r.start,
+                end: r.end,
+            })
+            .collect(),
+        created_unix_secs: detail.created_unix_secs,
+        updated_unix_secs: detail.updated_unix_secs,
+    }
+}
+
+fn download_entry_from_summary(summary: &DownloadSummary) -> DownloadEntry {
+    DownloadEntry {
+        part_number: summary.part_number,
+        file_name: summary.file_name.clone(),
+        file_hash_md4_hex: summary.file_hash_md4_hex.clone(),
+        file_size: summary.file_size,
+        state: format!("{:?}", summary.state).to_lowercase(),
+        downloaded_bytes: summary.downloaded_bytes,
+        progress_pct: summary.progress_pct,
+        missing_ranges: summary.missing_ranges,
+        inflight_ranges: summary.inflight_ranges,
+        retry_count: summary.retry_count,
+        last_error: summary.last_error.clone(),
+        source_count: 0,
+        missing_range_spans: Vec::new(),
+        inflight_range_spans: Vec::new(),
+        created_unix_secs: 0,
+        updated_unix_secs: 0,
+    }
+}
+
+async fn source_count_for_file(state: &ApiState, hash_hex: &str) -> usize {
+    const SOURCE_COUNT_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
+    let Ok(file) = KadId::from_hex(hash_hex) else {
+        return 0;
+    };
+    let (tx, rx) = oneshot::channel();
+    if state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetSources {
+            file,
+            respond_to: tx,
+        })
+        .await
+        .is_err()
+    {
+        return 0;
+    }
+    match tokio::time::timeout(SOURCE_COUNT_TIMEOUT, rx).await {
+        Ok(Ok(items)) => items.len(),
+        _ => 0,
     }
 }
 

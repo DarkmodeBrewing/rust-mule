@@ -11,6 +11,46 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added shared-library inspection UI/API and richer download visibility.
+  - Added `/api/v1/shared` for shared-library inspection.
+  - Expanded `/api/v1/downloads` with source counts and detailed missing/inflight ranges.
+  - Added `/ui/downloads` page showing:
+    - shared files
+    - active shared-file requests/inflight activity
+    - download cards with simple part-state graphs
+  - Added `sharing.share_roots` editing to `/ui/settings`.
+  - Added startup keyword publishing for indexed shared files, alongside source publishing.
+  - Added explicit indexing/cache-reuse/publish log lines for shared files.
+- Decisions:
+  - keep the part graph simple and range-based for now; do not add a separate graph model until the uploader/availability model is more mature.
+  - use `source_count == 0` as the UI signal for `no source` missing segments; this is file-level availability, not per-range source attribution.
+  - treat the shared-library UI as operator visibility, not a full media-library workflow yet.
+- Next steps:
+  - expose stronger shared-library status/debug metadata (publish state, cache stats, failures) if the UI needs deeper triage.
+  - decide whether shared-file activity should be backed by a dedicated uploader activity tracker instead of download/self-serve inference.
+  - add a lightweight frontend verification path in environments that have `npm`/Playwright available.
+- Change log:
+  - Updated `src/download/service.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/router.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/handlers/mod.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/share.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Added `ui/downloads.html`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/settings.html`.
+  - Updated `ui/index.html`.
+  - Updated `ui/search.html`.
+  - Updated `ui/search_details.html`.
+  - Updated `ui/node_stats.html`.
+  - Updated `ui/log.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added best-effort persisted shared-library index caching.
   - Added `data/shared_library.json` cache for shared-file metadata and MD4 hashes.
   - Startup now reuses cached hashes when canonical path, file size, and mtime are unchanged.

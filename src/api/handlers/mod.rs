@@ -9,7 +9,7 @@ pub(crate) use core::{
 };
 pub(crate) use downloads::{
     downloads, downloads_cancel, downloads_create, downloads_delete, downloads_pause,
-    downloads_resume,
+    downloads_resume, shared_files,
 };
 pub(crate) use kad::{
     debug_lookup_once, debug_probe_peer, debug_routing_buckets, debug_routing_nodes,

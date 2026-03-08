@@ -229,10 +229,23 @@ pub async fn load_or_rebuild_shared_library(
                     && entry.modified_subsec_nanos == file.modified_subsec_nanos
             }) {
             reused_entries += 1;
+            tracing::info!(
+                path = %file.relative_path.display(),
+                hash = %entry.file_hash_md4_hex,
+                size = file.file_size,
+                "shared library cache reused file hash"
+            );
             entry.file_hash_md4_hex.clone()
         } else {
             hashed_entries += 1;
-            hash_file_md4(&file.canonical_path)?.to_hex_lower()
+            let hash = hash_file_md4(&file.canonical_path)?.to_hex_lower();
+            tracing::info!(
+                path = %file.relative_path.display(),
+                hash = %hash,
+                size = file.file_size,
+                "shared library hashed file"
+            );
+            hash
         };
         insert_library_file(&mut library, file, file_hash_md4_hex);
     }

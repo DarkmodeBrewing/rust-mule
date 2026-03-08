@@ -346,6 +346,12 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         let shared_library_for_publish = Arc::clone(&shared_library);
         tokio::spawn(async move {
             for file in shared_library_for_publish.files() {
+                tracing::info!(
+                    path = %file.relative_path.display(),
+                    hash = %file.file_hash_md4_hex,
+                    size = file.file_size,
+                    "shared file indexed for publish"
+                );
                 if kad_cmd_tx_for_publish
                     .send(crate::kad::service::KadServiceCommand::PublishSource {
                         file: file.file_id,
@@ -356,6 +362,50 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
                 {
                     tracing::warn!("shared library publish queue stopped before completion");
                     break;
+                }
+                tracing::info!(
+                    path = %file.relative_path.display(),
+                    hash = %file.file_hash_md4_hex,
+                    "queued shared file source publish"
+                );
+
+                let filename = file
+                    .relative_path
+                    .file_name()
+                    .map(|v| v.to_string_lossy().to_string())
+                    .unwrap_or_else(|| file.relative_path.display().to_string());
+                let file_type = file
+                    .relative_path
+                    .extension()
+                    .map(|v| v.to_string_lossy().to_string())
+                    .filter(|v| !v.is_empty());
+                for keyword in crate::kad::keyword::words(&filename) {
+                    let keyword_id = crate::kad::keyword::keyword_hash(&keyword);
+                    if kad_cmd_tx_for_publish
+                        .send(crate::kad::service::KadServiceCommand::PublishKeyword {
+                            keyword: keyword_id,
+                            file: file.file_id,
+                            filename: filename.clone(),
+                            file_size: file.file_size,
+                            file_type: file_type.clone(),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        tracing::warn!(
+                            path = %file.relative_path.display(),
+                            hash = %file.file_hash_md4_hex,
+                            keyword = %keyword,
+                            "shared library keyword publish queue stopped before completion"
+                        );
+                        break;
+                    }
+                    tracing::info!(
+                        path = %file.relative_path.display(),
+                        hash = %file.file_hash_md4_hex,
+                        keyword = %keyword,
+                        "queued shared file keyword publish"
+                    );
                 }
             }
         });
@@ -393,6 +443,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             status_events_tx: etx_for_server,
             kad_cmd_tx: cmd_tx_for_server,
             download_handle: download_handle_for_server,
+            shared_library: shared_library.clone(),
         };
         if let Err(err) = crate::api::serve(&api_cfg, deps).await {
             tracing::error!(error = %err, "api server stopped");
