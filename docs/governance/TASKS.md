@@ -13,6 +13,8 @@ Last Reviewed: 2026-03-03
    - add peer reliability classes and health-driven routing/eviction
    - add transport-aware latency evaluation and local path-memory prioritization
    - expose counters required to verify these policies in long-run baselines
+6. v1 interop objective: seamless mixed-client operation with iMule over I2P.
+   - protocol interoperability is release-critical (behavioral parity is secondary)
 
 ## Scope (Current Iteration)
 
@@ -81,6 +83,47 @@ Last Reviewed: 2026-03-03
   - include reason fields in diagnostics snapshot so completion timeouts are directly explainable
 - add config evolution backlog:
   - introduce config schema versioning + migration notes for future keys (timezone/debug/CLI-related additions)
+- add shared library + real upload serving backlog:
+  - add configurable shared folders list in config + settings API/UI (multi-path support)
+  - implement library scanner/indexer that hashes files and builds publishable source metadata
+  - publish source records from indexed shared files (not only synthetic/manual publish calls)
+  - track file path binding for published sources so inbound transfer requests map to real local file bytes
+  - implement real uploader path for peer requests (`OP_REQUESTPARTS` -> `OP_SENDINGPART`) reading block ranges from disk
+  - add safeguards for path traversal/symlink policy/permission failures in shared folders
+  - reject unsafe share roots by policy (system root `/`, core OS dirs, app/runtime data dirs) with clear validation errors
+  - normalize + canonicalize share paths before accept; prevent duplicate/overlapping entries by policy
+  - expose scanner/index health + per-folder stats in settings/status UI for operator visibility
+  - reference checklist: `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`
+
+## v1 Stable Interop Release Gates
+
+- verify wire compatibility with iMule for core flows:
+  - HELLO/session establishment
+  - source publish/search (`PUBLISH_SOURCE`, `SEARCH_SOURCE`)
+  - transfer request/serve (`OP_REQUESTPARTS`, `OP_SENDINGPART`)
+- align default transfer sizing/pacing to iMule-compatible baseline (configurable override allowed)
+- pass mixed-client end-to-end tests (`rust-mule <-> iMule`) for:
+  - discover source
+  - request data
+  - restart/resume transfer
+  - complete and verify resulting file/hash
+- enforce no-regression checks on those interop paths before v1 tag
+- enforce shaper compatibility contract:
+  - shaping may change timing/order/rate policy, but must not alter wire format/semantics
+  - run before/after decode-equivalence and mixed-client soak verification for shaping changes
+
+## Interop Fallback Strategy (When Live iMule Soak Is Blocked)
+
+- add offline/controlled interop harness:
+  - replay canonical iMule-like packet sequences from fixtures/pcap-derived vectors
+  - validate decode/encode behavior and service state transitions for core flows
+- add wire golden tests for critical messages:
+  - HELLO/session
+  - source publish/search
+  - transfer request/serve (`OP_REQUESTPARTS` / `OP_SENDINGPART`)
+- keep live mixed-client soak as pre-release requirement:
+  - not required for every daily iteration when environment/tooling is blocked
+  - required before v1 release tag and final compatibility sign-off
 
 ## Definition Of Done
 

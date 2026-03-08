@@ -11,6 +11,116 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added fallback interop plan for blocked live iMule environment.
+  - Updated `docs/governance/TASKS.md` with `Interop Fallback Strategy`:
+    - offline interop harness using fixture/pcap-derived packet vectors
+    - wire-level golden tests for core compatibility flows
+    - keep live mixed-client soak as pre-release (v1 tag) gate
+- Decisions:
+  - do not stall daily progress on unavailable iMule runtime environment.
+  - preserve live mixed-client soak as mandatory final compatibility gate.
+- Next steps:
+  - define initial packet fixture corpus and add first golden tests to CI.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added explicit shaper compatibility contract documentation.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with `Shaper Compatibility Contract`:
+    - wire invariants that shaping must not change
+    - shaping-only policy knobs that are safe to vary
+    - required decode-equivalence + mixed-client soak checks
+  - Updated `docs/governance/TASKS.md` v1 gates with shaper contract enforcement.
+- Decisions:
+  - traffic shaping is policy-layer only; wire compatibility remains invariant.
+- Next steps:
+  - add executable verification script/checklist for shaper before/after payload equivalence.
+- Change log:
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added explicit v1 stable interop objective and release gates.
+  - Updated `docs/governance/TASKS.md`:
+    - added current-priority objective for seamless `rust-mule <-> iMule` operation over I2P
+    - clarified ordering: protocol interoperability is release-critical; full behavior parity is secondary
+    - added `v1 Stable Interop Release Gates` checklist (wire compatibility, transfer defaults, mixed-client e2e tests, no-regression requirement)
+- Decisions:
+  - v1 release readiness is defined by mixed-client interoperability, not complete feature parity with iMule.
+- Next steps:
+  - wire these gates into an executable test matrix (script/CI where feasible) before v1 tag decisions.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Documented transfer sizing numbers and iMule interop risks.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with:
+    - current rust-mule transfer numbers (64 KiB block, reserve/lease caps, 3-range request shape)
+    - iMule reference values (`BLOCKSIZE/EMBLOCKSIZE=184320`, `PARTSIZE=9728000`)
+    - interop edge cases when block granularity differs
+    - implementation guidance to keep sizing configurable and validate via mixed-client soak
+- Decisions:
+  - treat block-size policy as a compatibility lever; avoid hardcoding non-interoperable defaults.
+- Next steps:
+  - add explicit config key/backlog for transfer block-size tuning with iMule-aligned default candidate.
+- Change log:
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Documented security edge cases for sharing/upload design.
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with explicit security edge-case section:
+    - sensitive file leakage controls
+    - TOCTOU/mutation checks between index and serve
+    - symlink/hardlink escape checks
+    - large/sparse file abuse limits
+    - path normalization, overlap ambiguity, metadata leak controls
+    - upload amplification controls
+    - MD4 compatibility caveat and stronger local integrity metadata
+    - auth/rate-limit rigor for settings/debug surfaces
+- Decisions:
+  - security edge cases should be first-class checklist items before uploader implementation.
+- Next steps:
+  - convert each edge case into concrete acceptance criteria per implementation slice.
+- Change log:
+  - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added dedicated sharing/upload implementation checklist doc.
+  - Added `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` covering:
+    - shared folder policy and unsafe-root rejection
+    - index/hash/publish-path binding requirements
+    - real disk-backed `OP_REQUESTPARTS` -> `OP_SENDINGPART` serving
+    - backpressure/abuse controls, observability, and tests
+  - Updated `docs/governance/TASKS.md` to reference the checklist.
+- Decisions:
+  - Treat sharing/upload as a constrained subsystem with explicit safety policy, not ad-hoc feature accretion.
+- Next steps:
+  - implement first minimal slice from checklist (single shared folder + real range-serving path + tests).
+  - add settings UI controls for share roots with validation errors surfaced clearly.
+- Change log:
+  - Added `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added backlog for shared library and real uploader implementation.
+  - Updated `docs/governance/TASKS.md` with required scope:
+    - configurable shared folders in config + settings UI/API
+    - file scanner/indexer + publish integration
+    - source-to-path mapping for published files
+    - real disk-backed upload serving path (`OP_REQUESTPARTS` -> `OP_SENDINGPART`)
+    - shared-folder safety rules and scanner/index observability
+    - explicit blocklist policy for unsafe share roots (`/`, core OS dirs, runtime/app dirs)
+- Decisions:
+  - KAD source publish should represent files that are actually readable from local shared storage.
+  - upload path must be disk-backed and range-accurate, not synthetic packet injection.
+  - sharing system-critical directories must be denied by validation (fail-closed).
+- Next steps:
+  - write short architecture note for shared library index model + uploader flow boundaries.
+  - implement minimal first slice: one shared folder + single-file requestpart->sendingpart read path with tests.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Expanded governance backlog to reduce test/ops drift.
   - Updated `docs/governance/TASKS.md` with additional backlog items:
     - phase0 gate hardening for `nan`/unexpected `SKIP` metrics
