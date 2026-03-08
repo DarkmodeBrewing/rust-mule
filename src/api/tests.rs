@@ -1247,10 +1247,15 @@ async fn shared_endpoint_lists_indexed_files() {
         .note_keyword_queue_failed(&shared_hash);
     state
         .upload_service
-        .note_held(&shared_hash, 0, 1023, Duration::from_secs(30));
-    state
-        .upload_service
-        .note_sending(&shared_hash, 1024, 2047, Duration::from_secs(30));
+        .note_held(&shared_hash, "peer-held", 0, 1023, Duration::from_secs(30));
+    state.upload_service.note_sending(
+        &shared_hash,
+        "peer-send",
+        1024,
+        2047,
+        Duration::from_secs(30),
+        crate::upload::UploadPayloadSource::SharedFile,
+    );
     let responder = tokio::spawn(async move {
         while let Some(cmd) = kad_rx.recv().await {
             match cmd {
@@ -1563,15 +1568,18 @@ async fn uploads_endpoint_lists_active_uploads() {
     let state = test_state(kad_tx);
     state.upload_service.note_held(
         "feedbeadfeedbeadfeedbeadfeedbead",
+        "peer-held",
         0,
         1023,
         Duration::from_secs(30),
     );
     state.upload_service.note_sending(
         "feedbeadfeedbeadfeedbeadfeedbead",
+        "peer-send",
         1024,
         2047,
         Duration::from_secs(30),
+        crate::upload::UploadPayloadSource::SharedFile,
     );
     let app = test_app(state);
 
@@ -1593,6 +1601,15 @@ async fn uploads_endpoint_lists_active_uploads() {
         Some(1)
     );
     assert_eq!(uploads[0]["active_request"].as_bool(), Some(true));
+    assert_eq!(uploads[0]["last_peer_id_hex"].as_str(), Some("peer-send"));
+    assert_eq!(
+        uploads[0]["last_payload_source"].as_str(),
+        Some("shared_file")
+    );
+    assert_eq!(
+        uploads[0]["active_peer_ids"].as_array().map(Vec::len),
+        Some(2)
+    );
 }
 
 #[tokio::test]

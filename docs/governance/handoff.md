@@ -11,6 +11,41 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Expanded uploader snapshots with peer identity and serving-source metadata.
+  - `UploadService` / `UploadActivityTracker` now record:
+    - per-range `peer_id_hex`
+    - per-range request timestamp
+    - `last_peer_id_hex`
+    - `active_peer_ids`
+    - `active_since_unix_secs`
+    - `last_payload_source`
+  - `GET /api/v1/uploads` now exposes the richer uploader identity/state fields.
+  - `/ui/downloads` `Active Uploads` now shows:
+    - active peers
+    - last peer
+    - last payload source
+    - active-since timestamp
+- Decisions:
+  - keep the uploader model snapshot-based for this slice; add identity/source metadata
+    without introducing a heavier upload-session subsystem yet.
+  - treat payload source as operator/debug metadata (`shared_file` vs
+    `zero_fill_fallback`), because it is the most direct signal of whether uploads are
+    serving real shared bytes.
+- Next steps:
+  - decide whether the next uploader slice should track a stronger per-upload session id
+    or a per-peer upload history view.
+  - decide whether `zero_fill_fallback` should remain visible in normal operator UI or be
+    progressively treated as a warning/debug-only state once real uploader serving is stricter.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed PR review feedback for the uploader UI visibility branch.
   - Replaced raw markdown-style backticks in `ui/downloads.html` with an HTML
     `<code>` element for `/api/v1/uploads`.

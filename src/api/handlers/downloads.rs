@@ -101,6 +101,10 @@ pub(crate) struct UploadEntry {
     pub(crate) total_upload_requests: u64,
     pub(crate) requested_bytes_total: u64,
     pub(crate) last_requested_unix_secs: Option<u64>,
+    pub(crate) last_peer_id_hex: Option<String>,
+    pub(crate) active_peer_ids: Vec<String>,
+    pub(crate) active_since_unix_secs: Option<u64>,
+    pub(crate) last_payload_source: Option<String>,
     pub(crate) held_ranges: Vec<ByteRangeEntry>,
     pub(crate) sending_ranges: Vec<ByteRangeEntry>,
     pub(crate) active_request: bool,
@@ -260,6 +264,8 @@ pub(crate) async fn uploads(
         .snapshot_all()
         .into_iter()
         .map(|snapshot| {
+            let held_ranges = upload_ranges_by_phase(&snapshot, UploadRangePhase::Held);
+            let sending_ranges = upload_ranges_by_phase(&snapshot, UploadRangePhase::Sending);
             let shared_file = shared_library.get_by_hash_hex(&snapshot.file_hash_md4_hex);
             let file_hash_md4_hex = snapshot.file_hash_md4_hex.clone();
             UploadEntry {
@@ -273,8 +279,17 @@ pub(crate) async fn uploads(
                 total_upload_requests: snapshot.total_requests,
                 requested_bytes_total: snapshot.requested_bytes_total,
                 last_requested_unix_secs: snapshot.last_requested_unix_secs,
-                held_ranges: upload_ranges_by_phase(&snapshot, UploadRangePhase::Held),
-                sending_ranges: upload_ranges_by_phase(&snapshot, UploadRangePhase::Sending),
+                last_peer_id_hex: snapshot.last_peer_id_hex,
+                active_peer_ids: snapshot.active_peer_ids,
+                active_since_unix_secs: snapshot.active_since_unix_secs,
+                last_payload_source: snapshot.last_payload_source.map(|source| match source {
+                    crate::upload::UploadPayloadSource::SharedFile => "shared_file".to_string(),
+                    crate::upload::UploadPayloadSource::ZeroFillFallback => {
+                        "zero_fill_fallback".to_string()
+                    }
+                }),
+                held_ranges,
+                sending_ranges,
                 active_request: !snapshot.active_ranges.is_empty(),
             }
         })

@@ -746,9 +746,11 @@ async fn run_download_transfer_pump(
                         .await;
                     upload_service.note_sending(
                         &crate::kad::KadId(lease.file_hash).to_hex_lower(),
+                        &lease.peer_id,
                         lease.block.start,
                         lease.block.end,
                         UPLOAD_ACTIVITY_TTL,
+                        payload.source,
                     );
                     let packet = crate::download::service::InboundPacket {
                         opcode: crate::download::protocol::OP_SENDINGPART,
@@ -835,6 +837,7 @@ async fn run_download_transfer_pump(
                 if hold_last && idx == blocks.len() - 1 {
                     upload_service.note_held(
                         &file_hash.to_hex_lower(),
+                        &peer_id,
                         block.start,
                         block.end,
                         UPLOAD_ACTIVITY_TTL,
@@ -852,9 +855,11 @@ async fn run_download_transfer_pump(
                     .await;
                 upload_service.note_sending(
                     &file_hash.to_hex_lower(),
+                    &peer_id,
                     block.start,
                     block.end,
                     UPLOAD_ACTIVITY_TTL,
+                    payload.source,
                 );
                 let packet = crate::download::service::InboundPacket {
                     opcode: crate::download::protocol::OP_SENDINGPART,

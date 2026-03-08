@@ -173,6 +173,7 @@
                 <th scope="col">Hash</th>
                 <th scope="col">Requests</th>
                 <th scope="col">Bytes</th>
+                <th scope="col">Peers / Source</th>
                 <th scope="col">Ranges</th>
                 <th scope="col">Last Requested</th>
               </tr>
@@ -197,6 +198,20 @@
                     </div>
                   </td>
                   <td x-text="upload.requested_bytes_total_pretty"></td>
+                  <td>
+                    <div x-show="upload.active_peer_ids_label">
+                      <small>peers: <span x-text="upload.active_peer_ids_label"></span></small>
+                    </div>
+                    <div class="mt-2" x-show="upload.last_peer_id_hex">
+                      <small>last peer: <span x-text="upload.last_peer_id_hex"></span></small>
+                    </div>
+                    <div class="mt-2">
+                      <small>source: <span x-text="upload.payload_source_label"></span></small>
+                    </div>
+                    <div class="mt-2" x-show="upload.active_since_unix_secs">
+                      <small>active since: <span x-text="upload.active_since_label"></span></small>
+                    </div>
+                  </td>
                   <td>
                     <div x-show="upload.held_ranges_label">
                       <small>held: <span x-text="upload.held_ranges_label"></span></small>
