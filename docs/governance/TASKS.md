@@ -112,6 +112,19 @@ Last Reviewed: 2026-03-03
   - shaping may change timing/order/rate policy, but must not alter wire format/semantics
   - run before/after decode-equivalence and mixed-client soak verification for shaping changes
 
+## Interop Fallback Strategy (When Live iMule Soak Is Blocked)
+
+- add offline/controlled interop harness:
+  - replay canonical iMule-like packet sequences from fixtures/pcap-derived vectors
+  - validate decode/encode behavior and service state transitions for core flows
+- add wire golden tests for critical messages:
+  - HELLO/session
+  - source publish/search
+  - transfer request/serve (`OP_REQUESTPARTS` / `OP_SENDINGPART`)
+- keep live mixed-client soak as pre-release requirement:
+  - not required for every daily iteration when environment/tooling is blocked
+  - required before v1 release tag and final compatibility sign-off
+
 ## Definition Of Done
 
 - measurable improvement in search/publish round-trip success over baseline

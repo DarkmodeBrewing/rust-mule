@@ -11,6 +11,20 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added fallback interop plan for blocked live iMule environment.
+  - Updated `docs/governance/TASKS.md` with `Interop Fallback Strategy`:
+    - offline interop harness using fixture/pcap-derived packet vectors
+    - wire-level golden tests for core compatibility flows
+    - keep live mixed-client soak as pre-release (v1 tag) gate
+- Decisions:
+  - do not stall daily progress on unavailable iMule runtime environment.
+  - preserve live mixed-client soak as mandatory final compatibility gate.
+- Next steps:
+  - define initial packet fixture corpus and add first golden tests to CI.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added explicit shaper compatibility contract documentation.
   - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with `Shaper Compatibility Contract`:
     - wire invariants that shaping must not change
