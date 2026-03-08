@@ -11,6 +11,19 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added explicit v1 stable interop objective and release gates.
+  - Updated `docs/governance/TASKS.md`:
+    - added current-priority objective for seamless `rust-mule <-> iMule` operation over I2P
+    - clarified ordering: protocol interoperability is release-critical; full behavior parity is secondary
+    - added `v1 Stable Interop Release Gates` checklist (wire compatibility, transfer defaults, mixed-client e2e tests, no-regression requirement)
+- Decisions:
+  - v1 release readiness is defined by mixed-client interoperability, not complete feature parity with iMule.
+- Next steps:
+  - wire these gates into an executable test matrix (script/CI where feasible) before v1 tag decisions.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Documented transfer sizing numbers and iMule interop risks.
   - Updated `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md` with:
     - current rust-mule transfer numbers (64 KiB block, reserve/lease caps, 3-range request shape)

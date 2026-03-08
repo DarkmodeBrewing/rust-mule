@@ -13,6 +13,8 @@ Last Reviewed: 2026-03-03
    - add peer reliability classes and health-driven routing/eviction
    - add transport-aware latency evaluation and local path-memory prioritization
    - expose counters required to verify these policies in long-run baselines
+6. v1 interop objective: seamless mixed-client operation with iMule over I2P.
+   - protocol interoperability is release-critical (behavioral parity is secondary)
 
 ## Scope (Current Iteration)
 
@@ -92,6 +94,20 @@ Last Reviewed: 2026-03-03
   - normalize + canonicalize share paths before accept; prevent duplicate/overlapping entries by policy
   - expose scanner/index health + per-folder stats in settings/status UI for operator visibility
   - reference checklist: `docs/10_architecture/SHARING_UPLOAD_CHECKLIST.md`
+
+## v1 Stable Interop Release Gates
+
+- verify wire compatibility with iMule for core flows:
+  - HELLO/session establishment
+  - source publish/search (`PUBLISH_SOURCE`, `SEARCH_SOURCE`)
+  - transfer request/serve (`OP_REQUESTPARTS`, `OP_SENDINGPART`)
+- align default transfer sizing/pacing to iMule-compatible baseline (configurable override allowed)
+- pass mixed-client end-to-end tests (`rust-mule <-> iMule`) for:
+  - discover source
+  - request data
+  - restart/resume transfer
+  - complete and verify resulting file/hash
+- enforce no-regression checks on those interop paths before v1 tag
 
 ## Definition Of Done
 
