@@ -80,6 +80,7 @@ impl UploadService {
         start: u64,
         end: u64,
     ) -> UploadPayloadBuild {
+        let end_exclusive = end.saturating_add(1);
         let hash_hex = crate::kad::KadId(*file_hash).to_hex_lower();
         let shared_file = self
             .shared_library
@@ -87,17 +88,14 @@ impl UploadService {
             .await
             .get_by_hash_hex(&hash_hex)
             .cloned();
-        match shared_file {
+        let (block_data, source) = match shared_file {
             Some(file) => match tokio::task::spawn_blocking({
                 let file_for_read = file.clone();
                 move || share::read_shared_block(&file_for_read, start, end)
             })
             .await
             {
-                Ok(Ok(body)) => UploadPayloadBuild {
-                    payload: body,
-                    source: UploadPayloadSource::SharedFile,
-                },
+                Ok(Ok(body)) => (body, UploadPayloadSource::SharedFile),
                 Ok(Err(err)) => {
                     warn_zero_fill(
                         "shared_upload_fallback_zero_fill",
@@ -107,10 +105,10 @@ impl UploadService {
                         end,
                         &err,
                     );
-                    UploadPayloadBuild {
-                        payload: zero_fill_block(start, end),
-                        source: UploadPayloadSource::ZeroFillFallback,
-                    }
+                    (
+                        zero_fill_block(start, end),
+                        UploadPayloadSource::ZeroFillFallback,
+                    )
                 }
                 Err(err) => {
                     warn_zero_fill_join(
@@ -121,17 +119,25 @@ impl UploadService {
                         end,
                         &err,
                     );
-                    UploadPayloadBuild {
-                        payload: zero_fill_block(start, end),
-                        source: UploadPayloadSource::ZeroFillFallback,
-                    }
+                    (
+                        zero_fill_block(start, end),
+                        UploadPayloadSource::ZeroFillFallback,
+                    )
                 }
             },
-            None => UploadPayloadBuild {
-                payload: zero_fill_block(start, end),
-                source: UploadPayloadSource::ZeroFillFallback,
-            },
-        }
+            None => (
+                zero_fill_block(start, end),
+                UploadPayloadSource::ZeroFillFallback,
+            ),
+        };
+        let payload = crate::download::protocol::encode_sendingpart_payload(
+            *file_hash,
+            start,
+            end_exclusive,
+            &block_data,
+        )
+        .expect("valid sendingpart payload");
+        UploadPayloadBuild { payload, source }
     }
 }
 
@@ -362,7 +368,12 @@ mod tests {
             .build_sending_part_payload(&file.file_id.0, 2, 5)
             .await;
         assert_eq!(build.source, UploadPayloadSource::SharedFile);
-        assert_eq!(build.payload, b"cdef");
+        let decoded =
+            crate::download::protocol::decode_sendingpart_payload(&build.payload).expect("decode");
+        assert_eq!(decoded.file_hash, file.file_id.0);
+        assert_eq!(decoded.start, 2);
+        assert_eq!(decoded.end_exclusive, 6);
+        assert_eq!(decoded.data, b"cdef");
 
         let _ = tokio::fs::remove_dir_all(&root).await;
     }
@@ -372,7 +383,12 @@ mod tests {
         let service = UploadService::new(Arc::new(RwLock::new(SharedLibrary::default())));
         let build = service.build_sending_part_payload(&[0xAA; 16], 0, 3).await;
         assert_eq!(build.source, UploadPayloadSource::ZeroFillFallback);
-        assert_eq!(build.payload, vec![0u8; 4]);
+        let decoded =
+            crate::download::protocol::decode_sendingpart_payload(&build.payload).expect("decode");
+        assert_eq!(decoded.file_hash, [0xAA; 16]);
+        assert_eq!(decoded.start, 0);
+        assert_eq!(decoded.end_exclusive, 4);
+        assert_eq!(decoded.data, vec![0u8; 4]);
     }
 
     fn temp_dir(name: &str) -> std::path::PathBuf {

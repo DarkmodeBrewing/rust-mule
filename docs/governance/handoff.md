@@ -11,6 +11,31 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed PR review fixes for the uploader-service foundation branch.
+  - Restored correct `OP_SENDINGPART` payload framing by adding
+    `encode_sendingpart_payload(...)` in `src/download/protocol.rs`.
+  - Updated `UploadService::build_sending_part_payload(...)` to return a fully encoded
+    sending-part payload instead of raw block bytes.
+  - Updated uploader tests to decode and verify the protocol payload shape instead of
+    asserting on raw block bytes.
+  - Removed an unnecessary `SharedLibrary` clone from `GET /api/v1/uploads`; the handler
+    now reads through the shared-library guard directly.
+- Decisions:
+  - keep `UploadService::build_sending_part_payload(...)` responsible for returning the
+    protocol payload, because the current caller contract already treats it as an
+    `OP_SENDINGPART` builder.
+  - prefer a single protocol encoder helper over ad hoc packet framing in the transfer pump.
+- Next steps:
+  - watch PR `#47` for any remaining uploader-foundation comments.
+  - if the branch merges cleanly, decide whether the next uploader slice is:
+    - a UI surface for `/api/v1/uploads`
+    - or deeper uploader/session state
+- Change log:
+  - Updated `src/download/protocol.rs`.
+  - Updated `src/upload.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Aligned operator-facing docs with the shared-library and uploader-service work.
   - Updated `docs/index.md` to surface `SHARING_UPLOAD_CHECKLIST.md` in the main docs navigation.
   - Updated `docs/30_operations/api_curl.md` with the current shared/uploader endpoints:

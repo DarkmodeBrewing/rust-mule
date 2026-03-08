@@ -254,7 +254,7 @@ pub(crate) async fn shared_files(
 pub(crate) async fn uploads(
     State(state): State<ApiState>,
 ) -> Result<Json<UploadListResponse>, StatusCode> {
-    let shared_library = state.shared_library.read().await.clone();
+    let shared_library = state.shared_library.read().await;
     let uploads = state
         .upload_service
         .snapshot_all()
