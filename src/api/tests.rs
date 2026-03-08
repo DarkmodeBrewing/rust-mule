@@ -491,6 +491,7 @@ async fn settings_get_returns_config_snapshot() {
         7
     );
     assert!(!resp.0.settings.general.auto_open_ui);
+    assert!(resp.0.settings.sharing.share_roots.is_empty());
     assert!(resp.0.restart_required);
 }
 
@@ -518,6 +519,9 @@ async fn settings_patch_updates_and_persists_config() {
                 "rate_limit_auth_bootstrap_max_per_window": 30,
                 "rate_limit_session_max_per_window": 30,
                 "rate_limit_token_rotate_max_per_window": 10
+            },
+            "sharing": {
+                "share_roots": []
             }
         }))
         .expect("serialize settings patch"),
@@ -543,9 +547,41 @@ async fn settings_patch_updates_and_persists_config() {
         resp.0.settings.api.rate_limit_token_rotate_max_per_window,
         10
     );
+    assert!(resp.0.settings.sharing.share_roots.is_empty());
     assert!(!resp.0.settings.general.log_to_file);
     assert!(!resp.0.settings.general.auto_open_ui);
     assert!(resp.0.restart_required);
+}
+
+#[tokio::test]
+async fn settings_patch_updates_share_roots() {
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let root = std::env::temp_dir().join(format!(
+        "rust_mule_settings_share_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("create share root");
+
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "sharing": {
+                "share_roots": [root.display().to_string()]
+            }
+        }))
+        .expect("serialize sharing patch"),
+    );
+    let result = handlers::settings_patch(State(state), body).await;
+
+    let resp = result.expect("settings_patch should succeed");
+    assert_eq!(
+        resp.0.settings.sharing.share_roots,
+        vec![root.display().to_string()]
+    );
 }
 
 #[tokio::test]
@@ -595,6 +631,19 @@ async fn settings_patch_rejects_invalid_values() {
     );
     let resp_bad_rate_limit = handlers::settings_patch(State(state), body).await;
     assert!(matches!(resp_bad_rate_limit, Err(StatusCode::BAD_REQUEST)));
+
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let body = Bytes::from(
+        serde_json::to_vec(&json!({
+            "sharing": {
+                "share_roots": ["/"]
+            }
+        }))
+        .expect("serialize unsafe sharing patch"),
+    );
+    let resp_bad_share_root = handlers::settings_patch(State(state), body).await;
+    assert!(matches!(resp_bad_share_root, Err(StatusCode::BAD_REQUEST)));
 }
 
 #[tokio::test]

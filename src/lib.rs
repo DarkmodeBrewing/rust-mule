@@ -7,4 +7,5 @@ pub mod i2p;
 pub mod kad;
 pub mod logging;
 pub mod nodes;
+pub mod share;
 pub mod single_instance;

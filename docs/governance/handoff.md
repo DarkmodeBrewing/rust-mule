@@ -11,6 +11,32 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Started the shared-library/uploader work with config and validation foundation.
+  - Added `sharing` config section with `share_roots`.
+  - Exposed `sharing.share_roots` through `/api/v1/settings` get/patch.
+  - Added new `src/share.rs` module:
+    - canonicalizes and validates share roots
+    - rejects empty roots, runtime data-dir overlap, and overlapping share roots
+    - enumerates files beneath validated roots for later indexing/uploader use
+  - Added tests for:
+    - settings API share-root update/rejection
+    - share-root validation rules
+    - basic shared-file enumeration
+- Decisions:
+  - start with a trustworthy shared-root boundary before implementing disk-backed uploader serving.
+  - keep uploader wiring as the next slice; this change only establishes config/API/backend foundation.
+- Next steps:
+  - add a persisted library index model (path, size, md4, timestamps) on top of validated share roots.
+  - replace synthetic upload payload generation with real disk-backed range reads from indexed files.
+  - add settings UI controls for share-root management.
+- Change log:
+  - Added `src/share.rs`.
+  - Updated `src/config.rs`.
+  - Updated `src/main.rs`.
+  - Updated `src/api/handlers/settings.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Fixed false-positive resume monotonic failures caused by `part_number` reuse in churny soak scenarios.
   - Updated `scripts/test/download_resume_soak.sh`:
     - snapshot now captures persisted `.part.met` state alongside API download JSON

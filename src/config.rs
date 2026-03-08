@@ -231,6 +231,7 @@ pub struct Config {
     pub kad: KadConfig,
     pub general: GeneralConfig,
     pub api: ApiConfig,
+    pub sharing: SharingConfig,
 }
 
 impl Config {
@@ -382,6 +383,12 @@ pub struct ApiConfig {
     pub rate_limit_session_max_per_window: u32,
     /// Max requests per window for `POST /api/v1/token/rotate`.
     pub rate_limit_token_rotate_max_per_window: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SharingConfig {
+    pub share_roots: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

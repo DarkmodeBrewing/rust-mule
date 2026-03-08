@@ -35,10 +35,16 @@ pub(crate) struct SettingsApi {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(crate) struct SettingsSharing {
+    pub(crate) share_roots: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct SettingsPayload {
     pub(crate) general: SettingsGeneral,
     pub(crate) sam: SettingsSam,
     pub(crate) api: SettingsApi,
+    pub(crate) sharing: SettingsSharing,
 }
 
 #[derive(Debug, Serialize)]
@@ -90,6 +96,12 @@ pub(crate) struct SettingsPatchApi {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct SettingsPatchSharing {
+    #[serde(default)]
+    pub(crate) share_roots: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct SettingsPatchRequest {
     #[serde(default)]
     pub(crate) general: Option<SettingsPatchGeneral>,
@@ -97,6 +109,8 @@ pub(crate) struct SettingsPatchRequest {
     pub(crate) sam: Option<SettingsPatchSam>,
     #[serde(default)]
     pub(crate) api: Option<SettingsPatchApi>,
+    #[serde(default)]
+    pub(crate) sharing: Option<SettingsPatchSharing>,
 }
 
 impl SettingsPayload {
@@ -127,6 +141,9 @@ impl SettingsPayload {
                     .api
                     .rate_limit_token_rotate_max_per_window,
             },
+            sharing: SettingsSharing {
+                share_roots: cfg.sharing.share_roots.clone(),
+            },
         }
     }
 }
@@ -156,6 +173,11 @@ pub(crate) fn validate_settings(cfg: &Config) -> Result<(), StatusCode> {
 
     EnvFilter::try_new(cfg.general.log_level.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
     EnvFilter::try_new(cfg.general.log_file_level.clone()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    crate::share::canonicalize_share_roots(
+        &cfg.sharing.share_roots,
+        std::path::Path::new(&cfg.general.data_dir),
+    )
+    .map_err(|_| StatusCode::BAD_REQUEST)?;
     Ok(())
 }
 
@@ -217,6 +239,12 @@ pub(crate) fn apply_settings_patch(cfg: &mut Config, patch: SettingsPatchRequest
         {
             cfg.api.rate_limit_token_rotate_max_per_window = rate_limit_token_rotate_max_per_window;
         }
+    }
+
+    if let Some(sharing) = patch.sharing
+        && let Some(share_roots) = sharing.share_roots
+    {
+        cfg.sharing.share_roots = share_roots;
     }
 }
 
