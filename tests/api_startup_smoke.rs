@@ -101,7 +101,9 @@ async fn startup_auth_and_session_smoke_flow() {
         status_events_tx,
         kad_cmd_tx,
         download_handle: download_handle.clone(),
-        shared_library: std::sync::Arc::new(rust_mule::share::SharedLibrary::default()),
+        shared_library: std::sync::Arc::new(tokio::sync::RwLock::new(
+            rust_mule::share::SharedLibrary::default(),
+        )),
         publish_tracker: std::sync::Arc::new(rust_mule::publish::SharedPublishTracker::default()),
         upload_activity: std::sync::Arc::new(rust_mule::upload::UploadActivityTracker::default()),
     };

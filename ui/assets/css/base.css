@@ -263,6 +263,10 @@ a:hover {
   color: var(--state-done);
 }
 
+.state-failed {
+  color: var(--danger);
+}
+
 .main-scroll {
   min-width: 0;
 }

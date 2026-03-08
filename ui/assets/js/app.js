@@ -1081,6 +1081,8 @@ window.appDownloads = function appDownloads() {
     searchThreads: [],
     downloads: [],
     sharedFiles: [],
+    sharedActions: [],
+    sharedActionBusy: false,
 
     get activeDownloadCount() {
       return this.downloads.filter((item) =>
@@ -1168,6 +1170,54 @@ window.appDownloads = function appDownloads() {
               .join(', '),
           }))
         : [];
+      await this.refreshSharedActions();
+    },
+
+    async refreshSharedActions() {
+      const actionsResp = await apiGet('/shared/actions');
+      this.sharedActions = Array.isArray(actionsResp?.actions)
+        ? actionsResp.actions.map((action) => ({
+            ...action,
+            summary:
+              action.action === 'reindex'
+                ? `files=${action.library_files_total ?? 0}, reused=${action.reused_entries ?? 0}, hashed=${action.hashed_entries ?? 0}`
+                : `items=${action.items_total}, queued=${action.queued_total}, failed=${action.failed_total}`,
+          }))
+        : [];
+    },
+
+    async runSharedAction(path, successNotice) {
+      this.sharedActionBusy = true;
+      this.error = '';
+      this.notice = '';
+      try {
+        const response = await apiPost(path, {});
+        this.notice = response?.started
+          ? successNotice
+          : `${response?.status?.action || 'action'} is already running`;
+        await this.refreshData();
+      } catch (err) {
+        const message = String(err?.message || err);
+        if (message.includes(': 409 ')) {
+          this.notice = 'action is already running';
+        } else {
+          this.error = message;
+        }
+      } finally {
+        this.sharedActionBusy = false;
+      }
+    },
+
+    async reindexSharedLibrary() {
+      await this.runSharedAction('/shared/actions/reindex', 'reindex started');
+    },
+
+    async republishSharedSources() {
+      await this.runSharedAction('/shared/actions/republish_sources', 'source republish started');
+    },
+
+    async republishSharedKeywords() {
+      await this.runSharedAction('/shared/actions/republish_keywords', 'keyword republish started');
     },
 
     graphSegmentStyle(segment) {

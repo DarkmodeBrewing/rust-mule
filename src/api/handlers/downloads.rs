@@ -92,6 +92,17 @@ pub(crate) struct SharedFilesResponse {
     pub(crate) files: Vec<SharedFileEntry>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SharedActionsResponse {
+    pub(crate) actions: Vec<crate::shared_ops::SharedActionStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SharedActionResponse {
+    pub(crate) started: bool,
+    pub(crate) status: crate::shared_ops::SharedActionStatus,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct CreateDownloadRequestBody {
     pub(crate) file_name: String,
@@ -152,7 +163,8 @@ pub(crate) async fn shared_files(
         .snapshot_detailed()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let shared_files = state.shared_library.files();
+    let shared_library = state.shared_library.read().await.clone();
+    let shared_files = shared_library.files();
     let shared_publish_statuses = join_all(
         shared_files
             .iter()
@@ -211,6 +223,66 @@ pub(crate) async fn shared_files(
         });
     }
     Ok(Json(SharedFilesResponse { files }))
+}
+
+pub(crate) async fn shared_actions(
+    State(state): State<ApiState>,
+) -> Result<Json<SharedActionsResponse>, StatusCode> {
+    let snapshot = state.shared_ops.action_snapshot().await;
+    Ok(Json(SharedActionsResponse {
+        actions: snapshot.actions,
+    }))
+}
+
+pub(crate) async fn shared_reindex(
+    State(state): State<ApiState>,
+) -> Result<(StatusCode, Json<SharedActionResponse>), StatusCode> {
+    let response = state.shared_ops.start_reindex().await;
+    Ok((
+        if response.started {
+            StatusCode::ACCEPTED
+        } else {
+            StatusCode::CONFLICT
+        },
+        Json(SharedActionResponse {
+            started: response.started,
+            status: response.status,
+        }),
+    ))
+}
+
+pub(crate) async fn shared_republish_sources(
+    State(state): State<ApiState>,
+) -> Result<(StatusCode, Json<SharedActionResponse>), StatusCode> {
+    let response = state.shared_ops.start_republish_sources().await;
+    Ok((
+        if response.started {
+            StatusCode::ACCEPTED
+        } else {
+            StatusCode::CONFLICT
+        },
+        Json(SharedActionResponse {
+            started: response.started,
+            status: response.status,
+        }),
+    ))
+}
+
+pub(crate) async fn shared_republish_keywords(
+    State(state): State<ApiState>,
+) -> Result<(StatusCode, Json<SharedActionResponse>), StatusCode> {
+    let response = state.shared_ops.start_republish_keywords().await;
+    Ok((
+        if response.started {
+            StatusCode::ACCEPTED
+        } else {
+            StatusCode::CONFLICT
+        },
+        Json(SharedActionResponse {
+            started: response.started,
+            status: response.status,
+        }),
+    ))
 }
 
 pub(crate) async fn downloads_create(
