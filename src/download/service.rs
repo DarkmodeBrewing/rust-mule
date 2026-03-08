@@ -5,6 +5,7 @@ use crate::download::store::{
     append_known_met_entry, load_known_met_entries, met_path_for_part, part_path_for_part,
     save_part_met, scan_recoverable_downloads,
 };
+use crate::transfer_rate::{RollingTransferRate, TransferRateSnapshot};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
@@ -58,6 +59,8 @@ pub struct DownloadSummary {
     pub file_size: u64,
     pub state: PartState,
     pub downloaded_bytes: u64,
+    pub rate_bps_5s: u64,
+    pub rate_bps_30s: u64,
     pub progress_pct: u8,
     pub missing_ranges: usize,
     pub inflight_ranges: usize,
@@ -604,6 +607,7 @@ async fn run_service(
                 met_path: r.met_path,
                 part_path: r.part_path,
                 met,
+                transfer_rate: RollingTransferRate::default(),
                 leases: Vec::new(),
                 cooldown_until: None,
             },
@@ -672,7 +676,7 @@ async fn run_service(
                                 started_at,
                                 pipeline_stats,
                             ),
-                            list_summaries(&downloads),
+                            list_summaries(&mut downloads),
                         ));
                     }
                     DownloadCommand::SnapshotDetailed { reply } => {
@@ -684,7 +688,7 @@ async fn run_service(
                                 started_at,
                                 pipeline_stats,
                             ),
-                            list_details(&downloads),
+                            list_details(&mut downloads),
                         ));
                     }
                     DownloadCommand::CreateDownload { req, reply } => {
@@ -796,7 +800,7 @@ async fn run_service(
                         let _ = reply.send(result);
                     }
                     DownloadCommand::List { reply } => {
-                        let _ = reply.send(list_summaries(&downloads));
+                        let _ = reply.send(list_summaries(&mut downloads));
                     }
                     DownloadCommand::ReserveBlocks {
                         part_number,
@@ -945,6 +949,7 @@ struct ManagedDownload {
     met_path: PathBuf,
     part_path: PathBuf,
     met: PartMet,
+    transfer_rate: RollingTransferRate,
     leases: Vec<InflightLease>,
     cooldown_until: Option<Instant>,
 }
@@ -968,23 +973,27 @@ struct DownloadPipelineStats {
 }
 
 fn list_summaries(
-    downloads: &std::collections::BTreeMap<u16, ManagedDownload>,
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
 ) -> Vec<DownloadSummary> {
-    downloads.values().map(summary_from_download).collect()
+    downloads.values_mut().map(summary_from_download).collect()
 }
 
 fn list_details(
-    downloads: &std::collections::BTreeMap<u16, ManagedDownload>,
+    downloads: &mut std::collections::BTreeMap<u16, ManagedDownload>,
 ) -> Vec<DownloadDetail> {
-    downloads.values().map(detail_from_download).collect()
+    downloads.values_mut().map(detail_from_download).collect()
 }
 
-fn summary_from_download(d: &ManagedDownload) -> DownloadSummary {
+fn summary_from_download(d: &mut ManagedDownload) -> DownloadSummary {
     let progress = if d.met.file_size == 0 {
         0
     } else {
         ((d.met.downloaded_bytes.saturating_mul(100) / d.met.file_size).min(100)) as u8
     };
+    let TransferRateSnapshot {
+        rate_bps_5s,
+        rate_bps_30s,
+    } = d.transfer_rate.snapshot();
     DownloadSummary {
         part_number: d.met.part_number,
         file_name: d.met.file_name.clone(),
@@ -992,6 +1001,8 @@ fn summary_from_download(d: &ManagedDownload) -> DownloadSummary {
         file_size: d.met.file_size,
         state: d.met.state,
         downloaded_bytes: d.met.downloaded_bytes,
+        rate_bps_5s,
+        rate_bps_30s,
         progress_pct: progress,
         missing_ranges: d.met.missing_ranges.len(),
         inflight_ranges: d.met.inflight_ranges.len(),
@@ -1000,7 +1011,7 @@ fn summary_from_download(d: &ManagedDownload) -> DownloadSummary {
     }
 }
 
-fn detail_from_download(d: &ManagedDownload) -> DownloadDetail {
+fn detail_from_download(d: &mut ManagedDownload) -> DownloadDetail {
     DownloadDetail {
         summary: summary_from_download(d),
         missing_ranges: d.met.missing_ranges.clone(),
@@ -1086,12 +1097,13 @@ async fn create_download(
             met_path,
             part_path,
             met: met.clone(),
+            transfer_rate: RollingTransferRate::default(),
             leases: Vec::new(),
             cooldown_until: None,
         },
     );
     Ok(summary_from_download(
-        downloads.get(&part_number).expect("inserted"),
+        downloads.get_mut(&part_number).expect("inserted"),
     ))
 }
 
@@ -1245,6 +1257,8 @@ async fn mark_block_received(
         .met
         .file_size
         .saturating_sub(total_missing(&d.met.missing_ranges));
+    d.transfer_rate
+        .note_bytes(block.end.saturating_sub(block.start).saturating_add(1));
     if d.met.missing_ranges.is_empty() && d.met.inflight_ranges.is_empty() {
         d.met.state = PartState::Completing;
     } else if d.met.state == PartState::Queued {
@@ -2498,6 +2512,8 @@ mod tests {
             .expect("ingest");
         assert_eq!(got.inflight_ranges, 0);
         assert!(got.progress_pct > 0);
+        assert!(got.rate_bps_5s > 0);
+        assert!(got.rate_bps_30s > 0);
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
@@ -2755,6 +2771,8 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].inflight_ranges, 1);
         assert_eq!(list[0].downloaded_bytes, 0);
+        assert_eq!(list[0].rate_bps_5s, 0);
+        assert_eq!(list[0].rate_bps_30s, 0);
 
         handle.shutdown().await.expect("shutdown");
         join.await.expect("join").expect("svc");
@@ -2798,6 +2816,7 @@ mod tests {
                 met_path: met_path.clone(),
                 part_path: part_path.clone(),
                 met,
+                transfer_rate: RollingTransferRate::default(),
                 leases: Vec::new(),
                 cooldown_until: None,
             },

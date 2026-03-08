@@ -1602,6 +1602,8 @@ async fn uploads_endpoint_lists_active_uploads() {
     );
     assert_eq!(uploads[0]["active_request"].as_bool(), Some(true));
     assert_eq!(uploads[0]["last_peer_id_hex"].as_str(), Some("peer-send"));
+    assert!(uploads[0]["rate_bps_5s"].as_u64().unwrap_or_default() > 0);
+    assert!(uploads[0]["rate_bps_30s"].as_u64().unwrap_or_default() > 0);
     assert_eq!(
         uploads[0]["last_payload_source"].as_str(),
         Some("shared_file")

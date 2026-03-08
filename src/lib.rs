@@ -11,4 +11,5 @@ pub mod publish;
 pub mod share;
 pub mod shared_ops;
 pub mod single_instance;
+pub mod transfer_rate;
 pub mod upload;
