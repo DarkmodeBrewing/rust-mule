@@ -192,6 +192,7 @@ struct TrackedUploadRange {
     end: u64,
     phase: UploadRangePhase,
     peer_id_hex: String,
+    started_unix_secs: Option<u64>,
     requested_unix_secs: Option<u64>,
     expires_at: Instant,
 }
@@ -300,6 +301,7 @@ impl UploadActivityTracker {
                 end,
                 phase,
                 peer_id_hex: meta.peer_id_hex.clone(),
+                started_unix_secs: meta.requested_unix_secs,
                 requested_unix_secs: meta.requested_unix_secs,
                 expires_at,
             });
@@ -328,7 +330,7 @@ fn snapshot_from_file(hash_hex: String, file: &FileUploadActivity) -> UploadActi
     let active_since_unix_secs = file
         .active_ranges
         .iter()
-        .filter_map(|range| range.requested_unix_secs)
+        .filter_map(|range| range.started_unix_secs)
         .min();
     UploadActivitySnapshot {
         file_hash_md4_hex: hash_hex,
@@ -429,6 +431,8 @@ mod tests {
         assert_eq!(held.active_ranges[0].phase, UploadRangePhase::Held);
         assert_eq!(held.active_ranges[0].peer_id_hex, "peer-a");
         assert_eq!(held.active_peer_ids, vec!["peer-a".to_string()]);
+        let active_since = held.active_since_unix_secs;
+        assert!(active_since.is_some());
 
         tracker.note_sending(
             "abcd",
@@ -448,6 +452,7 @@ mod tests {
             sending.last_payload_source,
             Some(UploadPayloadSource::SharedFile)
         );
+        assert_eq!(sending.active_since_unix_secs, active_since);
     }
 
     #[test]

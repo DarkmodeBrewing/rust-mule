@@ -11,6 +11,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Addressed PR review feedback for the richer uploader-state branch.
+  - Preserved first-seen timestamps for tracked upload ranges so
+    `active_since_unix_secs` reflects when uploader activity actually began, not the latest
+    held/sending transition update.
+  - Updated `docs/governance/TASKS.md` `Last Reviewed` date after adding the transfer-rate
+    telemetry backlog note.
+- Decisions:
+  - define `active_since_unix_secs` as earliest active-start time for live ranges, not
+    latest update time.
+- Next steps:
+  - watch PR `#49` for any remaining uploader-state comments.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added explicit backlog for transfer-rate telemetry in downloads and uploads.
   - Confirmed current uploader/download UI/API work does not yet expose first-class transfer
     speed metrics.
