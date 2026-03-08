@@ -1142,12 +1142,24 @@ window.appDownloads = function appDownloads() {
             ...item,
             pretty_size: formatBytes(item.file_size),
             requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
-            source_publish_label: item.source_publish_last_result
+            local_source_label: item.local_source_cached ? 'cached' : 'not cached',
+            source_publish_queue_label: item.source_publish_last_result
               ? `${item.source_publish_last_result} (${item.source_publish_attempts})`
               : 'not attempted',
-            keyword_publish_label: item.keyword_publish_last_result
+            source_publish_response_label: item.source_publish_response_received
+              ? `response seen${
+                  typeof item.source_publish_first_response_latency_ms === 'number'
+                    ? ` (${item.source_publish_first_response_latency_ms} ms)`
+                    : ''
+                }`
+              : 'no response yet',
+            keyword_publish_queue_label: item.keyword_publish_last_result
               ? `${item.keyword_publish_last_result} (${item.keyword_publish_queued}/${item.keyword_publish_attempts})`
               : 'not attempted',
+            keyword_publish_ack_label:
+              typeof item.keyword_publish_total === 'number' && item.keyword_publish_total > 0
+                ? `${item.keyword_publish_acked}/${item.keyword_publish_total} acked`
+                : 'no keyword publishes',
             queued_upload_ranges_label: (item.queued_upload_ranges || [])
               .map((range) => `${range.start}-${range.end}`)
               .join(', '),

@@ -9,7 +9,10 @@ use crate::api::{
 };
 use crate::download::service::DownloadDetail;
 use crate::download::{CreateDownloadRequest, DownloadError, DownloadSummary};
-use crate::kad::{KadId, service::KadServiceCommand};
+use crate::kad::{
+    KadId,
+    service::{KadServiceCommand, KadSharedPublishStatus},
+};
 use crate::upload::{UploadActivitySnapshot, UploadRangePhase};
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,14 +62,19 @@ pub(crate) struct SharedFileEntry {
     pub(crate) file_hash_md4_hex: String,
     pub(crate) file_size: u64,
     pub(crate) source_count: usize,
+    pub(crate) local_source_cached: bool,
     pub(crate) source_publish_attempts: u64,
     pub(crate) source_publish_last_result: Option<String>,
     pub(crate) source_publish_last_attempt_unix_secs: Option<u64>,
+    pub(crate) source_publish_response_received: bool,
+    pub(crate) source_publish_first_response_latency_ms: Option<u64>,
     pub(crate) keyword_publish_attempts: u64,
     pub(crate) keyword_publish_queued: u64,
     pub(crate) keyword_publish_failed: u64,
     pub(crate) keyword_publish_last_result: Option<String>,
     pub(crate) keyword_publish_last_attempt_unix_secs: Option<u64>,
+    pub(crate) keyword_publish_total: usize,
+    pub(crate) keyword_publish_acked: usize,
     pub(crate) queued_downloads: usize,
     pub(crate) inflight_downloads: usize,
     pub(crate) queued_uploads: usize,
@@ -144,9 +152,16 @@ pub(crate) async fn shared_files(
         .snapshot_detailed()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let shared_files = state.shared_library.files();
+    let shared_publish_statuses = join_all(
+        shared_files
+            .iter()
+            .map(|file| shared_publish_status_for_file(&state, &file.file_hash_md4_hex)),
+    )
+    .await;
 
-    let mut files = Vec::with_capacity(state.shared_library.files().len());
-    for file in state.shared_library.files() {
+    let mut files = Vec::with_capacity(shared_files.len());
+    for (file, kad_publish_status) in shared_files.iter().zip(shared_publish_statuses) {
         let (queued_downloads, inflight_downloads) =
             download_activity_for_file(&downloads, &file.file_hash_md4_hex);
         let publish_status = state
@@ -169,14 +184,20 @@ pub(crate) async fn shared_files(
             file_hash_md4_hex: file.file_hash_md4_hex.clone(),
             file_size: file.file_size,
             source_count: 0,
+            local_source_cached: kad_publish_status.local_source_cached,
             source_publish_attempts: publish_status.source_attempts,
             source_publish_last_result: publish_status.source_last_result,
             source_publish_last_attempt_unix_secs: publish_status.source_last_attempt_unix_secs,
+            source_publish_response_received: kad_publish_status.source_publish_response_received,
+            source_publish_first_response_latency_ms: kad_publish_status
+                .source_publish_first_response_latency_ms,
             keyword_publish_attempts: publish_status.keyword_attempts,
             keyword_publish_queued: publish_status.keyword_queued,
             keyword_publish_failed: publish_status.keyword_failed,
             keyword_publish_last_result: publish_status.keyword_last_result,
             keyword_publish_last_attempt_unix_secs: publish_status.keyword_last_attempt_unix_secs,
+            keyword_publish_total: kad_publish_status.keyword_publish_total,
+            keyword_publish_acked: kad_publish_status.keyword_publish_acked,
             queued_downloads,
             inflight_downloads,
             queued_uploads: queued_upload_ranges.len(),
@@ -358,6 +379,32 @@ async fn source_count_for_file(state: &ApiState, hash_hex: &str) -> usize {
     match tokio::time::timeout(SOURCE_COUNT_TIMEOUT, rx).await {
         Ok(Ok(items)) => items.len(),
         _ => 0,
+    }
+}
+
+async fn shared_publish_status_for_file(
+    state: &ApiState,
+    hash_hex: &str,
+) -> KadSharedPublishStatus {
+    const STATUS_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(250);
+    let Ok(file) = KadId::from_hex(hash_hex) else {
+        return KadSharedPublishStatus::default();
+    };
+    let (tx, rx) = oneshot::channel();
+    if state
+        .kad_cmd_tx
+        .send(KadServiceCommand::GetSharedPublishStatus {
+            file,
+            respond_to: tx,
+        })
+        .await
+        .is_err()
+    {
+        return KadSharedPublishStatus::default();
+    }
+    match tokio::time::timeout(STATUS_TIMEOUT, rx).await {
+        Ok(Ok(status)) => status,
+        _ => KadSharedPublishStatus::default(),
     }
 }
 

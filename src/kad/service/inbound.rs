@@ -1254,6 +1254,9 @@ pub(super) async fn handle_inbound_impl(
                     if let Some(job) = svc.keyword_jobs.get_mut(&res.key)
                         && !job.got_publish_ack
                     {
+                        if let Some(publish) = job.publish.as_ref() {
+                            job.publish_ack_file = Some(publish.file);
+                        }
                         job.got_publish_ack = true;
                         tracing::info!(
                             from = %crate::i2p::b64::short(&from_dest_b64),

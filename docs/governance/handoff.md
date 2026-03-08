@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-07
+Last Reviewed: 2026-03-08
 
 # Handoff / Continuation Notes
 
@@ -10,6 +10,70 @@ This file exists because chat sessions are not durable project memory. In the ne
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
 ## Status (2026-02-19)
+
+- Status (2026-03-08): Added real KAD publish-response visibility for shared files and surfaced it in `/api/v1/shared` and `/ui/downloads`.
+  - Added `KadServiceCommand::GetSharedPublishStatus` and `KadSharedPublishStatus`.
+  - Added KAD service-side file-level publish status synthesis:
+    - `local_source_cached`
+    - `source_publish_response_received`
+    - `source_publish_first_response_latency_ms`
+    - `keyword_publish_total`
+    - `keyword_publish_acked`
+  - Extended `/api/v1/shared` to merge:
+    - enqueue status from `SharedPublishTracker`
+    - actual response/ack facts from the KAD service
+  - Updated `/ui/downloads` shared-library table to distinguish:
+    - local source cached state
+    - source publish queue state
+    - source publish response state
+    - keyword publish queue state
+    - keyword publish ack coverage
+  - Added service/API coverage for the new file-level publish status path.
+- Decisions:
+  - keep enqueue status and response status separate; they answer different operational questions.
+  - do not reinterpret `source_count` as “local source exists”; expose local-source cache state explicitly.
+  - model keyword publish response status as ack coverage (`acked/total`) because a shared file is published under multiple keywords.
+- Next steps:
+  - decide whether to track file-level publish responses durably across restart or keep them runtime-only.
+  - decide whether the next shared-library slice should add operator actions (`reindex`, `republish`) or deeper source/publish telemetry first.
+  - consider surfacing discovered-vs-local source state more explicitly if the shared UI needs stronger availability diagnostics.
+- Change log:
+  - Updated `src/kad/service/types.rs`.
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/tests.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Applied a CI-formatting follow-up on `feat/shared-publish-response-status`.
+  - Kept the `pub use types::{...}` re-export block in `src/kad/service.rs` in the rustfmt layout expected by CI.
+- Decisions:
+  - treat this as a formatting-only follow-up; no behavior changed.
+- Next steps:
+  - review and address any remaining PR `#44` review comments.
+- Change log:
+  - Updated `src/kad/service.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Addressed actionable PR `#44` review comments on shared publish response status.
+  - Fixed `/api/v1/shared` shared-file KAD status lookups to run concurrently instead of sequentially.
+  - Corrected `Last Reviewed` metadata at the top of `docs/governance/handoff.md` to `2026-03-08`.
+  - Fixed keyword publish ACK accounting so file-level `acked/total` status does not regress after `job.publish` is cleared post-ack.
+  - Added a regression test that keeps counting acknowledged keyword publishes after publish work stops.
+- Decisions:
+  - preserve the existing scheduling behavior of `got_publish_ack`, but track actual acknowledged file identity separately for telemetry.
+  - keep the shared API on per-file KAD requests for now, but issue them concurrently; a batch KAD command can be considered later if the shared library grows large enough to justify it.
+- Next steps:
+  - wait for PR `#44` CI/rereview after the review-driven fixes.
+- Change log:
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/kad/service.rs`.
+  - Updated `src/kad/service/inbound.rs`.
+  - Updated `src/kad/service/tests.rs`.
+  - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-08): Addressed actionable PR review feedback on the shared-library foundation branch.
   - Hardened shared-root/runtime-dir normalization:
