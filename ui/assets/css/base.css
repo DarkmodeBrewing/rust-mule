@@ -267,6 +267,14 @@ a:hover {
   color: var(--danger);
 }
 
+.danger-zone {
+  border-color: var(--danger);
+}
+
+.danger-copy {
+  color: var(--danger);
+}
+
 .main-scroll {
   min-width: 0;
 }

@@ -11,6 +11,62 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Reworked shared-library maintenance controls into an explicit danger-zone model instead of debug gating.
+  - Kept shared maintenance actions under normal authenticated admin access.
+  - Added UI friction in `/ui/downloads`:
+    - collapsed `Danger Zone`
+    - acknowledgement checkbox before actions unlock
+    - per-action browser confirmation dialogs
+  - Added API-side confirmation requirements for:
+    - `POST /api/v1/shared/actions/reindex`
+    - `POST /api/v1/shared/actions/republish_sources`
+    - `POST /api/v1/shared/actions/republish_keywords`
+  - Added backend cooldowns:
+    - `republish_sources`: 300s
+    - `republish_keywords`: 900s
+  - Extended shared action status/response payloads with:
+    - `cooldown_until_unix_secs`
+    - `reason`
+  - Added API/unit coverage for confirmation and cooldown behavior.
+- Decisions:
+  - do not hide shared maintenance behind debug mode; these are operator actions, not developer-only diagnostics.
+  - require explicit friction for state-changing and network-affecting shared maintenance:
+    - UI acknowledgement
+    - action confirmation
+    - backend confirmation
+    - republish cooldowns
+  - keep read-only shared inspection available under normal auth.
+- Next steps:
+  - decide whether `GET /api/v1/shared/actions` should expose richer cooldown/help text for the UI instead of only timestamps.
+  - decide whether `reindex` should gain a lightweight cooldown or remain ungated beyond confirmation.
+  - review whether any additional maintenance endpoints should adopt the same danger-zone pattern.
+- Change log:
+  - Updated `src/shared_ops.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/assets/css/base.css`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Addressed actionable PR `#46` review feedback on the shared action danger-zone slice.
+  - Restored the `apiPost` import in `ui/assets/js/app.js`; it is still used by other UI flows outside shared maintenance actions.
+  - Replaced the stringly-typed shared action reject reason with a typed enum:
+    - `AlreadyRunning`
+    - `CooldownActive`
+  - Updated HTTP status mapping to branch on the typed reject reason instead of matching string literals.
+- Decisions:
+  - keep the shared action reject reason typed end-to-end inside Rust and only serialize it at the API boundary.
+  - treat missing imports in the monolithic UI module as runtime correctness issues, not cosmetic cleanup.
+- Next steps:
+  - merge PR `#46` after CI/rereview is clean.
+- Change log:
+  - Updated `src/shared_ops.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed actionable PR `#45` review feedback on shared-library operator actions.
   - Republish actions now fail fast with a structured failed status when `kad.service_enabled = false`, instead of queueing work onto an unserviced channel.
   - Added missing API coverage for:

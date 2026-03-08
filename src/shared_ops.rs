@@ -13,6 +13,9 @@ use std::{
 };
 use tokio::sync::{Mutex, RwLock, mpsc};
 
+const REPUBLISH_SOURCES_COOLDOWN_SECS: u64 = 300;
+const REPUBLISH_KEYWORDS_COOLDOWN_SECS: u64 = 900;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum SharedActionKind {
     Reindex,
@@ -30,12 +33,20 @@ impl SharedActionKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SharedActionRejectReason {
+    AlreadyRunning,
+    CooldownActive,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SharedActionStatus {
     pub action: String,
     pub state: String,
     pub started_unix_secs: Option<u64>,
     pub finished_unix_secs: Option<u64>,
+    pub cooldown_until_unix_secs: Option<u64>,
     pub items_total: usize,
     pub queued_total: usize,
     pub failed_total: usize,
@@ -52,6 +63,7 @@ impl SharedActionStatus {
             state: "idle".to_string(),
             started_unix_secs: None,
             finished_unix_secs: None,
+            cooldown_until_unix_secs: None,
             items_total: 0,
             queued_total: 0,
             failed_total: 0,
@@ -66,6 +78,7 @@ impl SharedActionStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct SharedActionStartResponse {
     pub started: bool,
+    pub reason: Option<SharedActionRejectReason>,
     pub status: SharedActionStatus,
 }
 
@@ -146,6 +159,17 @@ impl SharedOpsManager {
             if status.state == "running" {
                 return SharedActionStartResponse {
                     started: false,
+                    reason: Some(SharedActionRejectReason::AlreadyRunning),
+                    status: status.clone(),
+                };
+            }
+            if status
+                .cooldown_until_unix_secs
+                .is_some_and(|cooldown_until| now.is_some_and(|current| current < cooldown_until))
+            {
+                return SharedActionStartResponse {
+                    started: false,
+                    reason: Some(SharedActionRejectReason::CooldownActive),
                     status: status.clone(),
                 };
             }
@@ -154,6 +178,7 @@ impl SharedOpsManager {
                 state: "running".to_string(),
                 started_unix_secs: now,
                 finished_unix_secs: None,
+                cooldown_until_unix_secs: None,
                 items_total: 0,
                 queued_total: 0,
                 failed_total: 0,
@@ -172,6 +197,7 @@ impl SharedOpsManager {
         let statuses = self.statuses.lock().await;
         SharedActionStartResponse {
             started: true,
+            reason: None,
             status: statuses
                 .get(&kind)
                 .cloned()
@@ -201,6 +227,7 @@ impl SharedOpsManager {
                     state: "failed".to_string(),
                     started_unix_secs,
                     finished_unix_secs: now_unix_secs(),
+                    cooldown_until_unix_secs: None,
                     items_total: 0,
                     queued_total: 0,
                     failed_total: 0,
@@ -229,6 +256,7 @@ impl SharedOpsManager {
             state: "succeeded".to_string(),
             started_unix_secs: None,
             finished_unix_secs: now_unix_secs(),
+            cooldown_until_unix_secs: None,
             items_total: roots.len(),
             queued_total: 0,
             failed_total: 0,
@@ -254,6 +282,7 @@ impl SharedOpsManager {
             .to_string(),
             started_unix_secs: None,
             finished_unix_secs: now_unix_secs(),
+            cooldown_until_unix_secs: cooldown_until(REPUBLISH_SOURCES_COOLDOWN_SECS),
             items_total: library.len(),
             queued_total,
             failed_total,
@@ -280,6 +309,7 @@ impl SharedOpsManager {
             .to_string(),
             started_unix_secs: None,
             finished_unix_secs: now_unix_secs(),
+            cooldown_until_unix_secs: cooldown_until(REPUBLISH_KEYWORDS_COOLDOWN_SECS),
             items_total,
             queued_total,
             failed_total,
@@ -401,6 +431,10 @@ fn now_unix_secs() -> Option<u64> {
         .map(|value| value.as_secs())
 }
 
+fn cooldown_until(cooldown_secs: u64) -> Option<u64> {
+    now_unix_secs().map(|now| now + cooldown_secs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,6 +460,7 @@ mod tests {
                     state: "running".to_string(),
                     started_unix_secs: Some(1),
                     finished_unix_secs: None,
+                    cooldown_until_unix_secs: None,
                     items_total: 0,
                     queued_total: 0,
                     failed_total: 0,
@@ -439,7 +474,49 @@ mod tests {
 
         let response = manager.start_reindex().await;
         assert!(!response.started);
+        assert_eq!(
+            response.reason,
+            Some(SharedActionRejectReason::AlreadyRunning)
+        );
         assert_eq!(response.status.state, "running");
+    }
+
+    #[tokio::test]
+    async fn start_republish_sources_rejects_during_cooldown() {
+        let manager = SharedOpsManager::new(
+            Arc::new(RwLock::new(SharedLibrary::default())),
+            Arc::new(tokio::sync::Mutex::new(Config::default())),
+            Arc::new(SharedPublishTracker::default()),
+            mpsc::channel(1).0,
+        );
+        {
+            let mut statuses = manager.statuses.lock().await;
+            statuses.insert(
+                SharedActionKind::RepublishSources,
+                SharedActionStatus {
+                    action: "republish_sources".to_string(),
+                    state: "succeeded".to_string(),
+                    started_unix_secs: Some(1),
+                    finished_unix_secs: Some(2),
+                    cooldown_until_unix_secs: now_unix_secs().map(|value| value + 60),
+                    items_total: 1,
+                    queued_total: 1,
+                    failed_total: 0,
+                    library_files_total: Some(1),
+                    reused_entries: None,
+                    hashed_entries: None,
+                    last_error: None,
+                },
+            );
+        }
+
+        let response = manager.start_republish_sources().await;
+        assert!(!response.started);
+        assert_eq!(
+            response.reason,
+            Some(SharedActionRejectReason::CooldownActive)
+        );
+        assert_eq!(response.status.state, "succeeded");
     }
 
     #[tokio::test]

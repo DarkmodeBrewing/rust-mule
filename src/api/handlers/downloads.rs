@@ -13,6 +13,7 @@ use crate::kad::{
     KadId,
     service::{KadServiceCommand, KadSharedPublishStatus},
 };
+use crate::shared_ops::SharedActionRejectReason;
 use crate::upload::{UploadActivitySnapshot, UploadRangePhase};
 
 #[derive(Debug, Clone, Serialize)]
@@ -100,7 +101,14 @@ pub(crate) struct SharedActionsResponse {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct SharedActionResponse {
     pub(crate) started: bool,
+    pub(crate) reason: Option<crate::shared_ops::SharedActionRejectReason>,
     pub(crate) status: crate::shared_ops::SharedActionStatus,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SharedActionRequestBody {
+    #[serde(default)]
+    pub(crate) confirm: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -236,16 +244,17 @@ pub(crate) async fn shared_actions(
 
 pub(crate) async fn shared_reindex(
     State(state): State<ApiState>,
-) -> Result<(StatusCode, Json<SharedActionResponse>), StatusCode> {
+    body: Bytes,
+) -> Result<(StatusCode, Json<SharedActionResponse>), (StatusCode, Json<ApiErrorEnvelope>)> {
+    let req: SharedActionRequestBody =
+        parse_json_with_limit(body, 4 * 1024).map_err(status_with_message)?;
+    shared_action_confirmed(req.confirm)?;
     let response = state.shared_ops.start_reindex().await;
     Ok((
-        if response.started {
-            StatusCode::ACCEPTED
-        } else {
-            StatusCode::CONFLICT
-        },
+        map_shared_action_status(&response),
         Json(SharedActionResponse {
             started: response.started,
+            reason: response.reason,
             status: response.status,
         }),
     ))
@@ -253,16 +262,17 @@ pub(crate) async fn shared_reindex(
 
 pub(crate) async fn shared_republish_sources(
     State(state): State<ApiState>,
-) -> Result<(StatusCode, Json<SharedActionResponse>), StatusCode> {
+    body: Bytes,
+) -> Result<(StatusCode, Json<SharedActionResponse>), (StatusCode, Json<ApiErrorEnvelope>)> {
+    let req: SharedActionRequestBody =
+        parse_json_with_limit(body, 4 * 1024).map_err(status_with_message)?;
+    shared_action_confirmed(req.confirm)?;
     let response = state.shared_ops.start_republish_sources().await;
     Ok((
-        if response.started {
-            StatusCode::ACCEPTED
-        } else {
-            StatusCode::CONFLICT
-        },
+        map_shared_action_status(&response),
         Json(SharedActionResponse {
             started: response.started,
+            reason: response.reason,
             status: response.status,
         }),
     ))
@@ -270,16 +280,17 @@ pub(crate) async fn shared_republish_sources(
 
 pub(crate) async fn shared_republish_keywords(
     State(state): State<ApiState>,
-) -> Result<(StatusCode, Json<SharedActionResponse>), StatusCode> {
+    body: Bytes,
+) -> Result<(StatusCode, Json<SharedActionResponse>), (StatusCode, Json<ApiErrorEnvelope>)> {
+    let req: SharedActionRequestBody =
+        parse_json_with_limit(body, 4 * 1024).map_err(status_with_message)?;
+    shared_action_confirmed(req.confirm)?;
     let response = state.shared_ops.start_republish_keywords().await;
     Ok((
-        if response.started {
-            StatusCode::ACCEPTED
-        } else {
-            StatusCode::CONFLICT
-        },
+        map_shared_action_status(&response),
         Json(SharedActionResponse {
             started: response.started,
+            reason: response.reason,
             status: response.status,
         }),
     ))
@@ -490,6 +501,31 @@ fn map_download_error_envelope(err: DownloadError) -> (StatusCode, Json<ApiError
             }),
         ),
         other => status_with_message(map_download_error(other)),
+    }
+}
+
+fn map_shared_action_status(response: &crate::shared_ops::SharedActionStartResponse) -> StatusCode {
+    if response.started {
+        StatusCode::ACCEPTED
+    } else {
+        match response.reason {
+            Some(SharedActionRejectReason::CooldownActive) => StatusCode::TOO_MANY_REQUESTS,
+            Some(SharedActionRejectReason::AlreadyRunning) | None => StatusCode::CONFLICT,
+        }
+    }
+}
+
+fn shared_action_confirmed(confirmed: bool) -> Result<(), (StatusCode, Json<ApiErrorEnvelope>)> {
+    if confirmed {
+        Ok(())
+    } else {
+        Err((
+            StatusCode::BAD_REQUEST,
+            Json(ApiErrorEnvelope {
+                code: StatusCode::BAD_REQUEST.as_u16(),
+                message: "confirmation required".to_string(),
+            }),
+        ))
     }
 }
 

@@ -1399,7 +1399,7 @@ async fn shared_actions_endpoint_lists_and_starts_republish_sources() {
     let trigger_resp = app
         .oneshot(authorized_api_post(
             "/api/v1/shared/actions/republish_sources",
-            json!({}),
+            json!({ "confirm": true }),
         ))
         .await
         .unwrap();
@@ -1450,7 +1450,7 @@ async fn shared_actions_endpoint_starts_reindex() {
     let trigger_resp = app
         .oneshot(authorized_api_post(
             "/api/v1/shared/actions/reindex",
-            json!({}),
+            json!({ "confirm": true }),
         ))
         .await
         .unwrap();
@@ -1520,7 +1520,7 @@ async fn shared_actions_endpoint_starts_republish_keywords() {
     let trigger_resp = app
         .oneshot(authorized_api_post(
             "/api/v1/shared/actions/republish_keywords",
-            json!({}),
+            json!({ "confirm": true }),
         ))
         .await
         .unwrap();
@@ -1534,6 +1534,27 @@ async fn shared_actions_endpoint_starts_republish_keywords() {
 
     waiter.await.unwrap();
     let _ = tokio::fs::remove_dir_all(&root).await;
+}
+
+#[tokio::test]
+async fn shared_actions_require_confirmation() {
+    let (kad_tx, _kad_rx) = mpsc::channel(8);
+    let state = test_state(kad_tx);
+    let app = test_app(state);
+
+    let trigger_resp = app
+        .oneshot(authorized_api_post(
+            "/api/v1/shared/actions/reindex",
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(trigger_resp.status(), StatusCode::BAD_REQUEST);
+    let trigger_json = response_json(trigger_resp).await;
+    assert_eq!(
+        trigger_json["message"].as_str(),
+        Some("confirmation required")
+    );
 }
 
 #[tokio::test]
