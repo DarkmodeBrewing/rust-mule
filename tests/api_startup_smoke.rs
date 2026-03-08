@@ -92,6 +92,9 @@ async fn startup_auth_and_session_smoke_flow() {
             .await
             .expect("start download service");
 
+    let shared_library = std::sync::Arc::new(tokio::sync::RwLock::new(
+        rust_mule::share::SharedLibrary::default(),
+    ));
     let deps = ApiServeDeps {
         app_config: cfg.clone(),
         config_path: config_path.clone(),
@@ -101,11 +104,9 @@ async fn startup_auth_and_session_smoke_flow() {
         status_events_tx,
         kad_cmd_tx,
         download_handle: download_handle.clone(),
-        shared_library: std::sync::Arc::new(tokio::sync::RwLock::new(
-            rust_mule::share::SharedLibrary::default(),
-        )),
+        shared_library: shared_library.clone(),
         publish_tracker: std::sync::Arc::new(rust_mule::publish::SharedPublishTracker::default()),
-        upload_activity: std::sync::Arc::new(rust_mule::upload::UploadActivityTracker::default()),
+        upload_service: std::sync::Arc::new(rust_mule::upload::UploadService::new(shared_library)),
     };
     let mut serve_handle = tokio::spawn(async move { api::serve(&api_cfg, deps).await });
 

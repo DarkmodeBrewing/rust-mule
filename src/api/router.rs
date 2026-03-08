@@ -14,7 +14,7 @@ use crate::api::{
         kad_search_keyword, kad_search_sources, kad_sources, search_delete, search_details,
         search_stop, searches, session_check, session_logout, settings_get, settings_patch,
         shared_actions, shared_files, shared_reindex, shared_republish_keywords,
-        shared_republish_sources, status, token_rotate,
+        shared_republish_sources, status, token_rotate, uploads,
     },
     ui::{root_index_redirect, ui_asset, ui_auth, ui_fallback, ui_index, ui_page},
 };
@@ -28,6 +28,7 @@ pub(crate) fn build_app(state: ApiState) -> Router<()> {
         .route("/session/logout", post(session_logout))
         .route("/status", get(status))
         .route("/downloads", get(downloads).post(downloads_create))
+        .route("/uploads", get(uploads))
         .route("/shared", get(shared_files))
         .route("/shared/actions", get(shared_actions))
         .route("/shared/actions/reindex", post(shared_reindex))

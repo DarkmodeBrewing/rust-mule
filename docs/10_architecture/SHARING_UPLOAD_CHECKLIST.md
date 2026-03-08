@@ -14,6 +14,39 @@ Track implementation guardrails for real file sharing and disk-backed upload ser
 - Real upload serving path for inbound part requests
 - Safety, abuse controls, and observability
 
+## Implemented So Far (2026-03-08)
+
+- Shared-library foundation
+  - `sharing.share_roots` exists in config and settings API/UI.
+  - Share roots are canonicalized and validated against unsafe roots and overlaps.
+  - Shared files are indexed with cached metadata in `data/shared_library.json`.
+  - Indexed files are source-published and keyword-published at startup.
+
+- Shared-library inspection and operator controls
+  - `GET /api/v1/shared` exposes indexed files, uploader activity, and publish status.
+  - `GET /api/v1/shared/actions` exposes operator-action state.
+  - `POST /api/v1/shared/actions/reindex`
+  - `POST /api/v1/shared/actions/republish_sources`
+  - `POST /api/v1/shared/actions/republish_keywords`
+  - Shared maintenance actions are normal authenticated admin actions, but live in a UI
+    danger zone with:
+    - acknowledgement gate
+    - per-action confirmation
+    - backend confirmation requirement
+    - republish cooldowns
+
+- Uploader foundation
+  - `UploadService` is the current boundary for:
+    - upload activity tracking
+    - shared-file payload reads
+    - zero-fill fallback behavior
+  - `GET /api/v1/uploads` exposes direct uploader-side state.
+  - `OP_SENDINGPART` payload building now flows through `UploadService`.
+
+- Current limitation
+  - Uploads are still driven through the existing transfer pump path.
+  - A richer standalone uploader/session model is still future work.
+
 ## Implementation Checklist
 
 - Shared folders

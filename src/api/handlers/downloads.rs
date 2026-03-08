@@ -94,6 +94,24 @@ pub(crate) struct SharedFilesResponse {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub(crate) struct UploadEntry {
+    pub(crate) file_name: Option<String>,
+    pub(crate) relative_path: Option<String>,
+    pub(crate) file_hash_md4_hex: String,
+    pub(crate) total_upload_requests: u64,
+    pub(crate) requested_bytes_total: u64,
+    pub(crate) last_requested_unix_secs: Option<u64>,
+    pub(crate) held_ranges: Vec<ByteRangeEntry>,
+    pub(crate) sending_ranges: Vec<ByteRangeEntry>,
+    pub(crate) active_request: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct UploadListResponse {
+    pub(crate) uploads: Vec<UploadEntry>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct SharedActionsResponse {
     pub(crate) actions: Vec<crate::shared_ops::SharedActionStatus>,
 }
@@ -188,7 +206,7 @@ pub(crate) async fn shared_files(
             .publish_tracker
             .snapshot_for_hash(&file.file_hash_md4_hex);
         let upload_activity = state
-            .upload_activity
+            .upload_service
             .snapshot_for_hash(&file.file_hash_md4_hex);
         let queued_upload_ranges = upload_ranges_by_phase(&upload_activity, UploadRangePhase::Held);
         let inflight_upload_ranges =
@@ -231,6 +249,37 @@ pub(crate) async fn shared_files(
         });
     }
     Ok(Json(SharedFilesResponse { files }))
+}
+
+pub(crate) async fn uploads(
+    State(state): State<ApiState>,
+) -> Result<Json<UploadListResponse>, StatusCode> {
+    let shared_library = state.shared_library.read().await;
+    let uploads = state
+        .upload_service
+        .snapshot_all()
+        .into_iter()
+        .map(|snapshot| {
+            let shared_file = shared_library.get_by_hash_hex(&snapshot.file_hash_md4_hex);
+            let file_hash_md4_hex = snapshot.file_hash_md4_hex.clone();
+            UploadEntry {
+                file_name: shared_file.and_then(|file| {
+                    file.relative_path
+                        .file_name()
+                        .map(|v| v.to_string_lossy().to_string())
+                }),
+                relative_path: shared_file.map(|file| file.relative_path.display().to_string()),
+                file_hash_md4_hex,
+                total_upload_requests: snapshot.total_requests,
+                requested_bytes_total: snapshot.requested_bytes_total,
+                last_requested_unix_secs: snapshot.last_requested_unix_secs,
+                held_ranges: upload_ranges_by_phase(&snapshot, UploadRangePhase::Held),
+                sending_ranges: upload_ranges_by_phase(&snapshot, UploadRangePhase::Sending),
+                active_request: !snapshot.active_ranges.is_empty(),
+            }
+        })
+        .collect();
+    Ok(Json(UploadListResponse { uploads }))
 }
 
 pub(crate) async fn shared_actions(

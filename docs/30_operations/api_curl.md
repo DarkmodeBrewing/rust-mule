@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-03
+Last Reviewed: 2026-03-08
 
 # API Curl Cheat Sheet
 
@@ -113,6 +113,61 @@ curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/searches" | jq .
 ```bash
 curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/downloads" | jq .
 ```
+
+## Shared Library: List Indexed Files
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/shared" | jq .
+```
+
+## Uploads: List Active Uploader State
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/uploads" | jq .
+```
+
+## Shared Actions: List Operator Action Status
+
+```bash
+curl -sS "${AUTH[@]}" "$BASE_URL/api/v1/shared/actions" | jq .
+```
+
+## Shared Actions: Reindex Library
+
+Shared maintenance actions require explicit confirmation in the request body.
+
+```bash
+curl -sS -X POST "${AUTH[@]}" "${JSON[@]}" \
+  -d '{"confirm":true}' \
+  "$BASE_URL/api/v1/shared/actions/reindex" | jq .
+```
+
+## Shared Actions: Republish Sources
+
+This is an operator action and may generate additional KAD traffic.
+
+```bash
+curl -sS -X POST "${AUTH[@]}" "${JSON[@]}" \
+  -d '{"confirm":true}' \
+  "$BASE_URL/api/v1/shared/actions/republish_sources" | jq .
+```
+
+## Shared Actions: Republish Keywords
+
+This is an operator action and may generate additional KAD traffic.
+
+```bash
+curl -sS -X POST "${AUTH[@]}" "${JSON[@]}" \
+  -d '{"confirm":true}' \
+  "$BASE_URL/api/v1/shared/actions/republish_keywords" | jq .
+```
+
+Expected operator-action responses:
+
+- `202 Accepted`: action queued
+- `409 Conflict`: action already running
+- `429 Too Many Requests`: cooldown active
+- `400 Bad Request`: `confirm=true` missing
 
 ## Downloads: Create Queue Entry
 

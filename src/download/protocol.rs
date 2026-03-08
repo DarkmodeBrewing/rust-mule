@@ -115,6 +115,48 @@ pub fn encode_requestparts_payload(
     Ok(out)
 }
 
+pub fn encode_sendingpart_payload(
+    file_hash: Ed2kFileHash,
+    start: u64,
+    end_exclusive: u64,
+    data: &[u8],
+) -> Result<Vec<u8>> {
+    if end_exclusive <= start {
+        return Err(ProtocolError::InvalidRange {
+            start,
+            end_exclusive,
+        });
+    }
+    let block_len = end_exclusive - start;
+    if block_len > MAX_BLOCK_LEN {
+        return Err(ProtocolError::BlockTooLarge {
+            limit: MAX_BLOCK_LEN,
+            actual: block_len,
+        });
+    }
+    let expected_data_len = block_len as usize;
+    if expected_data_len > MAX_PART_PAYLOAD {
+        return Err(ProtocolError::PayloadTooLarge {
+            kind: "sendingpart",
+            limit: MAX_PART_PAYLOAD,
+            actual: expected_data_len,
+        });
+    }
+    if data.len() != expected_data_len {
+        return Err(ProtocolError::InvalidLength {
+            expected: expected_data_len,
+            actual: data.len(),
+        });
+    }
+
+    let mut out = Vec::with_capacity(32 + data.len());
+    out.extend_from_slice(&file_hash);
+    out.extend_from_slice(&start.to_le_bytes());
+    out.extend_from_slice(&end_exclusive.to_le_bytes());
+    out.extend_from_slice(data);
+    Ok(out)
+}
+
 pub fn decode_requestparts_payload(payload: &[u8]) -> Result<RequestPartsPayload> {
     const EXPECTED: usize = 16 + 8 * 3 * 2;
     if payload.len() != EXPECTED {
@@ -313,6 +355,17 @@ mod tests {
         payload.extend_from_slice(&(MAX_BLOCK_LEN + 1).to_le_bytes());
         let err = decode_sendingpart_payload(&payload).expect_err("block too large");
         assert!(matches!(err, ProtocolError::BlockTooLarge { .. }));
+    }
+
+    #[test]
+    fn sendingpart_roundtrip() {
+        let hash = [0x33; 16];
+        let encoded = encode_sendingpart_payload(hash, 2, 6, b"cdef").expect("encode");
+        let decoded = decode_sendingpart_payload(&encoded).expect("decode");
+        assert_eq!(decoded.file_hash, hash);
+        assert_eq!(decoded.start, 2);
+        assert_eq!(decoded.end_exclusive, 6);
+        assert_eq!(decoded.data, b"cdef");
     }
 
     #[test]

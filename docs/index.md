@@ -12,6 +12,7 @@
 - [Architecture](./10_architecture/ARCHITECTURE.md)
 - [API Design](./10_architecture/API_DESIGN.md)
 - [Download Design](./10_architecture/DOWNLOAD_DESIGN.md)
+- [Sharing and Upload Checklist](./10_architecture/SHARING_UPLOAD_CHECKLIST.md)
 - [UI Design](./10_architecture/UI_DESIGN.md)
 - [KAD Wire Refactor Plan](./10_architecture/KAD_WIRE_REFACTOR_PLAN.md)
 - [UI API Contract Map](./10_architecture/ui_api_contract_map.md)
