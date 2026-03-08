@@ -309,6 +309,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             .await
             .map_err(|err| AppError::InvalidState(err.to_string()))?;
     let shared_library = Arc::new(shared_library_build.library);
+    let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
     let upload_activity = Arc::new(crate::upload::UploadActivityTracker::default());
     tracing::info!(
         share_roots = shared_roots.len(),
@@ -347,6 +348,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     if config.kad.service_enabled && !shared_library.is_empty() {
         let kad_cmd_tx_for_publish = kad_cmd_tx.clone();
         let shared_library_for_publish = Arc::clone(&shared_library);
+        let publish_tracker_for_publish = Arc::clone(&publish_tracker);
         tokio::spawn(async move {
             for file in shared_library_for_publish.files() {
                 tracing::info!(
@@ -363,9 +365,11 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
                     .await
                     .is_err()
                 {
+                    publish_tracker_for_publish.note_source_queue_failed(&file.file_hash_md4_hex);
                     tracing::warn!("shared library publish queue stopped before completion");
                     break;
                 }
+                publish_tracker_for_publish.note_source_queued(&file.file_hash_md4_hex);
                 tracing::info!(
                     path = %file.relative_path.display(),
                     hash = %file.file_hash_md4_hex,
@@ -395,6 +399,8 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
                         .await
                         .is_err()
                     {
+                        publish_tracker_for_publish
+                            .note_keyword_queue_failed(&file.file_hash_md4_hex);
                         tracing::warn!(
                             path = %file.relative_path.display(),
                             hash = %file.file_hash_md4_hex,
@@ -403,6 +409,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
                         );
                         break;
                     }
+                    publish_tracker_for_publish.note_keyword_queued(&file.file_hash_md4_hex);
                     tracing::info!(
                         path = %file.relative_path.display(),
                         hash = %file.file_hash_md4_hex,
@@ -447,6 +454,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             kad_cmd_tx: cmd_tx_for_server,
             download_handle: download_handle_for_server,
             shared_library: shared_library.clone(),
+            publish_tracker: publish_tracker.clone(),
             upload_activity: upload_activity.clone(),
         };
         if let Err(err) = crate::api::serve(&api_cfg, deps).await {

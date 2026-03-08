@@ -42,6 +42,7 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         shared_library: Arc::new(crate::share::SharedLibrary::default()),
+        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
         upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
@@ -866,6 +867,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         shared_library: Arc::new(crate::share::SharedLibrary::default()),
+        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
         upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::from([(
             "s1".to_string(),
@@ -915,6 +917,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         download_handle: DownloadServiceHandle::test_handle(),
         config: Arc::new(tokio::sync::Mutex::new(Config::default())),
         shared_library: Arc::new(crate::share::SharedLibrary::default()),
+        publish_tracker: Arc::new(crate::publish::SharedPublishTracker::default()),
         upload_activity: Arc::new(crate::upload::UploadActivityTracker::default()),
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         enable_debug_endpoints: true,
@@ -1196,6 +1199,11 @@ async fn shared_endpoint_lists_indexed_files() {
     let mut state = test_state(kad_tx);
     state.shared_library = Arc::new(build.library);
     let shared_hash = state.shared_library.files()[0].file_hash_md4_hex.clone();
+    state.publish_tracker.note_source_queued(&shared_hash);
+    state.publish_tracker.note_keyword_queued(&shared_hash);
+    state
+        .publish_tracker
+        .note_keyword_queue_failed(&shared_hash);
     state
         .upload_activity
         .note_held(&shared_hash, 0, 1023, Duration::from_secs(30));
@@ -1213,6 +1221,24 @@ async fn shared_endpoint_lists_indexed_files() {
     assert_eq!(json["files"].as_array().map(Vec::len), Some(1));
     assert_eq!(json["files"][0]["file_name"].as_str(), Some("shared.bin"));
     assert_eq!(json["files"][0]["source_count"].as_u64(), Some(1));
+    assert_eq!(
+        json["files"][0]["source_publish_attempts"].as_u64(),
+        Some(1)
+    );
+    assert_eq!(
+        json["files"][0]["source_publish_last_result"].as_str(),
+        Some("queued")
+    );
+    assert_eq!(
+        json["files"][0]["keyword_publish_attempts"].as_u64(),
+        Some(2)
+    );
+    assert_eq!(json["files"][0]["keyword_publish_queued"].as_u64(), Some(1));
+    assert_eq!(json["files"][0]["keyword_publish_failed"].as_u64(), Some(1));
+    assert_eq!(
+        json["files"][0]["keyword_publish_last_result"].as_str(),
+        Some("queue_failed")
+    );
     assert_eq!(json["files"][0]["queued_uploads"].as_u64(), Some(1));
     assert_eq!(json["files"][0]["inflight_uploads"].as_u64(), Some(1));
     assert_eq!(json["files"][0]["total_upload_requests"].as_u64(), Some(2));

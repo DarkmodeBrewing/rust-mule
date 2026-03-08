@@ -167,7 +167,7 @@
                 <th scope="col">Size</th>
                 <th scope="col">Hash</th>
                 <th scope="col">Sources</th>
-                <th scope="col">Downloads</th>
+                <th scope="col">Publish Status</th>
                 <th scope="col">Upload Activity</th>
               </tr>
             </thead>
@@ -191,8 +191,12 @@
                   <td>
                     <div>
                       <small>
-                        queued dl: <span x-text="file.queued_downloads"></span> · inflight dl:
-                        <span x-text="file.inflight_downloads"></span>
+                        source: <span x-text="file.source_publish_label"></span>
+                      </small>
+                    </div>
+                    <div class="mt-2">
+                      <small>
+                        keyword: <span x-text="file.keyword_publish_label"></span>
                       </small>
                     </div>
                   </td>
@@ -208,7 +212,9 @@
                     </div>
                     <div class="mt-2">
                       <small>
-                        bytes served: <span x-text="file.requested_bytes_total_pretty"></span>
+                        bytes served: <span x-text="file.requested_bytes_total_pretty"></span> ·
+                        queued dl: <span x-text="file.queued_downloads"></span> · inflight dl:
+                        <span x-text="file.inflight_downloads"></span>
                       </small>
                     </div>
                     <div class="mt-2" x-show="file.queued_upload_ranges_label">

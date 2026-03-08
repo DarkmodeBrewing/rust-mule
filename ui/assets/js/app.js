@@ -1142,6 +1142,12 @@ window.appDownloads = function appDownloads() {
             ...item,
             pretty_size: formatBytes(item.file_size),
             requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
+            source_publish_label: item.source_publish_last_result
+              ? `${item.source_publish_last_result} (${item.source_publish_attempts})`
+              : 'not attempted',
+            keyword_publish_label: item.keyword_publish_last_result
+              ? `${item.keyword_publish_last_result} (${item.keyword_publish_queued}/${item.keyword_publish_attempts})`
+              : 'not attempted',
             queued_upload_ranges_label: (item.queued_upload_ranges || [])
               .map((range) => `${range.start}-${range.end}`)
               .join(', '),

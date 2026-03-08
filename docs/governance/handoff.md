@@ -11,6 +11,41 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Added shared publish enqueue status tracking and surfaced it in the shared-library API/UI.
+  - Added `SharedPublishTracker` to record per-shared-file publish enqueue activity.
+  - Tracked source publish enqueue status:
+    - attempt count
+    - last attempt timestamp
+    - last result (`queued` / `queue_failed`)
+  - Tracked keyword publish enqueue status:
+    - attempt count
+    - queued count
+    - failed count
+    - last attempt timestamp
+    - last result (`queued` / `queue_failed`)
+  - Expanded `/api/v1/shared` to expose publish enqueue status per indexed file.
+  - Updated `/ui/downloads` shared-library table to show source/keyword publish status alongside uploader activity.
+- Decisions:
+  - keep publish status honest to the current architecture: this tracks command enqueue outcomes, not remote KAD store acknowledgment.
+  - use enqueue visibility now rather than inventing a false `published` state without service-side completion evidence.
+  - preserve a path to later upgrade this into end-to-end publish status once the KAD service exposes completion/response callbacks.
+- Next steps:
+  - decide whether KAD publish response handling should feed a stronger `published/failed` file-level status model.
+  - add optional shared-library operator actions (reindex / republish) only after the status model is explicit enough to justify them.
+  - wire frontend checks through sourced `nvm`/`npm` and headless browser configuration in environments where Playwright is available.
+- Change log:
+  - Added `src/publish.rs`.
+  - Updated `src/lib.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/mod.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `tests/api_startup_smoke.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added first-class uploader activity tracking and surfaced it in the shared-library UI/API.
   - Added `UploadActivityTracker` to track recent held/sending upload ranges per shared file hash.
   - Wired the phase0 transfer pump to record:

@@ -58,6 +58,14 @@ pub(crate) struct SharedFileEntry {
     pub(crate) file_hash_md4_hex: String,
     pub(crate) file_size: u64,
     pub(crate) source_count: usize,
+    pub(crate) source_publish_attempts: u64,
+    pub(crate) source_publish_last_result: Option<String>,
+    pub(crate) source_publish_last_attempt_unix_secs: Option<u64>,
+    pub(crate) keyword_publish_attempts: u64,
+    pub(crate) keyword_publish_queued: u64,
+    pub(crate) keyword_publish_failed: u64,
+    pub(crate) keyword_publish_last_result: Option<String>,
+    pub(crate) keyword_publish_last_attempt_unix_secs: Option<u64>,
     pub(crate) queued_downloads: usize,
     pub(crate) inflight_downloads: usize,
     pub(crate) queued_uploads: usize,
@@ -134,6 +142,9 @@ pub(crate) async fn shared_files(
     for file in state.shared_library.files() {
         let (queued_downloads, inflight_downloads) =
             download_activity_for_file(&downloads, &file.file_hash_md4_hex);
+        let publish_status = state
+            .publish_tracker
+            .snapshot_for_hash(&file.file_hash_md4_hex);
         let upload_activity = state
             .upload_activity
             .snapshot_for_hash(&file.file_hash_md4_hex);
@@ -151,6 +162,14 @@ pub(crate) async fn shared_files(
             file_hash_md4_hex: file.file_hash_md4_hex.clone(),
             file_size: file.file_size,
             source_count: 1,
+            source_publish_attempts: publish_status.source_attempts,
+            source_publish_last_result: publish_status.source_last_result,
+            source_publish_last_attempt_unix_secs: publish_status.source_last_attempt_unix_secs,
+            keyword_publish_attempts: publish_status.keyword_attempts,
+            keyword_publish_queued: publish_status.keyword_queued,
+            keyword_publish_failed: publish_status.keyword_failed,
+            keyword_publish_last_result: publish_status.keyword_last_result,
+            keyword_publish_last_attempt_unix_secs: publish_status.keyword_last_attempt_unix_secs,
             queued_downloads,
             inflight_downloads,
             queued_uploads: queued_upload_ranges.len(),
