@@ -11,6 +11,23 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-08): Expanded governance backlog to reduce test/ops drift.
+  - Updated `docs/governance/TASKS.md` with additional backlog items:
+    - phase0 gate hardening for `nan`/unexpected `SKIP` metrics
+    - soak script CI sanity mode (non-longrun validation)
+    - pass-with-degradation runbook guidance
+    - soak artifact retention/naming policy
+    - post-restart download state reason diagnostics
+    - config schema versioning/migration notes
+- Decisions:
+  - treat soak/test ops quality as first-class backlog scope, not ad-hoc follow-up.
+- Next steps:
+  - prioritize gate hardening + restart-state diagnostics first (highest triage leverage).
+  - then document artifact retention/runbook expectations in ops docs.
+- Change log:
+  - Updated `docs/governance/TASKS.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added logging-surface cleanup task for debug gating.
   - Updated `docs/governance/TASKS.md` with explicit backlog item:
     - audit trace/routing logs for debug gating

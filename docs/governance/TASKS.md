@@ -69,6 +69,18 @@ Last Reviewed: 2026-03-03
   - audit trace/routing logs and move non-essential internals behind debug-enabled gating
   - specifically gate verbose bucket/routing-table detail logs behind debug flag
   - keep default logs operator-focused (health/progress/errors) and avoid high-cardinality noisy output
+- add acceptance/soak validation hardening backlog:
+  - fail phase0 gate when key metrics resolve to `nan`/unexpected `SKIP` unless explicitly allowlisted
+  - add lightweight script sanity mode in CI for soak scripts (env parsing, trap behavior, report/summary generation)
+  - add pass-with-degradation runbook guidance for suspicious-but-zero-exit runs
+- add soak artifact governance backlog:
+  - define canonical artifact bundle per run (`summary.txt`, `resume_report.txt`, diagnostics JSON, optional stack tarball)
+  - define retention period, naming rules, and archive cadence to prevent accidental data loss/sprawl
+- add post-restart download diagnostics backlog:
+  - expose explicit cancellation/queue transition reasons and timestamps for restart triage
+  - include reason fields in diagnostics snapshot so completion timeouts are directly explainable
+- add config evolution backlog:
+  - introduce config schema versioning + migration notes for future keys (timezone/debug/CLI-related additions)
 
 ## Definition Of Done
 
