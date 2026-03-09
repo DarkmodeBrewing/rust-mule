@@ -226,6 +226,7 @@ const UPLOADS_PAYLOAD = {
           payload_source: null,
           started_unix_secs: 120,
           last_updated_unix_secs: 123,
+          terminal_reason: null,
         },
         {
           session_id: 42,
@@ -237,6 +238,7 @@ const UPLOADS_PAYLOAD = {
           payload_source: 'shared_file',
           started_unix_secs: 121,
           last_updated_unix_secs: 123,
+          terminal_reason: null,
         },
       ],
       recent_session_count: 1,
@@ -251,6 +253,7 @@ const UPLOADS_PAYLOAD = {
           payload_source: 'shared_file',
           started_unix_secs: 110,
           last_updated_unix_secs: 118,
+          terminal_reason: 'expired',
         },
       ],
       held_ranges: [{ start: 524288, end: 589823 }],

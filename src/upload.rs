@@ -59,6 +59,12 @@ pub struct UploadSessionSnapshot {
     pub payload_source: Option<UploadPayloadSource>,
     pub started_unix_secs: Option<u64>,
     pub last_updated_unix_secs: Option<u64>,
+    pub terminal_reason: Option<UploadTerminalReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UploadTerminalReason {
+    Expired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,6 +242,7 @@ struct TrackedUploadRange {
     requested_unix_secs: Option<u64>,
     last_updated_unix_secs: Option<u64>,
     expires_at: Instant,
+    terminal_reason: Option<UploadTerminalReason>,
 }
 
 impl UploadActivityTracker {
@@ -371,6 +378,7 @@ impl UploadActivityTracker {
                 requested_unix_secs: meta.requested_unix_secs,
                 last_updated_unix_secs: meta.requested_unix_secs,
                 expires_at,
+                terminal_reason: None,
             });
         }
 
@@ -470,6 +478,7 @@ fn prune_expired(file: &mut FileUploadActivity, now: Instant, recent_retention: 
             continue;
         }
         range.expires_at = now + recent_retention;
+        range.terminal_reason = Some(UploadTerminalReason::Expired);
         file.recent_sessions.push(range);
     }
     file.active_ranges = still_active;
@@ -494,6 +503,7 @@ fn tracked_range_to_session_snapshot(range: &TrackedUploadRange) -> UploadSessio
         payload_source: range.payload_source,
         started_unix_secs: range.started_unix_secs,
         last_updated_unix_secs: range.last_updated_unix_secs,
+        terminal_reason: range.terminal_reason,
     }
 }
 
@@ -653,6 +663,10 @@ mod tests {
         assert_eq!(snapshot.recent_sessions.len(), 1);
         assert_eq!(snapshot.recent_session_count, 1);
         assert_eq!(snapshot.recent_sessions[0].peer_id_hex, "peer-hist");
+        assert_eq!(
+            snapshot.recent_sessions[0].terminal_reason,
+            Some(UploadTerminalReason::Expired)
+        );
     }
 
     #[test]

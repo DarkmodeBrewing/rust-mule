@@ -14,7 +14,9 @@ use crate::kad::{
     service::{KadServiceCommand, KadSharedPublishStatus},
 };
 use crate::shared_ops::SharedActionRejectReason;
-use crate::upload::{UploadActivitySnapshot, UploadPayloadSource, UploadRangePhase};
+use crate::upload::{
+    UploadActivitySnapshot, UploadPayloadSource, UploadRangePhase, UploadTerminalReason,
+};
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct DownloadEntry {
@@ -140,6 +142,7 @@ pub(crate) struct UploadSessionEntry {
     pub(crate) payload_source: Option<String>,
     pub(crate) started_unix_secs: Option<u64>,
     pub(crate) last_updated_unix_secs: Option<u64>,
+    pub(crate) terminal_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -363,6 +366,9 @@ fn session_snapshot_to_entry(session: crate::upload::UploadSessionSnapshot) -> U
         }),
         started_unix_secs: session.started_unix_secs,
         last_updated_unix_secs: session.last_updated_unix_secs,
+        terminal_reason: session.terminal_reason.map(|reason| match reason {
+            UploadTerminalReason::Expired => "expired".to_string(),
+        }),
     }
 }
 
