@@ -8,6 +8,7 @@ use std::{
 use tokio::sync::RwLock;
 
 const RECENT_SESSION_RETENTION: Duration = Duration::from_secs(120);
+const MAX_RECENT_SESSIONS_PER_FILE: usize = 128;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UploadRangePhase {
@@ -450,33 +451,13 @@ fn snapshot_from_file(hash_hex: String, file: &mut FileUploadActivity) -> Upload
         sessions: file
             .active_ranges
             .iter()
-            .map(|range| UploadSessionSnapshot {
-                session_id: range.session_id,
-                start: range.start,
-                end: range.end,
-                bytes_total: range.end.saturating_sub(range.start).saturating_add(1),
-                phase: range.phase,
-                peer_id_hex: range.peer_id_hex.clone(),
-                payload_source: range.payload_source,
-                started_unix_secs: range.started_unix_secs,
-                last_updated_unix_secs: range.last_updated_unix_secs,
-            })
+            .map(tracked_range_to_session_snapshot)
             .collect(),
         recent_session_count: file.recent_sessions.len(),
         recent_sessions: file
             .recent_sessions
             .iter()
-            .map(|range| UploadSessionSnapshot {
-                session_id: range.session_id,
-                start: range.start,
-                end: range.end,
-                bytes_total: range.end.saturating_sub(range.start).saturating_add(1),
-                phase: range.phase,
-                peer_id_hex: range.peer_id_hex.clone(),
-                payload_source: range.payload_source,
-                started_unix_secs: range.started_unix_secs,
-                last_updated_unix_secs: range.last_updated_unix_secs,
-            })
+            .map(tracked_range_to_session_snapshot)
             .collect(),
     }
 }
@@ -493,6 +474,27 @@ fn prune_expired(file: &mut FileUploadActivity, now: Instant, recent_retention: 
     }
     file.active_ranges = still_active;
     file.recent_sessions.retain(|range| range.expires_at > now);
+    if file.recent_sessions.len() > MAX_RECENT_SESSIONS_PER_FILE {
+        let keep_from = file
+            .recent_sessions
+            .len()
+            .saturating_sub(MAX_RECENT_SESSIONS_PER_FILE);
+        file.recent_sessions.drain(0..keep_from);
+    }
+}
+
+fn tracked_range_to_session_snapshot(range: &TrackedUploadRange) -> UploadSessionSnapshot {
+    UploadSessionSnapshot {
+        session_id: range.session_id,
+        start: range.start,
+        end: range.end,
+        bytes_total: range.end.saturating_sub(range.start).saturating_add(1),
+        phase: range.phase,
+        peer_id_hex: range.peer_id_hex.clone(),
+        payload_source: range.payload_source,
+        started_unix_secs: range.started_unix_secs,
+        last_updated_unix_secs: range.last_updated_unix_secs,
+    }
 }
 
 fn recover_lock<'a, T>(mutex: &'a Mutex<T>, label: &str) -> std::sync::MutexGuard<'a, T> {
@@ -651,6 +653,25 @@ mod tests {
         assert_eq!(snapshot.recent_sessions.len(), 1);
         assert_eq!(snapshot.recent_session_count, 1);
         assert_eq!(snapshot.recent_sessions[0].peer_id_hex, "peer-hist");
+    }
+
+    #[test]
+    fn tracker_caps_recent_session_history_per_file() {
+        let tracker = UploadActivityTracker::default();
+        for idx in 0..140u64 {
+            tracker.note_held(
+                "cap",
+                &format!("peer-{idx}"),
+                idx * 10,
+                idx * 10 + 9,
+                Duration::from_millis(1),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+        let snapshot = tracker.snapshot_for_hash("cap");
+        assert_eq!(snapshot.sessions.len(), 0);
+        assert_eq!(snapshot.recent_session_count, 128);
+        assert_eq!(snapshot.recent_sessions.len(), 128);
     }
 
     #[test]

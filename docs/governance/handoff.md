@@ -11,6 +11,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#54` review feedback on upload session history bounds and mapping drift.
+  - Added `MAX_RECENT_SESSIONS_PER_FILE = 128` so recent upload session history is bounded by
+    both time and count.
+  - Extracted the repeated session mapping logic in both:
+    - `TrackedUploadRange -> UploadSessionSnapshot`
+    - `UploadSessionSnapshot -> UploadSessionEntry`
+  - Added a regression test proving per-file recent session history is capped.
+- Decisions:
+  - treat recent session history as bounded operator telemetry, not an unbounded best-effort log.
+  - centralize session-mapping code so future session-field additions cannot drift between active
+    and recent session serialization paths.
+- Next steps:
+  - watch PR `#54` for any remaining review comments.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Added short-lived upload session history to the uploader session model.
   - Expired upload sessions now move from `sessions` to `recent_sessions` for a short in-memory
     retention window instead of disappearing immediately.
