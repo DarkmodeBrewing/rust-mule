@@ -44,6 +44,12 @@ jobs:
           ls -l dist
           compgen -G "${{ matrix.artifact_glob }}" >/dev/null
         shell: bash
+      - name: Smoke packaged artifact (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          archive="$(compgen -G "${{ matrix.artifact_glob }}" | head -n 1)"
+          bash scripts/build/smoke_unix_release.sh "${archive}"
+        shell: bash
       - name: Verify release artifact exists (Windows)
         if: runner.os == 'Windows'
         run: |
@@ -51,6 +57,12 @@ jobs:
           if (-not (Get-ChildItem -Path "${{ matrix.artifact_glob }}" -ErrorAction SilentlyContinue)) {
             throw "Expected release artifact matching ${{ matrix.artifact_glob }}"
           }
+        shell: pwsh
+      - name: Smoke packaged artifact (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $archive = Get-ChildItem -Path "${{ matrix.artifact_glob }}" | Select-Object -First 1
+          ./scripts/build/smoke_windows_release.ps1 -Archive $archive.FullName
         shell: pwsh
 
   kad-scripts-smoke:

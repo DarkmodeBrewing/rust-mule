@@ -35,6 +35,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `scripts/build/README.md`.
   - Updated `docs/governance/handoff.md`.
 
+- Status (2026-03-09): Added packaged-artifact smoke checks to the alpha build-matrix track.
+  - Added Unix and Windows archive smoke helpers under `scripts/build/`.
+  - The CI build matrix now unpacks the generated release archive and verifies the packaged binary
+    can run:
+    - `--version`
+    - `--help`
+    - `--check-config --config ./config.example.toml`
+  - This validates the release-bundle contract directly instead of only checking that an archive
+    file exists.
+- Decisions:
+  - smoke the packaged artifact on each native runner rather than trying to cross-run binaries
+    from Linux.
+  - keep the smoke scope narrow: CLI contract and packaged config validation only.
+- Next steps:
+  - run the standard local validation plus a local archive smoke on Linux.
+  - decide whether the next alpha-readiness slice should pin an explicit macOS deployment target
+    and document the intended support floor.
+- Change log:
+  - Added `scripts/build/smoke_unix_release.sh`.
+  - Added `scripts/build/smoke_windows_release.ps1`.
+  - Updated `.github/workflows/ci.yml`.
+  - Updated `scripts/build/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#59` review feedback for the alpha CLI basics branch.
   - `--help`, `-?`, and `--version` now short-circuit parsing, so they still succeed even when
     trailing unknown flags are present.
