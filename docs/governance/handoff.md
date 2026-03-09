@@ -11,6 +11,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Added short-lived upload session history to the uploader session model.
+  - Expired upload sessions now move from `sessions` to `recent_sessions` for a short in-memory
+    retention window instead of disappearing immediately.
+  - `GET /api/v1/uploads` now exposes:
+    - `recent_session_count`
+    - `recent_sessions`
+  - `/ui/downloads` now shows recent upload sessions alongside active sessions in the `Active Uploads`
+    table.
+- Decisions:
+  - keep recent session history in-memory only and bound it by a short fixed retention window;
+    this is for operator forensics, not durable audit storage.
+  - keep `sessions` meaning “currently active” and make history explicit as
+    `recent_sessions` to avoid changing the current API contract semantics.
+- Next steps:
+  - decide whether recent sessions should get their own top-level filterable endpoint once the
+    volume grows beyond per-file rendering.
+  - decide whether sessions should record a terminal reason (`expired`, `completed`, `cancelled`)
+    instead of pure retention-only disappearance.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#53` review feedback on uploader session identity.
   - `UploadActivityTracker::note(...)` now prunes expired ranges before looking up an existing
     session id, so expired `peer_id + start + end` ranges cannot recycle an old `session_id`.

@@ -1225,6 +1225,15 @@ window.appDownloads = function appDownloads() {
                   payload_source_label: session.payload_source || 'unknown',
                 }))
               : [],
+            recent_sessions: Array.isArray(item.recent_sessions)
+              ? item.recent_sessions.map((session) => ({
+                  ...session,
+                  bytes_total_pretty: formatBytes(session.bytes_total || 0),
+                  started_label: formatUnixSecs(session.started_unix_secs),
+                  updated_label: formatUnixSecs(session.last_updated_unix_secs),
+                  payload_source_label: session.payload_source || 'unknown',
+                }))
+              : [],
           }))
         : [];
       this.sharedFiles = Array.isArray(sharedResp?.files)

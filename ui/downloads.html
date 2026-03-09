@@ -255,6 +255,24 @@
                         </template>
                       </ul>
                     </template>
+                    <div class="mt-2" x-show="upload.recent_session_count > 0">
+                      <small>recent: <span x-text="upload.recent_session_count"></span></small>
+                    </div>
+                    <template x-if="upload.recent_sessions && upload.recent_sessions.length > 0">
+                      <ul class="mt-2">
+                        <template x-for="session in upload.recent_sessions" :key="'recent-' + session.session_id">
+                          <li>
+                            <small>
+                              recent #<span x-text="session.session_id"></span>
+                              · <span x-text="session.phase"></span>
+                              · <span x-text="session.peer_id_hex"></span>
+                              · <span x-text="session.start + '-' + session.end"></span>
+                              · <span x-text="session.bytes_total_pretty"></span>
+                            </small>
+                          </li>
+                        </template>
+                      </ul>
+                    </template>
                   </td>
                   <td x-text="upload.last_requested_label"></td>
                 </tr>

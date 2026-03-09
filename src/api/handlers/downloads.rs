@@ -122,6 +122,8 @@ pub(crate) struct UploadEntry {
     pub(crate) last_payload_source: Option<String>,
     pub(crate) session_count: usize,
     pub(crate) sessions: Vec<UploadSessionEntry>,
+    pub(crate) recent_session_count: usize,
+    pub(crate) recent_sessions: Vec<UploadSessionEntry>,
     pub(crate) held_ranges: Vec<ByteRangeEntry>,
     pub(crate) sending_ranges: Vec<ByteRangeEntry>,
     pub(crate) active_request: bool,
@@ -326,6 +328,30 @@ pub(crate) async fn uploads(
                 session_count: snapshot.sessions.len(),
                 sessions: snapshot
                     .sessions
+                    .into_iter()
+                    .map(|session| UploadSessionEntry {
+                        session_id: session.session_id,
+                        start: session.start,
+                        end: session.end,
+                        bytes_total: session.bytes_total,
+                        phase: match session.phase {
+                            UploadRangePhase::Held => "held".to_string(),
+                            UploadRangePhase::Sending => "sending".to_string(),
+                        },
+                        peer_id_hex: session.peer_id_hex,
+                        payload_source: session.payload_source.map(|source| match source {
+                            UploadPayloadSource::SharedFile => "shared_file".to_string(),
+                            UploadPayloadSource::ZeroFillFallback => {
+                                "zero_fill_fallback".to_string()
+                            }
+                        }),
+                        started_unix_secs: session.started_unix_secs,
+                        last_updated_unix_secs: session.last_updated_unix_secs,
+                    })
+                    .collect(),
+                recent_session_count: snapshot.recent_session_count,
+                recent_sessions: snapshot
+                    .recent_sessions
                     .into_iter()
                     .map(|session| UploadSessionEntry {
                         session_id: session.session_id,
