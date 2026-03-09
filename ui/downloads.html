@@ -258,18 +258,28 @@
                     <div class="mt-2" x-show="upload.recent_session_count > 0">
                       <small>recent: <span x-text="upload.recent_session_count"></span></small>
                     </div>
+                    <div class="mt-2 flex gap-2 flex-wrap" x-show="upload.recent_session_groups && upload.recent_session_groups.length > 0">
+                      <template x-for="group in upload.recent_session_groups" :key="'recent-group-' + group.reason">
+                        <span class="badge" x-bind:class="group.reason_class">
+                          <span x-text="group.reason"></span>
+                          <span x-text="group.count"></span>
+                        </span>
+                      </template>
+                    </div>
                     <template x-if="upload.recent_sessions && upload.recent_sessions.length > 0">
-                      <ul class="mt-2">
+                      <ul class="mt-2 upload-session-list">
                         <template x-for="session in upload.recent_sessions" :key="'recent-' + session.session_id">
                           <li>
-                            <small>
-                              recent #<span x-text="session.session_id"></span>
-                              · <span x-text="session.phase"></span>
-                              · <span x-text="session.terminal_reason_label"></span>
-                              · <span x-text="session.peer_id_hex"></span>
-                              · <span x-text="session.start + '-' + session.end"></span>
-                              · <span x-text="session.bytes_total_pretty"></span>
-                            </small>
+                            <div class="flex gap-2 flex-wrap items-center">
+                              <span class="badge" x-bind:class="session.terminal_reason_class" x-text="session.terminal_reason_label"></span>
+                              <small>
+                                recent #<span x-text="session.session_id"></span>
+                                · <span x-text="session.phase"></span>
+                                · <span x-text="session.peer_id_hex"></span>
+                                · <span x-text="session.start + '-' + session.end"></span>
+                                · <span x-text="session.bytes_total_pretty"></span>
+                              </small>
+                            </div>
                           </li>
                         </template>
                       </ul>

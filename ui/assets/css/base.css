@@ -107,6 +107,10 @@ a:hover {
   font-size: var(--text-xs);
 }
 
+.items-center {
+  align-items: center;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;
@@ -265,6 +269,11 @@ a:hover {
 
 .state-failed {
   color: var(--danger);
+}
+
+.upload-session-list {
+  display: grid;
+  gap: var(--s-2);
 }
 
 .danger-zone {
