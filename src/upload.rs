@@ -66,6 +66,7 @@ pub struct UploadSessionSnapshot {
 pub enum UploadTerminalReason {
     Expired,
     Dropped,
+    Completed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -755,6 +756,28 @@ mod tests {
         assert_eq!(
             after_terminal.recent_sessions[0].terminal_reason,
             Some(UploadTerminalReason::Expired)
+        );
+    }
+
+    #[test]
+    fn tracker_moves_completed_session_to_recent_history() {
+        let tracker = UploadActivityTracker::default();
+        tracker.note_sending(
+            "done",
+            "peer-done",
+            0,
+            255,
+            Duration::from_secs(30),
+            UploadPayloadSource::SharedFile,
+        );
+        tracker.note_terminal("done", "peer-done", 0, 255, UploadTerminalReason::Completed);
+
+        let snapshot = tracker.snapshot_for_hash("done");
+        assert_eq!(snapshot.sessions.len(), 0);
+        assert_eq!(snapshot.recent_sessions.len(), 1);
+        assert_eq!(
+            snapshot.recent_sessions[0].terminal_reason,
+            Some(UploadTerminalReason::Completed)
         );
     }
 

@@ -11,6 +11,42 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#57` review feedback on transfer-pump hash reuse.
+  - The transfer pump now computes the lowercase file-hash string once per send path and reuses
+    it for uploader activity transitions instead of allocating it repeatedly for
+    `note_held(...)`, `note_sending(...)`, and `note_terminal(...)`.
+- Decisions:
+  - keep this as a local hot-loop cleanup only; no API or lifecycle semantics changed.
+- Next steps:
+  - watch PR `#57` for any remaining review comments.
+- Change log:
+  - Updated `src/app.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-09): Added explicit uploader-side `completed` terminal lifecycle signals.
+  - `UploadTerminalReason` now includes `Completed`.
+  - The download transfer pump marks upload sessions `completed` when
+    `ingest_inbound_packet(...)` succeeds for a sent block, both for:
+    - matured held leases
+    - immediately sent non-held leases
+  - `/api/v1/uploads` now surfaces `terminal_reason = "completed"` in recent session history.
+- Decisions:
+  - treat successful packet ingestion as the current truthful uploader completion hook; do not
+    try to infer completion from time or downstream file-finalization state.
+  - only emit `completed` on `Ok(_)` from `ingest_inbound_packet(...)`; failed sends remain
+    active until another explicit terminal reason or TTL expiry applies.
+- Next steps:
+  - decide whether uploader-side `replaced` terminal reasons should be added when a newer held
+    reservation supersedes existing work.
+  - decide whether the uploads UI should visually separate `completed` recent sessions from
+    `dropped` and `expired` sessions now that all three exist.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#56` review feedback on uploader terminal lifecycle semantics.
   - `prune_expired(...)` now preserves its original ordering:
     append expired active sessions into `recent_sessions`, then drop stale recent entries, then

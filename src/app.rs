@@ -751,6 +751,7 @@ async fn run_download_transfer_pump(
                     && front.held_at.elapsed() >= HOLD_TTL
                 {
                     let lease = leases.pop_front().expect("front exists");
+                    let file_hash_hex = crate::kad::KadId(lease.file_hash).to_hex_lower();
                     let payload = upload_service
                         .build_sending_part_payload(
                             &lease.file_hash,
@@ -759,7 +760,7 @@ async fn run_download_transfer_pump(
                         )
                         .await;
                     upload_service.note_sending(
-                        &crate::kad::KadId(lease.file_hash).to_hex_lower(),
+                        &file_hash_hex,
                         &lease.peer_id,
                         lease.block.start,
                         lease.block.end,
@@ -770,9 +771,20 @@ async fn run_download_transfer_pump(
                         opcode: crate::download::protocol::OP_SENDINGPART,
                         payload: payload.payload,
                     };
-                    let _ = download_handle
-                        .ingest_inbound_packet(d.part_number, lease.peer_id, packet)
-                        .await;
+                    let peer_id = lease.peer_id.clone();
+                    if download_handle
+                        .ingest_inbound_packet(d.part_number, peer_id, packet)
+                        .await
+                        .is_ok()
+                    {
+                        upload_service.note_terminal(
+                            &file_hash_hex,
+                            &lease.peer_id,
+                            lease.block.start,
+                            lease.block.end,
+                            crate::upload::UploadTerminalReason::Completed,
+                        );
+                    }
                 }
                 if !leases.is_empty() {
                     // Keep one held lease queue per part; do not stack new reservations while held.
@@ -785,6 +797,7 @@ async fn run_download_transfer_pump(
                 Err(_) => continue,
             };
             let file_id = file_hash;
+            let file_hash_hex = file_hash.to_hex_lower();
             let file_size = d.file_size;
 
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -850,7 +863,7 @@ async fn run_download_transfer_pump(
             for (idx, block) in blocks.iter().copied().enumerate() {
                 if hold_last && idx == blocks.len() - 1 {
                     upload_service.note_held(
-                        &file_hash.to_hex_lower(),
+                        &file_hash_hex,
                         &peer_id,
                         block.start,
                         block.end,
@@ -868,7 +881,7 @@ async fn run_download_transfer_pump(
                     .build_sending_part_payload(&file_hash.0, block.start, block.end)
                     .await;
                 upload_service.note_sending(
-                    &file_hash.to_hex_lower(),
+                    &file_hash_hex,
                     &peer_id,
                     block.start,
                     block.end,
@@ -879,9 +892,19 @@ async fn run_download_transfer_pump(
                     opcode: crate::download::protocol::OP_SENDINGPART,
                     payload: payload.payload,
                 };
-                let _ = download_handle
+                if download_handle
                     .ingest_inbound_packet(d.part_number, peer_id.clone(), packet)
-                    .await;
+                    .await
+                    .is_ok()
+                {
+                    upload_service.note_terminal(
+                        &file_hash_hex,
+                        &peer_id,
+                        block.start,
+                        block.end,
+                        crate::upload::UploadTerminalReason::Completed,
+                    );
+                }
             }
         }
     }
