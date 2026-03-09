@@ -1,5 +1,6 @@
 #[derive(Debug)]
 enum MainError {
+    Cli(CliError),
     LoadConfig(rust_mule::config_io::ConfigIoError),
     InvalidConfig(ConfigValidationError),
     App(rust_mule::app::AppError),
@@ -8,6 +9,7 @@ enum MainError {
 impl std::fmt::Display for MainError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Cli(source) => write!(f, "{source}"),
             Self::LoadConfig(source) => write!(f, "unable to load config: {source}"),
             Self::InvalidConfig(source) => write!(f, "{source}"),
             Self::App(source) => write!(f, "{source}"),
@@ -18,12 +20,30 @@ impl std::fmt::Display for MainError {
 impl std::error::Error for MainError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
+            Self::Cli(source) => Some(source),
             Self::LoadConfig(source) => Some(source),
             Self::InvalidConfig(source) => Some(source),
             Self::App(source) => Some(source),
         }
     }
 }
+
+#[derive(Debug)]
+enum CliError {
+    MissingConfigPath,
+    UnknownArgument(String),
+}
+
+impl std::fmt::Display for CliError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::MissingConfigPath => write!(f, "--config requires a path"),
+            Self::UnknownArgument(arg) => write!(f, "unknown argument: {arg}"),
+        }
+    }
+}
+
+impl std::error::Error for CliError {}
 
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug)]
@@ -76,22 +96,103 @@ impl std::error::Error for ConfigValidationError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CliOptions {
+    config_path: std::path::PathBuf,
+    mode: RunMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunMode {
+    Run,
+    CheckConfig,
+    PrintHelp,
+    PrintVersion,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<MainError>> {
-    let config_path = std::path::PathBuf::from("config.toml");
-    let cfg: rust_mule::config::Config = rust_mule::config_io::load_or_create_config(&config_path)
+    let opts = parse_cli(std::env::args_os()).map_err(|e| Box::new(MainError::Cli(e)))?;
+
+    match opts.mode {
+        RunMode::PrintHelp => {
+            print!("{}", help_text());
+            return Ok(());
+        }
+        RunMode::PrintVersion => {
+            println!("rust-mule {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        RunMode::Run | RunMode::CheckConfig => {}
+    }
+
+    let cfg: rust_mule::config::Config = rust_mule::config_io::load_config(&opts.config_path)
         .await
         .map_err(|e| Box::new(MainError::LoadConfig(e)))?;
 
     validate_cfg(&cfg).map_err(|e| Box::new(MainError::InvalidConfig(e)))?;
 
-    rust_mule::config::init_tracing(&cfg);
-    tracing::info!("rust-mule booting");
+    if matches!(opts.mode, RunMode::CheckConfig) {
+        println!("config OK: {}", opts.config_path.display());
+        return Ok(());
+    }
 
-    rust_mule::app::run(cfg, config_path)
+    rust_mule::config::init_tracing(&cfg);
+    tracing::info!(config_path = %opts.config_path.display(), "rust-mule booting");
+
+    rust_mule::app::run(cfg, opts.config_path)
         .await
         .map_err(|e| Box::new(MainError::App(e)))?;
     Ok(())
+}
+
+fn parse_cli<I, T>(args: I) -> Result<CliOptions, CliError>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString>,
+{
+    let mut config_path = std::path::PathBuf::from("config.toml");
+    let mut mode = RunMode::Run;
+    let mut args = args.into_iter().map(Into::into);
+    let _program = args.next();
+
+    while let Some(arg) = args.next() {
+        match arg.to_string_lossy().as_ref() {
+            "--config" => {
+                let Some(path) = args.next() else {
+                    return Err(CliError::MissingConfigPath);
+                };
+                config_path = std::path::PathBuf::from(path);
+            }
+            "--help" | "-?" => mode = RunMode::PrintHelp,
+            "--version" => mode = RunMode::PrintVersion,
+            "--check-config" => mode = RunMode::CheckConfig,
+            other => return Err(CliError::UnknownArgument(other.to_string())),
+        }
+    }
+
+    Ok(CliOptions { config_path, mode })
+}
+
+fn help_text() -> String {
+    format!(
+        "\
+rust-mule {version}
+
+Usage:
+  rust-mule [--config <path>] [--check-config]
+  rust-mule --help
+  rust-mule -?
+  rust-mule --version
+
+Options:
+  --config <path>   Path to config TOML (default: config.toml)
+  --check-config    Validate config, print result, and exit
+  --help, -?        Show this help text
+  --version         Print version and exit
+",
+        version = env!("CARGO_PKG_VERSION")
+    )
 }
 
 fn validate_cfg(cfg: &rust_mule::config::Config) -> Result<(), ConfigValidationError> {
@@ -147,4 +248,53 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> Result<(), ConfigValidationE
     .map_err(ConfigValidationError::InvalidShareRoot)?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CliError, RunMode, parse_cli};
+    use std::path::PathBuf;
+
+    #[test]
+    fn parse_cli_defaults_to_run_with_default_config() {
+        let opts = parse_cli(["rust-mule"]).expect("parse");
+        assert_eq!(opts.config_path, PathBuf::from("config.toml"));
+        assert_eq!(opts.mode, RunMode::Run);
+    }
+
+    #[test]
+    fn parse_cli_supports_config_path_and_check_config() {
+        let opts = parse_cli(["rust-mule", "--config", "/tmp/alpha.toml", "--check-config"])
+            .expect("parse");
+        assert_eq!(opts.config_path, PathBuf::from("/tmp/alpha.toml"));
+        assert_eq!(opts.mode, RunMode::CheckConfig);
+    }
+
+    #[test]
+    fn parse_cli_supports_help_and_version() {
+        assert_eq!(
+            parse_cli(["rust-mule", "--help"]).expect("help").mode,
+            RunMode::PrintHelp
+        );
+        assert_eq!(
+            parse_cli(["rust-mule", "-?"]).expect("short help").mode,
+            RunMode::PrintHelp
+        );
+        assert_eq!(
+            parse_cli(["rust-mule", "--version"]).expect("version").mode,
+            RunMode::PrintVersion
+        );
+    }
+
+    #[test]
+    fn parse_cli_rejects_missing_config_path() {
+        let err = parse_cli(["rust-mule", "--config"]).expect_err("missing path");
+        assert!(matches!(err, CliError::MissingConfigPath));
+    }
+
+    #[test]
+    fn parse_cli_rejects_unknown_argument() {
+        let err = parse_cli(["rust-mule", "--wat"]).expect_err("unknown argument");
+        assert!(matches!(err, CliError::UnknownArgument(arg) if arg == "--wat"));
+    }
 }

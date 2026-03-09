@@ -72,6 +72,11 @@ pub async fn load_or_create_config(path: impl AsRef<Path>) -> Result<Config> {
         return Ok(default_cfg);
     }
 
+    load_config(path).await
+}
+
+pub async fn load_config(path: impl AsRef<Path>) -> Result<Config> {
+    let path = path.as_ref();
     let content: String = fs::read_to_string(path).map_err(|source| ConfigIoError::Read {
         path: path.display().to_string(),
         source,
