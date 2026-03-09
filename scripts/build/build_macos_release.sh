@@ -38,7 +38,7 @@ main() {
   cp "${TARGET_BIN}" "${OUT_DIR}/${BIN}"
   cp "config.toml" "${OUT_DIR}/config.example.toml"
 
-  cat >"${OUT_DIR}/README.txt" <<'EOT'
+  cat >"${OUT_DIR}/README.txt" <<EOT
 rust-mule macOS release bundle
 
 Run:
