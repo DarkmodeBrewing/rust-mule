@@ -11,6 +11,42 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-09): Added zero-fill fallback warning telemetry to uploads, status, and UI.
+  - `UploadActivityTracker` now records zero-fill fallback activity separately from normal
+    upload traffic:
+    - `zero_fill_requests_total`
+    - `zero_fill_requested_bytes_total`
+    - `zero_fill_rate_bps_5s`
+    - `zero_fill_rate_bps_30s`
+    - `zero_fill_active`
+  - `GET /api/v1/uploads` now exposes per-upload zero-fill fallback counters/rates.
+  - `GET /api/v1/status` now exposes:
+    - `zero_fill_upload_rate_bps_5s`
+    - `zero_fill_upload_rate_bps_30s`
+    - `zero_fill_active_uploads`
+    - `zero_fill_warning`
+  - The overview page now shows a top-level warning when fallback traffic is active, and the
+    downloads page shows per-upload fallback bytes/rates and warning badges.
+- Decisions:
+  - derive the warning from real fallback send telemetry, not from `last_payload_source`
+    alone, so stale historical source metadata does not trigger false warnings.
+  - keep zero-fill fallback visible in normal operator UI because it indicates that upload
+    traffic may be syntactically valid while not serving real shared-file bytes.
+- Next steps:
+  - decide whether zero-fill fallback should also escalate into API health/degraded state.
+  - decide whether repeated fallback traffic should trigger stronger structured logging or
+    counters in `/api/v1/status`.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/handlers/core.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/index.html`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Added aggregate transfer rates to `/api/v1/status` and the overview UI.
   - `GET /api/v1/status` now returns:
     - `download_rate_bps_5s`

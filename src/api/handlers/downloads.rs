@@ -108,6 +108,13 @@ pub(crate) struct UploadEntry {
     pub(crate) rate_bps_5s: u64,
     /// Average transfer rate over the last 30 seconds, in bytes per second.
     pub(crate) rate_bps_30s: u64,
+    pub(crate) zero_fill_requests_total: u64,
+    pub(crate) zero_fill_requested_bytes_total: u64,
+    /// Average zero-fill fallback rate over the last 5 seconds, in bytes per second.
+    pub(crate) zero_fill_rate_bps_5s: u64,
+    /// Average zero-fill fallback rate over the last 30 seconds, in bytes per second.
+    pub(crate) zero_fill_rate_bps_30s: u64,
+    pub(crate) zero_fill_active: bool,
     pub(crate) last_requested_unix_secs: Option<u64>,
     pub(crate) last_peer_id_hex: Option<String>,
     pub(crate) active_peer_ids: Vec<String>,
@@ -288,6 +295,11 @@ pub(crate) async fn uploads(
                 requested_bytes_total: snapshot.requested_bytes_total,
                 rate_bps_5s: snapshot.rate_bps_5s,
                 rate_bps_30s: snapshot.rate_bps_30s,
+                zero_fill_requests_total: snapshot.zero_fill_requests_total,
+                zero_fill_requested_bytes_total: snapshot.zero_fill_requested_bytes_total,
+                zero_fill_rate_bps_5s: snapshot.zero_fill_rate_bps_5s,
+                zero_fill_rate_bps_30s: snapshot.zero_fill_rate_bps_30s,
+                zero_fill_active: snapshot.zero_fill_active,
                 last_requested_unix_secs: snapshot.last_requested_unix_secs,
                 last_peer_id_hex: snapshot.last_peer_id_hex,
                 active_peer_ids: snapshot.active_peer_ids,

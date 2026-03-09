@@ -96,6 +96,10 @@ const STATUS_PAYLOAD = {
   download_rate_bps_30s: 2048,
   upload_rate_bps_5s: 1024,
   upload_rate_bps_30s: 512,
+  zero_fill_upload_rate_bps_5s: 256,
+  zero_fill_upload_rate_bps_30s: 128,
+  zero_fill_active_uploads: 1,
+  zero_fill_warning: true,
 };
 
 const SEARCH_ID = '00112233445566778899aabbccddeeff';
@@ -179,6 +183,11 @@ const SHARED_PAYLOAD = {
       requested_bytes_total: 131072,
       rate_bps_5s: 8192,
       rate_bps_30s: 4096,
+      zero_fill_requests_total: 1,
+      zero_fill_requested_bytes_total: 65536,
+      zero_fill_rate_bps_5s: 2048,
+      zero_fill_rate_bps_30s: 1024,
+      zero_fill_active: true,
       last_requested_unix_secs: 123,
       queued_upload_ranges: [{ start: 524288, end: 589823 }],
       inflight_upload_ranges: [{ start: 262144, end: 327679 }],

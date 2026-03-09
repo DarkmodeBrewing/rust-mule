@@ -1082,6 +1082,10 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
             .unwrap_or_default()
             > 0
     );
+    assert_eq!(status_json["zero_fill_upload_rate_bps_5s"].as_u64(), Some(0));
+    assert_eq!(status_json["zero_fill_upload_rate_bps_30s"].as_u64(), Some(0));
+    assert_eq!(status_json["zero_fill_active_uploads"].as_u64(), Some(0));
+    assert_eq!(status_json["zero_fill_warning"].as_bool(), Some(false));
     assert!(
         status_json
             .get("source_search_batch_sent")
@@ -1627,6 +1631,11 @@ async fn uploads_endpoint_lists_active_uploads() {
     assert_eq!(uploads[0]["last_peer_id_hex"].as_str(), Some("peer-send"));
     assert!(uploads[0]["rate_bps_5s"].as_u64().unwrap_or_default() > 0);
     assert!(uploads[0]["rate_bps_30s"].as_u64().unwrap_or_default() > 0);
+    assert_eq!(uploads[0]["zero_fill_requests_total"].as_u64(), Some(0));
+    assert_eq!(uploads[0]["zero_fill_requested_bytes_total"].as_u64(), Some(0));
+    assert_eq!(uploads[0]["zero_fill_rate_bps_5s"].as_u64(), Some(0));
+    assert_eq!(uploads[0]["zero_fill_rate_bps_30s"].as_u64(), Some(0));
+    assert_eq!(uploads[0]["zero_fill_active"].as_bool(), Some(false));
     assert_eq!(
         uploads[0]["last_payload_source"].as_str(),
         Some("shared_file")

@@ -29,6 +29,11 @@ pub struct UploadActivitySnapshot {
     pub requested_bytes_total: u64,
     pub rate_bps_5s: u64,
     pub rate_bps_30s: u64,
+    pub zero_fill_requests_total: u64,
+    pub zero_fill_requested_bytes_total: u64,
+    pub zero_fill_rate_bps_5s: u64,
+    pub zero_fill_rate_bps_30s: u64,
+    pub zero_fill_active: bool,
     pub last_requested_unix_secs: Option<u64>,
     pub last_peer_id_hex: Option<String>,
     pub active_peer_ids: Vec<String>,
@@ -177,6 +182,9 @@ struct FileUploadActivity {
     total_requests: u64,
     requested_bytes_total: u64,
     transfer_rate: RollingTransferRate,
+    zero_fill_requests_total: u64,
+    zero_fill_requested_bytes_total: u64,
+    zero_fill_transfer_rate: RollingTransferRate,
     last_requested_unix_secs: Option<u64>,
     last_peer_id_hex: Option<String>,
     last_payload_source: Option<UploadPayloadSource>,
@@ -196,6 +204,7 @@ struct TrackedUploadRange {
     end: u64,
     phase: UploadRangePhase,
     peer_id_hex: String,
+    payload_source: Option<UploadPayloadSource>,
     started_unix_secs: Option<u64>,
     requested_unix_secs: Option<u64>,
     expires_at: Instant,
@@ -299,12 +308,14 @@ impl UploadActivityTracker {
             existing.phase = phase;
             existing.expires_at = expires_at;
             existing.requested_unix_secs = meta.requested_unix_secs;
+            existing.payload_source = meta.payload_source;
         } else {
             file.active_ranges.push(TrackedUploadRange {
                 start,
                 end,
                 phase,
                 peer_id_hex: meta.peer_id_hex.clone(),
+                payload_source: meta.payload_source,
                 started_unix_secs: meta.requested_unix_secs,
                 requested_unix_secs: meta.requested_unix_secs,
                 expires_at,
@@ -316,8 +327,14 @@ impl UploadActivityTracker {
             .requested_bytes_total
             .saturating_add(end.saturating_sub(start).saturating_add(1));
         if phase == UploadRangePhase::Sending {
-            file.transfer_rate
-                .note_bytes(end.saturating_sub(start).saturating_add(1));
+            let bytes = end.saturating_sub(start).saturating_add(1);
+            file.transfer_rate.note_bytes(bytes);
+            if meta.payload_source == Some(UploadPayloadSource::ZeroFillFallback) {
+                file.zero_fill_requests_total = file.zero_fill_requests_total.saturating_add(1);
+                file.zero_fill_requested_bytes_total =
+                    file.zero_fill_requested_bytes_total.saturating_add(bytes);
+                file.zero_fill_transfer_rate.note_bytes(bytes);
+            }
         }
         file.last_requested_unix_secs = meta.requested_unix_secs;
         file.last_peer_id_hex = Some(meta.peer_id_hex);
@@ -344,12 +361,25 @@ fn snapshot_from_file(hash_hex: String, file: &mut FileUploadActivity) -> Upload
         rate_bps_5s,
         rate_bps_30s,
     } = file.transfer_rate.snapshot();
+    let TransferRateSnapshot {
+        rate_bps_5s: zero_fill_rate_bps_5s,
+        rate_bps_30s: zero_fill_rate_bps_30s,
+    } = file.zero_fill_transfer_rate.snapshot();
+    let zero_fill_active = file.active_ranges.iter().any(|range| {
+        range.phase == UploadRangePhase::Sending
+            && range.payload_source == Some(UploadPayloadSource::ZeroFillFallback)
+    });
     UploadActivitySnapshot {
         file_hash_md4_hex: hash_hex,
         total_requests: file.total_requests,
         requested_bytes_total: file.requested_bytes_total,
         rate_bps_5s,
         rate_bps_30s,
+        zero_fill_requests_total: file.zero_fill_requests_total,
+        zero_fill_requested_bytes_total: file.zero_fill_requested_bytes_total,
+        zero_fill_rate_bps_5s,
+        zero_fill_rate_bps_30s,
+        zero_fill_active,
         last_requested_unix_secs: file.last_requested_unix_secs,
         last_peer_id_hex: file.last_peer_id_hex.clone(),
         active_peer_ids,
@@ -443,6 +473,10 @@ mod tests {
         assert_eq!(held.requested_bytes_total, 1024);
         assert_eq!(held.rate_bps_5s, 0);
         assert_eq!(held.rate_bps_30s, 0);
+        assert_eq!(held.zero_fill_rate_bps_5s, 0);
+        assert_eq!(held.zero_fill_rate_bps_30s, 0);
+        assert_eq!(held.zero_fill_requests_total, 0);
+        assert!(!held.zero_fill_active);
         assert_eq!(held.active_ranges.len(), 1);
         assert_eq!(held.active_ranges[0].phase, UploadRangePhase::Held);
         assert_eq!(held.active_ranges[0].peer_id_hex, "peer-a");
@@ -463,6 +497,11 @@ mod tests {
         assert_eq!(sending.requested_bytes_total, 2048);
         assert!(sending.rate_bps_5s > 0);
         assert!(sending.rate_bps_30s > 0);
+        assert_eq!(sending.zero_fill_requests_total, 0);
+        assert_eq!(sending.zero_fill_requested_bytes_total, 0);
+        assert_eq!(sending.zero_fill_rate_bps_5s, 0);
+        assert_eq!(sending.zero_fill_rate_bps_30s, 0);
+        assert!(!sending.zero_fill_active);
         assert_eq!(sending.active_ranges.len(), 1);
         assert_eq!(sending.active_ranges[0].phase, UploadRangePhase::Sending);
         assert_eq!(sending.last_peer_id_hex.as_deref(), Some("peer-a"));
@@ -481,6 +520,29 @@ mod tests {
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].file_hash_md4_hex, "beef");
         assert_eq!(snapshots[0].active_peer_ids, vec!["peer-b".to_string()]);
+    }
+
+    #[test]
+    fn tracker_records_zero_fill_fallback_activity() {
+        let tracker = UploadActivityTracker::default();
+        tracker.note_sending(
+            "cafe",
+            "peer-z",
+            0,
+            511,
+            Duration::from_secs(5),
+            UploadPayloadSource::ZeroFillFallback,
+        );
+        let snapshot = tracker.snapshot_for_hash("cafe");
+        assert_eq!(snapshot.zero_fill_requests_total, 1);
+        assert_eq!(snapshot.zero_fill_requested_bytes_total, 512);
+        assert!(snapshot.zero_fill_rate_bps_5s > 0);
+        assert!(snapshot.zero_fill_rate_bps_30s > 0);
+        assert!(snapshot.zero_fill_active);
+        assert_eq!(
+            snapshot.last_payload_source,
+            Some(UploadPayloadSource::ZeroFillFallback)
+        );
     }
 
     #[tokio::test]

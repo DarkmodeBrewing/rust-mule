@@ -136,6 +136,9 @@ function enrichOverviewStatus(status, previous = null) {
   };
   next.download_rate_label = formatRate(next.download_rate_bps_5s || 0);
   next.upload_rate_label = formatRate(next.upload_rate_bps_5s || 0);
+  next.zero_fill_upload_rate_label = formatRate(
+    next.zero_fill_upload_rate_bps_5s || 0,
+  );
   return next;
 }
 
@@ -1177,6 +1180,10 @@ window.appDownloads = function appDownloads() {
             ...item,
             requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
             rate_label: `${formatRate(item.rate_bps_5s)} (5s) / ${formatRate(item.rate_bps_30s)} (30s)`,
+            zero_fill_rate_label: `${formatRate(item.zero_fill_rate_bps_5s)} (5s) / ${formatRate(item.zero_fill_rate_bps_30s)} (30s)`,
+            zero_fill_requested_bytes_total_pretty: formatBytes(
+              item.zero_fill_requested_bytes_total || 0,
+            ),
             active_peer_ids_label: Array.isArray(item.active_peer_ids)
               ? item.active_peer_ids.join(', ')
               : '',

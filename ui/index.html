@@ -170,6 +170,15 @@
             role="status"
             aria-live="polite"
           ></p>
+          <div
+            class="badge mt-3"
+            x-show="status?.zero_fill_warning"
+            x-bind:class="'state-failed'"
+          >
+            zero-fill fallback active:
+            <span x-text="status?.zero_fill_active_uploads ?? 0"></span> uploads ·
+            rate: <span x-text="status?.zero_fill_upload_rate_label ?? '0 B/s'"></span>
+          </div>
         </div>
 
         <div class="grid grid-3" x-show="status">
