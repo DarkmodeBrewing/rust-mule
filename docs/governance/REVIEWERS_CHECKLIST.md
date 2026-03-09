@@ -1,5 +1,3 @@
----
-
 # Reviewer Checklist (Mandatory for All PRs)
 
 This checklist MUST be reviewed for every pull request that:
