@@ -52,6 +52,20 @@ pub(crate) struct SessionResponse {
     pub(crate) ok: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct StatusResponse {
+    #[serde(flatten)]
+    pub(crate) status: KadServiceStatus,
+    /// Aggregate download transfer rate over the last 5 seconds, in bytes per second.
+    pub(crate) download_rate_bps_5s: u64,
+    /// Aggregate download transfer rate over the last 30 seconds, in bytes per second.
+    pub(crate) download_rate_bps_30s: u64,
+    /// Aggregate upload transfer rate over the last 5 seconds, in bytes per second.
+    pub(crate) upload_rate_bps_5s: u64,
+    /// Aggregate upload transfer rate over the last 30 seconds, in bytes per second.
+    pub(crate) upload_rate_bps_30s: u64,
+}
+
 pub(crate) async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
@@ -126,11 +140,23 @@ pub(crate) async fn session_logout(
 
 pub(crate) async fn status(
     State(state): State<ApiState>,
-) -> Result<Json<KadServiceStatus>, StatusCode> {
+) -> Result<Json<StatusResponse>, StatusCode> {
     let Some(s) = (*state.status_rx.borrow()).clone() else {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
-    Ok(Json(s))
+    let (_download_status, downloads) = state
+        .download_handle
+        .snapshot()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let uploads = state.upload_service.snapshot_all();
+    Ok(Json(StatusResponse {
+        status: s,
+        download_rate_bps_5s: downloads.iter().map(|d| d.rate_bps_5s).sum(),
+        download_rate_bps_30s: downloads.iter().map(|d| d.rate_bps_30s).sum(),
+        upload_rate_bps_5s: uploads.iter().map(|u| u.rate_bps_5s).sum(),
+        upload_rate_bps_30s: uploads.iter().map(|u| u.rate_bps_30s).sum(),
+    }))
 }
 
 pub(crate) async fn events(

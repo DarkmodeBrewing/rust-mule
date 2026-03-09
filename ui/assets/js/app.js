@@ -338,7 +338,12 @@ window.indexApp = function indexApp() {
     async refreshStatus() {
       try {
         this.error = '';
-        this.status = await apiGet('/status');
+        const status = await apiGet('/status');
+        this.status = {
+          ...status,
+          download_rate_label: formatRate(status?.download_rate_bps_5s || 0),
+          upload_rate_label: formatRate(status?.upload_rate_bps_5s || 0),
+        };
       } catch (err) {
         this.error = String(err?.message || err);
       }
