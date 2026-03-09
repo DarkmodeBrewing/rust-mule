@@ -66,6 +66,15 @@ pub(crate) struct StatusResponse {
     pub(crate) upload_rate_bps_30s: u64,
 }
 
+fn saturating_rate_sum<I>(rates: I) -> u64
+where
+    I: IntoIterator<Item = u64>,
+{
+    rates
+        .into_iter()
+        .fold(0u64, |acc, rate| acc.saturating_add(rate))
+}
+
 pub(crate) async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
@@ -144,18 +153,23 @@ pub(crate) async fn status(
     let Some(s) = (*state.status_rx.borrow()).clone() else {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
-    let (_download_status, downloads) = state
-        .download_handle
-        .snapshot()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let downloads = match state.download_handle.snapshot().await {
+        Ok((_download_status, downloads)) => downloads,
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "failed to snapshot downloads for status; reporting zero aggregate download rates"
+            );
+            Vec::new()
+        }
+    };
     let uploads = state.upload_service.snapshot_all();
     Ok(Json(StatusResponse {
         status: s,
-        download_rate_bps_5s: downloads.iter().map(|d| d.rate_bps_5s).sum(),
-        download_rate_bps_30s: downloads.iter().map(|d| d.rate_bps_30s).sum(),
-        upload_rate_bps_5s: uploads.iter().map(|u| u.rate_bps_5s).sum(),
-        upload_rate_bps_30s: uploads.iter().map(|u| u.rate_bps_30s).sum(),
+        download_rate_bps_5s: saturating_rate_sum(downloads.iter().map(|d| d.rate_bps_5s)),
+        download_rate_bps_30s: saturating_rate_sum(downloads.iter().map(|d| d.rate_bps_30s)),
+        upload_rate_bps_5s: saturating_rate_sum(uploads.iter().map(|u| u.rate_bps_5s)),
+        upload_rate_bps_30s: saturating_rate_sum(uploads.iter().map(|u| u.rate_bps_30s)),
     }))
 }
 

@@ -11,7 +11,7 @@ const uiRoot = path.resolve(__dirname, '..', '..');
 const port = Number(process.env.UI_MOCK_PORT || 17835);
 const host = '127.0.0.1';
 
-const STATUS_PAYLOAD = {
+const SSE_STATUS_PAYLOAD = {
   uptime_secs: 120,
   routing: 10,
   live: 3,
@@ -88,6 +88,14 @@ const STATUS_PAYLOAD = {
   source_probe_search_results_total: 1,
   source_probe_publish_latency_ms_total: 10,
   source_probe_search_latency_ms_total: 20,
+};
+
+const STATUS_PAYLOAD = {
+  ...SSE_STATUS_PAYLOAD,
+  download_rate_bps_5s: 4096,
+  download_rate_bps_30s: 2048,
+  upload_rate_bps_5s: 1024,
+  upload_rate_bps_30s: 512,
 };
 
 const SEARCH_ID = '00112233445566778899aabbccddeeff';
@@ -320,9 +328,9 @@ const server = http.createServer(async (req, res) => {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    res.write(`event: status\ndata: ${JSON.stringify(STATUS_PAYLOAD)}\n\n`);
+    res.write(`event: status\ndata: ${JSON.stringify(SSE_STATUS_PAYLOAD)}\n\n`);
     const timer = setInterval(() => {
-      res.write(`event: status\ndata: ${JSON.stringify(STATUS_PAYLOAD)}\n\n`);
+      res.write(`event: status\ndata: ${JSON.stringify(SSE_STATUS_PAYLOAD)}\n\n`);
     }, 1000);
     req.on('close', () => clearInterval(timer));
     return;

@@ -129,6 +129,16 @@ function formatRate(bytesPerSec) {
   return `${formatBytes(value)}/s`;
 }
 
+function enrichOverviewStatus(status, previous = null) {
+  const next = {
+    ...(previous || {}),
+    ...(status || {}),
+  };
+  next.download_rate_label = formatRate(next.download_rate_bps_5s || 0);
+  next.upload_rate_label = formatRate(next.upload_rate_bps_5s || 0);
+  return next;
+}
+
 function normalizeRanges(ranges) {
   return Array.isArray(ranges)
     ? ranges
@@ -339,11 +349,7 @@ window.indexApp = function indexApp() {
       try {
         this.error = '';
         const status = await apiGet('/status');
-        this.status = {
-          ...status,
-          download_rate_label: formatRate(status?.download_rate_bps_5s || 0),
-          upload_rate_label: formatRate(status?.upload_rate_bps_5s || 0),
-        };
+        this.status = enrichOverviewStatus(status, this.status);
       } catch (err) {
         this.error = String(err?.message || err);
       }
@@ -370,7 +376,7 @@ window.indexApp = function indexApp() {
       try {
         this.sse = openStatusEventStream(
           (status) => {
-            this.status = status;
+            this.status = enrichOverviewStatus(status, this.status);
             this.connected = true;
           },
           (message) => {
