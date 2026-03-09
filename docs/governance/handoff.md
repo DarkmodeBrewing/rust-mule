@@ -11,6 +11,22 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#58` review feedback on uploads UI utility drift and reason grouping.
+  - Added a real `.items-center` utility class so the recent-session badge rows align as intended
+    instead of relying on an undefined utility.
+  - `recent_session_groups` in the downloads UI is now derived from the actual `recent_sessions`
+    payload rather than a hard-coded terminal-reason list, so new terminal reasons will surface
+    automatically without editing two separate UI mappings.
+- Decisions:
+  - keep terminal-reason styling centralized in `uploadTerminalReasonClass(...)`, and derive
+    grouped summaries from payload content instead of hard-coding the current reason set.
+- Next steps:
+  - watch PR `#58` for any remaining review comments.
+- Change log:
+  - Updated `ui/assets/css/base.css`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Hardened the uploads UI for recent session lifecycle visibility.
   - `/ui/downloads` now summarizes recent upload sessions by terminal reason and renders
     reason-colored badges for `completed`, `dropped`, and `expired`.

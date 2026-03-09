@@ -107,6 +107,10 @@ a:hover {
   font-size: var(--text-xs);
 }
 
+.items-center {
+  align-items: center;
+}
+
 .btn {
   display: inline-flex;
   align-items: center;

@@ -238,6 +238,24 @@ function sessionControlMixin() {
       }
     },
 
+    buildRecentSessionGroups(recentSessions) {
+      if (!Array.isArray(recentSessions)) {
+        return [];
+      }
+      const counts = new Map();
+      for (const session of recentSessions) {
+        const reason = session.terminal_reason || 'unknown';
+        counts.set(reason, (counts.get(reason) || 0) + 1);
+      }
+      return Array.from(counts.entries())
+        .map(([reason, count]) => ({
+          reason,
+          count,
+          reason_class: this.uploadTerminalReasonClass(reason),
+        }))
+        .sort((a, b) => a.reason.localeCompare(b.reason));
+    },
+
     get sessionStateClass() {
       if (this.sessionActive === true) {
         return 'state-done';
@@ -1252,17 +1270,7 @@ window.appDownloads = function appDownloads() {
                   ),
                 }))
               : [],
-            recent_session_groups: ['completed', 'dropped', 'expired']
-              .map((reason) => ({
-                reason,
-                count: Array.isArray(item.recent_sessions)
-                  ? item.recent_sessions.filter(
-                      (session) => session.terminal_reason === reason,
-                    ).length
-                  : 0,
-                reason_class: this.uploadTerminalReasonClass(reason),
-              }))
-              .filter((group) => group.count > 0),
+            recent_session_groups: this.buildRecentSessionGroups(item.recent_sessions),
           }))
         : [];
       this.sharedFiles = Array.isArray(sharedResp?.files)
