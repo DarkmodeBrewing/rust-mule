@@ -11,6 +11,31 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Started the repo-config cleanup follow-up on
+  `feat/config-example-cleanup`.
+  - The tracked `config.toml` was normalized from a lab-specific file into an alpha-safe example
+    baseline.
+  - Replaced environment-specific SAM addresses with loopback defaults:
+    - `sam.host = "127.0.0.1"`
+    - `sam.forward_host = "127.0.0.1"`
+    - `sam.forward_port = 0`
+  - Turned debug endpoints off in the tracked config:
+    - `api.enable_debug_endpoints = false`
+  - Added explicit log-file settings and an explicit empty `[sharing]` section so the packaged
+    config better reflects the current feature surface.
+- Decisions:
+  - treat the tracked `config.toml` as an example/default config for alpha users and packaging,
+    not as a developer-lab machine config.
+  - prefer neutral loopback-safe values in the tracked config, with orchestration or multi-node
+    test overrides happening in run-specific configs instead of the repo file.
+- Next steps:
+  - run the standard validation set.
+  - decide whether the alpha checklist should explicitly distinguish example config from
+    orchestrator/test configs.
+- Change log:
+  - Updated `config.toml`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Started the dedicated macOS alpha-floor follow-up on
   `feat/macos-alpha-floor`.
   - The macOS packaging script now exports `MACOSX_DEPLOYMENT_TARGET=12.0` by default before the
