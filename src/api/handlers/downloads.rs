@@ -14,7 +14,7 @@ use crate::kad::{
     service::{KadServiceCommand, KadSharedPublishStatus},
 };
 use crate::shared_ops::SharedActionRejectReason;
-use crate::upload::{UploadActivitySnapshot, UploadRangePhase};
+use crate::upload::{UploadActivitySnapshot, UploadPayloadSource, UploadRangePhase};
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct DownloadEntry {
@@ -120,9 +120,24 @@ pub(crate) struct UploadEntry {
     pub(crate) active_peer_ids: Vec<String>,
     pub(crate) active_since_unix_secs: Option<u64>,
     pub(crate) last_payload_source: Option<String>,
+    pub(crate) session_count: usize,
+    pub(crate) sessions: Vec<UploadSessionEntry>,
     pub(crate) held_ranges: Vec<ByteRangeEntry>,
     pub(crate) sending_ranges: Vec<ByteRangeEntry>,
     pub(crate) active_request: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct UploadSessionEntry {
+    pub(crate) session_id: u64,
+    pub(crate) start: u64,
+    pub(crate) end: u64,
+    pub(crate) bytes_total: u64,
+    pub(crate) phase: String,
+    pub(crate) peer_id_hex: String,
+    pub(crate) payload_source: Option<String>,
+    pub(crate) started_unix_secs: Option<u64>,
+    pub(crate) last_updated_unix_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -305,11 +320,33 @@ pub(crate) async fn uploads(
                 active_peer_ids: snapshot.active_peer_ids,
                 active_since_unix_secs: snapshot.active_since_unix_secs,
                 last_payload_source: snapshot.last_payload_source.map(|source| match source {
-                    crate::upload::UploadPayloadSource::SharedFile => "shared_file".to_string(),
-                    crate::upload::UploadPayloadSource::ZeroFillFallback => {
-                        "zero_fill_fallback".to_string()
-                    }
+                    UploadPayloadSource::SharedFile => "shared_file".to_string(),
+                    UploadPayloadSource::ZeroFillFallback => "zero_fill_fallback".to_string(),
                 }),
+                session_count: snapshot.sessions.len(),
+                sessions: snapshot
+                    .sessions
+                    .into_iter()
+                    .map(|session| UploadSessionEntry {
+                        session_id: session.session_id,
+                        start: session.start,
+                        end: session.end,
+                        bytes_total: session.bytes_total,
+                        phase: match session.phase {
+                            UploadRangePhase::Held => "held".to_string(),
+                            UploadRangePhase::Sending => "sending".to_string(),
+                        },
+                        peer_id_hex: session.peer_id_hex,
+                        payload_source: session.payload_source.map(|source| match source {
+                            UploadPayloadSource::SharedFile => "shared_file".to_string(),
+                            UploadPayloadSource::ZeroFillFallback => {
+                                "zero_fill_fallback".to_string()
+                            }
+                        }),
+                        started_unix_secs: session.started_unix_secs,
+                        last_updated_unix_secs: session.last_updated_unix_secs,
+                    })
+                    .collect(),
                 held_ranges,
                 sending_ranges,
                 active_request: !snapshot.active_ranges.is_empty(),

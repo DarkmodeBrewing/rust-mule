@@ -1637,6 +1637,7 @@ async fn uploads_endpoint_lists_active_uploads() {
     assert_eq!(uploads[0]["last_peer_id_hex"].as_str(), Some("peer-send"));
     assert!(uploads[0]["rate_bps_5s"].as_u64().unwrap_or_default() > 0);
     assert!(uploads[0]["rate_bps_30s"].as_u64().unwrap_or_default() > 0);
+    assert_eq!(uploads[0]["session_count"].as_u64(), Some(2));
     assert_eq!(uploads[0]["zero_fill_requests_total"].as_u64(), Some(0));
     assert_eq!(
         uploads[0]["zero_fill_requested_bytes_total"].as_u64(),
@@ -1652,6 +1653,13 @@ async fn uploads_endpoint_lists_active_uploads() {
     assert_eq!(
         uploads[0]["active_peer_ids"].as_array().map(Vec::len),
         Some(2)
+    );
+    assert_eq!(uploads[0]["sessions"].as_array().map(Vec::len), Some(2));
+    assert_eq!(uploads[0]["sessions"][0]["session_id"].as_u64(), Some(1));
+    assert_eq!(uploads[0]["sessions"][0]["phase"].as_str(), Some("held"));
+    assert_eq!(
+        uploads[0]["sessions"][1]["payload_source"].as_str(),
+        Some("shared_file")
     );
 }
 

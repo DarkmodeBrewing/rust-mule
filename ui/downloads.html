@@ -174,7 +174,7 @@
                 <th scope="col">Requests</th>
                 <th scope="col">Bytes / Rate</th>
                 <th scope="col">Peers / Source</th>
-                <th scope="col">Ranges</th>
+                <th scope="col">Ranges / Sessions</th>
                 <th scope="col">Last Requested</th>
               </tr>
             </thead>
@@ -237,6 +237,24 @@
                     <div class="mt-2" x-show="upload.sending_ranges_label">
                       <small>sending: <span x-text="upload.sending_ranges_label"></span></small>
                     </div>
+                    <div class="mt-2" x-show="upload.session_count > 0">
+                      <small>sessions: <span x-text="upload.session_count"></span></small>
+                    </div>
+                    <template x-if="upload.sessions && upload.sessions.length > 0">
+                      <ul class="mt-2">
+                        <template x-for="session in upload.sessions" :key="session.session_id">
+                          <li>
+                            <small>
+                              #<span x-text="session.session_id"></span>
+                              · <span x-text="session.phase"></span>
+                              · <span x-text="session.peer_id_hex"></span>
+                              · <span x-text="session.start + '-' + session.end"></span>
+                              · <span x-text="session.bytes_total_pretty"></span>
+                            </small>
+                          </li>
+                        </template>
+                      </ul>
+                    </template>
                   </td>
                   <td x-text="upload.last_requested_label"></td>
                 </tr>
