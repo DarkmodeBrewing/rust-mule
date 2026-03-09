@@ -225,6 +225,19 @@ function sessionControlMixin() {
       return 'session: unknown';
     },
 
+    uploadTerminalReasonClass(reason) {
+      switch (reason) {
+        case 'completed':
+          return 'state-done';
+        case 'dropped':
+          return 'state-failed';
+        case 'expired':
+          return 'state-idle';
+        default:
+          return 'state-idle';
+      }
+    },
+
     get sessionStateClass() {
       if (this.sessionActive === true) {
         return 'state-done';
@@ -1234,8 +1247,22 @@ window.appDownloads = function appDownloads() {
                   updated_label: formatUnixSecs(session.last_updated_unix_secs),
                   payload_source_label: session.payload_source || 'unknown',
                   terminal_reason_label: session.terminal_reason || 'unknown',
+                  terminal_reason_class: this.uploadTerminalReasonClass(
+                    session.terminal_reason,
+                  ),
                 }))
               : [],
+            recent_session_groups: ['completed', 'dropped', 'expired']
+              .map((reason) => ({
+                reason,
+                count: Array.isArray(item.recent_sessions)
+                  ? item.recent_sessions.filter(
+                      (session) => session.terminal_reason === reason,
+                    ).length
+                  : 0,
+                reason_class: this.uploadTerminalReasonClass(reason),
+              }))
+              .filter((group) => group.count > 0),
           }))
         : [];
       this.sharedFiles = Array.isArray(sharedResp?.files)

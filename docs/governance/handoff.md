@@ -11,6 +11,29 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Hardened the uploads UI for recent session lifecycle visibility.
+  - `/ui/downloads` now summarizes recent upload sessions by terminal reason and renders
+    reason-colored badges for `completed`, `dropped`, and `expired`.
+  - Recent upload session rows now surface the terminal reason more clearly instead of burying it
+    inside a flat text list.
+  - The Playwright uploads mock was extended to include recent sessions for all three current
+    terminal reasons so the fixture stays aligned with the richer uploads contract.
+- Decisions:
+  - keep the browser smoke suite focused on stable page-level contract checks for this slice;
+    do not assert dynamic upload-row rendering there until the fixture/runtime path is made more
+    deterministic.
+- Next steps:
+  - decide whether the uploads table should split recent sessions into separate grouped sections
+    instead of a single list with reason badges.
+  - decide whether `/api/v1/uploads` should expose aggregate recent-session counts by reason so
+    the UI no longer has to derive them client-side.
+- Change log:
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/assets/css/base.css`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#57` review feedback on transfer-pump hash reuse.
   - The transfer pump now computes the lowercase file-hash string once per send path and reuses
     it for uploader activity transitions instead of allocating it repeatedly for
