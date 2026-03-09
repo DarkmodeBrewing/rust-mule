@@ -280,6 +280,7 @@ window.indexApp = function indexApp() {
     token: '',
     status: null,
     sse: null,
+    statusPollTimer: null,
     searchThreads: [],
     selectedSearchId: '',
 
@@ -329,6 +330,7 @@ window.indexApp = function indexApp() {
         await this.refreshThreads();
         this.selectInitialThread();
         this.startEvents();
+        this.startStatusPolling();
       } catch (err) {
         this.error = String(err?.message || err);
       } finally {
@@ -399,6 +401,24 @@ window.indexApp = function indexApp() {
         this.sse = null;
       }
       this.connected = false;
+    },
+
+    startStatusPolling() {
+      this.stopStatusPolling();
+      this.statusPollTimer = setInterval(() => {
+        this.refreshStatus();
+      }, 15000);
+      window.addEventListener('beforeunload', () => {
+        this.stopStatusPolling();
+        this.stopEvents();
+      });
+    },
+
+    stopStatusPolling() {
+      if (this.statusPollTimer) {
+        clearInterval(this.statusPollTimer);
+        this.statusPollTimer = null;
+      }
     },
 
     startNewSearch() {
