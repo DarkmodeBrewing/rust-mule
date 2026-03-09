@@ -121,6 +121,14 @@ function formatUnixSecs(unixSecs) {
   return new Date(value * 1000).toLocaleString();
 }
 
+function formatRate(bytesPerSec) {
+  const value = Number(bytesPerSec || 0);
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0 B/s';
+  }
+  return `${formatBytes(value)}/s`;
+}
+
 function normalizeRanges(ranges) {
   return Array.isArray(ranges)
     ? ranges
@@ -1144,6 +1152,7 @@ window.appDownloads = function appDownloads() {
         ? downloadsResp.downloads.map((item) => ({
             ...item,
             pretty_size: formatBytes(item.file_size),
+            rate_label: `${formatRate(item.rate_bps_5s)} (5s) / ${formatRate(item.rate_bps_30s)} (30s)`,
             graph_segments: buildPartGraphSegments(
               item.file_size,
               item.missing_range_spans,
@@ -1156,6 +1165,7 @@ window.appDownloads = function appDownloads() {
         ? uploadsResp.uploads.map((item) => ({
             ...item,
             requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
+            rate_label: `${formatRate(item.rate_bps_5s)} (5s) / ${formatRate(item.rate_bps_30s)} (30s)`,
             active_peer_ids_label: Array.isArray(item.active_peer_ids)
               ? item.active_peer_ids.join(', ')
               : '',

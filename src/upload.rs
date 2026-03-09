@@ -1,4 +1,5 @@
 use crate::share::{self, SharedLibrary, SharedLibraryFile};
+use crate::transfer_rate::{RollingTransferRate, TransferRateSnapshot};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -26,6 +27,8 @@ pub struct UploadActivitySnapshot {
     pub file_hash_md4_hex: String,
     pub total_requests: u64,
     pub requested_bytes_total: u64,
+    pub rate_bps_5s: u64,
+    pub rate_bps_30s: u64,
     pub last_requested_unix_secs: Option<u64>,
     pub last_peer_id_hex: Option<String>,
     pub active_peer_ids: Vec<String>,
@@ -173,6 +176,7 @@ pub struct UploadActivityTracker {
 struct FileUploadActivity {
     total_requests: u64,
     requested_bytes_total: u64,
+    transfer_rate: RollingTransferRate,
     last_requested_unix_secs: Option<u64>,
     last_peer_id_hex: Option<String>,
     last_payload_source: Option<UploadPayloadSource>,
@@ -311,6 +315,10 @@ impl UploadActivityTracker {
         file.requested_bytes_total = file
             .requested_bytes_total
             .saturating_add(end.saturating_sub(start).saturating_add(1));
+        if phase == UploadRangePhase::Sending {
+            file.transfer_rate
+                .note_bytes(end.saturating_sub(start).saturating_add(1));
+        }
         file.last_requested_unix_secs = meta.requested_unix_secs;
         file.last_peer_id_hex = Some(meta.peer_id_hex);
         if let Some(payload_source) = meta.payload_source {
@@ -319,7 +327,7 @@ impl UploadActivityTracker {
     }
 }
 
-fn snapshot_from_file(hash_hex: String, file: &FileUploadActivity) -> UploadActivitySnapshot {
+fn snapshot_from_file(hash_hex: String, file: &mut FileUploadActivity) -> UploadActivitySnapshot {
     let mut active_peer_ids = file
         .active_ranges
         .iter()
@@ -332,10 +340,16 @@ fn snapshot_from_file(hash_hex: String, file: &FileUploadActivity) -> UploadActi
         .iter()
         .filter_map(|range| range.started_unix_secs)
         .min();
+    let TransferRateSnapshot {
+        rate_bps_5s,
+        rate_bps_30s,
+    } = file.transfer_rate.snapshot();
     UploadActivitySnapshot {
         file_hash_md4_hex: hash_hex,
         total_requests: file.total_requests,
         requested_bytes_total: file.requested_bytes_total,
+        rate_bps_5s,
+        rate_bps_30s,
         last_requested_unix_secs: file.last_requested_unix_secs,
         last_peer_id_hex: file.last_peer_id_hex.clone(),
         active_peer_ids,
@@ -427,6 +441,8 @@ mod tests {
         let held = tracker.snapshot_for_hash("abcd");
         assert_eq!(held.total_requests, 1);
         assert_eq!(held.requested_bytes_total, 1024);
+        assert_eq!(held.rate_bps_5s, 0);
+        assert_eq!(held.rate_bps_30s, 0);
         assert_eq!(held.active_ranges.len(), 1);
         assert_eq!(held.active_ranges[0].phase, UploadRangePhase::Held);
         assert_eq!(held.active_ranges[0].peer_id_hex, "peer-a");
@@ -445,6 +461,8 @@ mod tests {
         let sending = tracker.snapshot_for_hash("ABCD");
         assert_eq!(sending.total_requests, 2);
         assert_eq!(sending.requested_bytes_total, 2048);
+        assert!(sending.rate_bps_5s > 0);
+        assert!(sending.rate_bps_30s > 0);
         assert_eq!(sending.active_ranges.len(), 1);
         assert_eq!(sending.active_ranges[0].phase, UploadRangePhase::Sending);
         assert_eq!(sending.last_peer_id_hex.as_deref(), Some("peer-a"));

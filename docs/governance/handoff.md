@@ -11,6 +11,53 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-09): Addressed PR review feedback for transfer-rate telemetry.
+  - Hardened `RollingTransferRate` against future-dated samples by switching away from
+    `Instant::duration_since(...)` assumptions in prune/rate calculations.
+  - Added an explicit regression test proving future-dated samples are ignored instead of
+    panicking.
+  - Documented that the `rate_bps_*` API fields are bytes per second, despite the
+    historical `bps` suffix.
+- Decisions:
+  - treat the future-sample panic risk as a real correctness issue and fix it in this PR.
+  - defer fixed-bucket/per-second aggregation for a later optimization pass; current sample
+    volume is acceptable for this operator-facing telemetry slice.
+- Next steps:
+  - watch PR `#50` for any remaining review comments.
+  - if rate polling becomes hot, replace per-sample storage with bounded time buckets.
+- Change log:
+  - Updated `src/transfer_rate.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-08): Added transfer-rate telemetry for downloads and uploads.
+  - Added shared rolling-window transfer-rate helper with explicit 5s and 30s windows.
+  - Download snapshots now include `rate_bps_5s` and `rate_bps_30s`, populated from
+    received block bytes.
+  - Upload snapshots now include `rate_bps_5s` and `rate_bps_30s`, populated from
+    bytes actually sent on the sending path, not held/requested ranges.
+  - `/api/v1/downloads` and `/api/v1/uploads` now expose those rate fields.
+  - `/ui/downloads` now renders transfer rates for both the download queue and
+    active uploads.
+- Decisions:
+  - keep rate telemetry in-memory only; do not persist or backfill across restart.
+  - define upload rate as bytes sent, not bytes requested or reserved.
+  - expose rolling-window rates instead of instantaneous samples to keep the UI stable.
+- Next steps:
+  - decide whether to add aggregate up/down rates to `/api/v1/status`.
+  - decide whether `zero_fill_fallback` uploads should become a visible warning when
+    paired with non-zero upload rate.
+- Change log:
+  - Added `src/transfer_rate.rs`.
+  - Updated `src/download/service.rs`.
+  - Updated `src/upload.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Addressed PR review feedback for the richer uploader-state branch.
   - Preserved first-seen timestamps for tracked upload ranges so
     `active_since_unix_secs` reflects when uploader activity actually began, not the latest

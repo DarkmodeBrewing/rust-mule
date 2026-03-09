@@ -24,6 +24,10 @@ pub(crate) struct DownloadEntry {
     pub(crate) file_size: u64,
     pub(crate) state: String,
     pub(crate) downloaded_bytes: u64,
+    /// Average transfer rate over the last 5 seconds, in bytes per second.
+    pub(crate) rate_bps_5s: u64,
+    /// Average transfer rate over the last 30 seconds, in bytes per second.
+    pub(crate) rate_bps_30s: u64,
     pub(crate) progress_pct: u8,
     pub(crate) missing_ranges: usize,
     pub(crate) inflight_ranges: usize,
@@ -100,6 +104,10 @@ pub(crate) struct UploadEntry {
     pub(crate) file_hash_md4_hex: String,
     pub(crate) total_upload_requests: u64,
     pub(crate) requested_bytes_total: u64,
+    /// Average transfer rate over the last 5 seconds, in bytes per second.
+    pub(crate) rate_bps_5s: u64,
+    /// Average transfer rate over the last 30 seconds, in bytes per second.
+    pub(crate) rate_bps_30s: u64,
     pub(crate) last_requested_unix_secs: Option<u64>,
     pub(crate) last_peer_id_hex: Option<String>,
     pub(crate) active_peer_ids: Vec<String>,
@@ -278,6 +286,8 @@ pub(crate) async fn uploads(
                 file_hash_md4_hex,
                 total_upload_requests: snapshot.total_requests,
                 requested_bytes_total: snapshot.requested_bytes_total,
+                rate_bps_5s: snapshot.rate_bps_5s,
+                rate_bps_30s: snapshot.rate_bps_30s,
                 last_requested_unix_secs: snapshot.last_requested_unix_secs,
                 last_peer_id_hex: snapshot.last_peer_id_hex,
                 active_peer_ids: snapshot.active_peer_ids,
@@ -458,6 +468,8 @@ fn download_entry_from_detail(detail: &DownloadDetail, source_count: usize) -> D
         file_size: detail.summary.file_size,
         state: format!("{:?}", detail.summary.state).to_lowercase(),
         downloaded_bytes: detail.summary.downloaded_bytes,
+        rate_bps_5s: detail.summary.rate_bps_5s,
+        rate_bps_30s: detail.summary.rate_bps_30s,
         progress_pct: detail.summary.progress_pct,
         missing_ranges: detail.summary.missing_ranges,
         inflight_ranges: detail.summary.inflight_ranges,
@@ -493,6 +505,8 @@ fn download_entry_from_summary(summary: &DownloadSummary) -> DownloadEntry {
         file_size: summary.file_size,
         state: format!("{:?}", summary.state).to_lowercase(),
         downloaded_bytes: summary.downloaded_bytes,
+        rate_bps_5s: summary.rate_bps_5s,
+        rate_bps_30s: summary.rate_bps_30s,
         progress_pct: summary.progress_pct,
         missing_ranges: summary.missing_ranges,
         inflight_ranges: summary.inflight_ranges,

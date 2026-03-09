@@ -172,7 +172,7 @@
                 <th scope="col">File</th>
                 <th scope="col">Hash</th>
                 <th scope="col">Requests</th>
-                <th scope="col">Bytes</th>
+                <th scope="col">Bytes / Rate</th>
                 <th scope="col">Peers / Source</th>
                 <th scope="col">Ranges</th>
                 <th scope="col">Last Requested</th>
@@ -197,7 +197,12 @@
                       ></span>
                     </div>
                   </td>
-                  <td x-text="upload.requested_bytes_total_pretty"></td>
+                  <td>
+                    <div x-text="upload.requested_bytes_total_pretty"></div>
+                    <div class="mt-2">
+                      <small x-text="upload.rate_label"></small>
+                    </div>
+                  </td>
                   <td>
                     <div x-show="upload.active_peer_ids_label">
                       <small>peers: <span x-text="upload.active_peer_ids_label"></span></small>
@@ -408,7 +413,8 @@
                 <div class="mt-3">
                   <small>
                     size: <span x-text="download.pretty_size"></span> · downloaded:
-                    <span x-text="download.downloaded_bytes"></span> bytes · missing ranges:
+                    <span x-text="download.downloaded_bytes"></span> bytes · rate:
+                    <span x-text="download.rate_label"></span> · missing ranges:
                     <span x-text="download.missing_ranges"></span> · inflight ranges:
                     <span x-text="download.inflight_ranges"></span>
                   </small>
