@@ -40,6 +40,20 @@ pub struct UploadActivitySnapshot {
     pub active_since_unix_secs: Option<u64>,
     pub last_payload_source: Option<UploadPayloadSource>,
     pub active_ranges: Vec<UploadRangeSnapshot>,
+    pub sessions: Vec<UploadSessionSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadSessionSnapshot {
+    pub session_id: u64,
+    pub start: u64,
+    pub end: u64,
+    pub bytes_total: u64,
+    pub phase: UploadRangePhase,
+    pub peer_id_hex: String,
+    pub payload_source: Option<UploadPayloadSource>,
+    pub started_unix_secs: Option<u64>,
+    pub last_updated_unix_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,7 +188,13 @@ impl UploadService {
 
 #[derive(Debug, Default)]
 pub struct UploadActivityTracker {
-    inner: Mutex<HashMap<String, FileUploadActivity>>,
+    inner: Mutex<UploadTrackerState>,
+}
+
+#[derive(Debug, Default)]
+struct UploadTrackerState {
+    next_session_id: u64,
+    files: HashMap<String, FileUploadActivity>,
 }
 
 #[derive(Debug, Default)]
@@ -200,6 +220,7 @@ struct UploadNoteMeta {
 
 #[derive(Debug, Clone)]
 struct TrackedUploadRange {
+    session_id: u64,
     start: u64,
     end: u64,
     phase: UploadRangePhase,
@@ -207,6 +228,7 @@ struct TrackedUploadRange {
     payload_source: Option<UploadPayloadSource>,
     started_unix_secs: Option<u64>,
     requested_unix_secs: Option<u64>,
+    last_updated_unix_secs: Option<u64>,
     expires_at: Instant,
 }
 
@@ -265,7 +287,7 @@ impl UploadActivityTracker {
     pub fn snapshot_for_hash(&self, hash_hex: &str) -> UploadActivitySnapshot {
         let now = Instant::now();
         let mut inner = recover_lock(&self.inner, "upload activity");
-        let Some(file) = inner.get_mut(&hash_hex.to_ascii_lowercase()) else {
+        let Some(file) = inner.files.get_mut(&hash_hex.to_ascii_lowercase()) else {
             return UploadActivitySnapshot::default();
         };
         prune_expired(file, now);
@@ -276,7 +298,7 @@ impl UploadActivityTracker {
         let now = Instant::now();
         let mut inner = recover_lock(&self.inner, "upload activity");
         let mut out = Vec::new();
-        for (hash_hex, file) in inner.iter_mut() {
+        for (hash_hex, file) in inner.files.iter_mut() {
             prune_expired(file, now);
             if file.total_requests == 0 && file.active_ranges.is_empty() {
                 continue;
@@ -299,8 +321,26 @@ impl UploadActivityTracker {
         let now = Instant::now();
         let expires_at = now + ttl;
         let mut inner = recover_lock(&self.inner, "upload activity");
-        let file = inner.entry(hash_hex.to_ascii_lowercase()).or_default();
-        prune_expired(file, now);
+        let hash_hex = hash_hex.to_ascii_lowercase();
+        let existing_session_id = {
+            let file = inner.files.entry(hash_hex.clone()).or_default();
+            prune_expired(file, now);
+            file.active_ranges
+                .iter()
+                .find(|range| {
+                    range.start == start
+                        && range.end == end
+                        && range.peer_id_hex == meta.peer_id_hex
+                })
+                .map(|range| range.session_id)
+        };
+        let session_id = if let Some(session_id) = existing_session_id {
+            session_id
+        } else {
+            inner.next_session_id = inner.next_session_id.saturating_add(1);
+            inner.next_session_id
+        };
+        let file = inner.files.entry(hash_hex).or_default();
 
         if let Some(existing) = file.active_ranges.iter_mut().find(|range| {
             range.start == start && range.end == end && range.peer_id_hex == meta.peer_id_hex
@@ -309,8 +349,10 @@ impl UploadActivityTracker {
             existing.expires_at = expires_at;
             existing.requested_unix_secs = meta.requested_unix_secs;
             existing.payload_source = meta.payload_source;
+            existing.last_updated_unix_secs = meta.requested_unix_secs;
         } else {
             file.active_ranges.push(TrackedUploadRange {
+                session_id,
                 start,
                 end,
                 phase,
@@ -318,6 +360,7 @@ impl UploadActivityTracker {
                 payload_source: meta.payload_source,
                 started_unix_secs: meta.requested_unix_secs,
                 requested_unix_secs: meta.requested_unix_secs,
+                last_updated_unix_secs: meta.requested_unix_secs,
                 expires_at,
             });
         }
@@ -394,6 +437,21 @@ fn snapshot_from_file(hash_hex: String, file: &mut FileUploadActivity) -> Upload
                 phase: range.phase,
                 peer_id_hex: range.peer_id_hex.clone(),
                 requested_unix_secs: range.requested_unix_secs,
+            })
+            .collect(),
+        sessions: file
+            .active_ranges
+            .iter()
+            .map(|range| UploadSessionSnapshot {
+                session_id: range.session_id,
+                start: range.start,
+                end: range.end,
+                bytes_total: range.end.saturating_sub(range.start).saturating_add(1),
+                phase: range.phase,
+                peer_id_hex: range.peer_id_hex.clone(),
+                payload_source: range.payload_source,
+                started_unix_secs: range.started_unix_secs,
+                last_updated_unix_secs: range.last_updated_unix_secs,
             })
             .collect(),
     }
@@ -478,6 +536,8 @@ mod tests {
         assert_eq!(held.zero_fill_requests_total, 0);
         assert!(!held.zero_fill_active);
         assert_eq!(held.active_ranges.len(), 1);
+        assert_eq!(held.sessions.len(), 1);
+        let session_id = held.sessions[0].session_id;
         assert_eq!(held.active_ranges[0].phase, UploadRangePhase::Held);
         assert_eq!(held.active_ranges[0].peer_id_hex, "peer-a");
         assert_eq!(held.active_peer_ids, vec!["peer-a".to_string()]);
@@ -503,6 +563,9 @@ mod tests {
         assert_eq!(sending.zero_fill_rate_bps_30s, 0);
         assert!(!sending.zero_fill_active);
         assert_eq!(sending.active_ranges.len(), 1);
+        assert_eq!(sending.sessions.len(), 1);
+        assert_eq!(sending.sessions[0].session_id, session_id);
+        assert_eq!(sending.sessions[0].phase, UploadRangePhase::Sending);
         assert_eq!(sending.active_ranges[0].phase, UploadRangePhase::Sending);
         assert_eq!(sending.last_peer_id_hex.as_deref(), Some("peer-a"));
         assert_eq!(
@@ -520,6 +583,21 @@ mod tests {
         assert_eq!(snapshots.len(), 1);
         assert_eq!(snapshots[0].file_hash_md4_hex, "beef");
         assert_eq!(snapshots[0].active_peer_ids, vec!["peer-b".to_string()]);
+        assert_eq!(snapshots[0].sessions.len(), 1);
+    }
+
+    #[test]
+    fn tracker_allocates_new_session_id_after_expiry() {
+        let tracker = UploadActivityTracker::default();
+        tracker.note_held("fade", "peer-expire", 0, 63, Duration::from_millis(1));
+        let first = tracker.snapshot_for_hash("fade");
+        assert_eq!(first.sessions.len(), 1);
+        let first_id = first.sessions[0].session_id;
+        std::thread::sleep(Duration::from_millis(5));
+        tracker.note_held("fade", "peer-expire", 0, 63, Duration::from_secs(1));
+        let second = tracker.snapshot_for_hash("fade");
+        assert_eq!(second.sessions.len(), 1);
+        assert!(second.sessions[0].session_id > first_id);
     }
 
     #[test]

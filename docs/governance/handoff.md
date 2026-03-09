@@ -9,7 +9,58 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
-## Status (2026-02-19)
+## Status
+
+- Status (2026-03-09): Addressed PR `#53` review feedback on uploader session identity.
+  - `UploadActivityTracker::note(...)` now prunes expired ranges before looking up an existing
+    session id, so expired `peer_id + start + end` ranges cannot recycle an old `session_id`.
+  - Added a regression test proving that a new request after TTL expiry receives a new
+    runtime session id.
+  - Simplified the handoff status section header to `## Status` to avoid the stale
+    date-bearing section title.
+- Decisions:
+  - treat `session_id` uniqueness across active runtime sessions as a real behavioral contract
+    for the uploads API.
+- Next steps:
+  - watch PR `#53` for any remaining review comments.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-09): Added a first-class uploader session model to the uploads API/UI.
+  - `UploadActivityTracker` now assigns stable runtime `session_id` values to active upload
+    ranges and preserves them across `Held -> Sending` transitions for the same
+    `peer_id + start + end` request.
+  - `GET /api/v1/uploads` now includes per-file `sessions` with:
+    - `session_id`
+    - `start` / `end`
+    - `bytes_total`
+    - `phase`
+    - `peer_id_hex`
+    - `payload_source`
+    - `started_unix_secs`
+    - `last_updated_unix_secs`
+  - `/ui/downloads` now shows session counts and per-session summaries inside the `Active Uploads`
+    table.
+- Decisions:
+  - keep session ids runtime-local and in-memory for now; do not persist or expose them as a
+    cross-restart contract yet.
+  - extend the existing `/api/v1/uploads` surface instead of adding a second uploads endpoint;
+    session state belongs with the current uploader snapshot view.
+- Next steps:
+  - decide whether the next uploader slice should expose a top-level upload-session endpoint for
+    filtering/sorting across files.
+  - decide whether completed/expired sessions need a short in-memory history window for operator
+    forensics.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs`.
+  - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-09): Addressed PR `#52` review feedback on zero-fill warning freshness and UI fixtures.
   - The overview page now polls `GET /api/v1/status` every 15s so `zero_fill_warning` and the
