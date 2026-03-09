@@ -25,6 +25,7 @@
 ## 30 Operations
 
 - [API curl examples](./30_operations/api_curl.md)
+- [Private Alpha Release Checklist](./30_operations/ALPHA_RELEASE_CHECKLIST.md)
 
 ## Governance
 

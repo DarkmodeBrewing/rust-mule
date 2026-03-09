@@ -7,7 +7,7 @@ This `README.md` explains the folder layout at a glance:
 - `00_overview/`: contracts and high-level design principles.
 - `10_architecture/`: architecture/design references (API, UI, download, refactor plans).
 - `20_protocol/`: protocol compatibility/parity notes.
-- `30_operations/`: operational runbooks and API usage examples.
+- `30_operations/`: operational runbooks, API usage examples, and release checklists.
 - `governance/`: review checklist, execution tasks, and handoff log.
 - `rfcs/`: RFC-style technical notes.
 - `90_archive/`: legacy or historical docs kept for reference.
