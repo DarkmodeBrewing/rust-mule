@@ -521,7 +521,7 @@ fn prune_expired(file: &mut FileUploadActivity, now: Instant, recent_retention: 
     }
     file.active_ranges = still_active;
     for range in expired_ranges {
-        push_recent_session(file, range);
+        file.recent_sessions.push(range);
     }
     file.recent_sessions.retain(|range| range.expires_at > now);
     if file.recent_sessions.len() > MAX_RECENT_SESSIONS_PER_FILE {
@@ -733,6 +733,28 @@ mod tests {
         assert_eq!(
             snapshot.recent_sessions[0].terminal_reason,
             Some(UploadTerminalReason::Dropped)
+        );
+    }
+
+    #[test]
+    fn tracker_keeps_first_terminal_reason_after_expiry() {
+        let tracker = UploadActivityTracker::default();
+        tracker.note_held("first", "peer-first", 0, 127, Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(5));
+        let expired = tracker.snapshot_for_hash("first");
+        assert_eq!(expired.sessions.len(), 0);
+        assert_eq!(expired.recent_sessions.len(), 1);
+        assert_eq!(
+            expired.recent_sessions[0].terminal_reason,
+            Some(UploadTerminalReason::Expired)
+        );
+
+        tracker.note_terminal("first", "peer-first", 0, 127, UploadTerminalReason::Dropped);
+        let after_terminal = tracker.snapshot_for_hash("first");
+        assert_eq!(after_terminal.recent_sessions.len(), 1);
+        assert_eq!(
+            after_terminal.recent_sessions[0].terminal_reason,
+            Some(UploadTerminalReason::Expired)
         );
     }
 

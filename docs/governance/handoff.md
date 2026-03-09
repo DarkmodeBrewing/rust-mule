@@ -11,6 +11,24 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#56` review feedback on uploader terminal lifecycle semantics.
+  - `prune_expired(...)` now preserves its original ordering:
+    append expired active sessions into `recent_sessions`, then drop stale recent entries, then
+    apply the per-file cap once. This avoids evicting still-valid recent sessions before stale
+    entries are retained away.
+  - Added a focused regression test proving the uploader contract remains “first terminal reason
+    wins”: once a session has already expired into recent history with `Expired`, a later
+    `note_terminal(..., Dropped)` call does not overwrite that reason.
+- Decisions:
+  - keep `push_recent_session(...)` for explicit terminalization paths only; it is correct there
+    because `note_terminal(...)` prunes stale entries before appending.
+  - document terminal-reason precedence in tests rather than allowing silent reason rewrites.
+- Next steps:
+  - watch PR `#56` for any remaining review comments.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Added explicit uploader-side `dropped` terminal lifecycle signals.
   - `UploadTerminalReason` now includes `Dropped` alongside the existing `Expired`.
   - `UploadActivityTracker` exposes an explicit terminalization path so active held/sending
