@@ -11,6 +11,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#59` review feedback for the alpha CLI basics branch.
+  - `--help`, `-?`, and `--version` now short-circuit parsing, so they still succeed even when
+    trailing unknown flags are present.
+  - `--config` now rejects flag-like values such as `--check-config` instead of silently treating
+    them as a config path.
+  - `main` now returns `Result<(), MainError>` directly, with `From` conversions for CLI/config/app
+    errors and a boxed app-error variant to keep the result error small enough for clean clippy.
+  - Added CLI parser coverage for help/version short-circuit behavior and invalid flag-like config
+    paths.
+- Decisions:
+  - keep help/version behavior forgiving for orchestration and shell probing workflows; explicit
+    help/version requests take precedence over later parse failures.
+  - reject `--config` values that begin with `-` to avoid ambiguous flag consumption.
+- Next steps:
+  - merge PR `#59`.
+  - start the separate alpha build-matrix / packaging branch after the CLI slice lands.
+- Change log:
+  - Updated `src/main.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Started the private alpha-readiness track with explicit CLI/config basics.
   - `rust-mule` now supports:
     - `--config <path>`
