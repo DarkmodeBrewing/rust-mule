@@ -11,6 +11,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#57` review feedback on transfer-pump hash reuse.
+  - The transfer pump now computes the lowercase file-hash string once per send path and reuses
+    it for uploader activity transitions instead of allocating it repeatedly for
+    `note_held(...)`, `note_sending(...)`, and `note_terminal(...)`.
+- Decisions:
+  - keep this as a local hot-loop cleanup only; no API or lifecycle semantics changed.
+- Next steps:
+  - watch PR `#57` for any remaining review comments.
+- Change log:
+  - Updated `src/app.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Added explicit uploader-side `completed` terminal lifecycle signals.
   - `UploadTerminalReason` now includes `Completed`.
   - The download transfer pump marks upload sessions `completed` when
