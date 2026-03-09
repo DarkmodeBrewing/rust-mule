@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Fixed the docs site build failure caused by
+  `docs/governance/REVIEWERS_CHECKLIST.md`.
+  - Removed a stray leading `---` that VitePress was treating as the start of YAML frontmatter.
+  - Verified the docs site now builds successfully with `npm run docs:build`.
+  - Added a dedicated `docs-pages` CI job that runs `npm install` and `npm run docs:build` so
+    future Pages/VitePress breakage fails in CI instead of surfacing only in the Pages workflow.
+- Decisions:
+  - keep `docs/governance/REVIEWERS_CHECKLIST.md` as plain markdown with no frontmatter.
+  - defer the broader question of which docs should or should not be published to Pages; this fix
+    only restores a valid build.
+- Next steps:
+  - decide whether governance/internal docs should remain in the published VitePress navigation.
+- Change log:
+  - Updated `docs/governance/REVIEWERS_CHECKLIST.md`.
+
 - Status (2026-03-09): Started the private alpha checklist/release-readiness follow-up on
   `feat/alpha-checklist`.
   - Added `docs/30_operations/ALPHA_RELEASE_CHECKLIST.md` as the explicit pre-tag checklist for a
