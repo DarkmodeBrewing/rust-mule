@@ -32,6 +32,13 @@ scripts/build/build_macos_release.sh
 
 Output: `dist/rust-mule-<gitsha>-macos-<arch>.tar.gz`
 
+Private alpha support floor:
+
+- `MACOSX_DEPLOYMENT_TARGET=12.0`
+
+The macOS build script exports that deployment target by default so both CI builds and tagged
+release builds target macOS 12 unless explicitly overridden.
+
 ## Windows (PowerShell)
 
 ```powershell

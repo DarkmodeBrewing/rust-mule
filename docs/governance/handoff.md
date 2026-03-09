@@ -11,6 +11,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Started the dedicated macOS alpha-floor follow-up on
+  `feat/macos-alpha-floor`.
+  - The macOS packaging script now exports `MACOSX_DEPLOYMENT_TARGET=12.0` by default before the
+    release build runs.
+  - That same script is used by both the CI build matrix and the tag-driven release workflow, so
+    the private alpha macOS floor is now explicit and consistent across both paths.
+  - Updated build documentation to state that the intended private alpha macOS support floor is
+    12.0 unless deliberately overridden.
+- Decisions:
+  - target macOS 12.0 for the private alpha because that matches the available older test machine.
+  - keep the deployment target in the build script rather than duplicating it in workflow YAML, so
+    every caller inherits the same floor by default.
+- Next steps:
+  - run the standard local validation set.
+  - after merge, test a produced macOS artifact on the older Mac before claiming the floor is
+    verified in practice.
+- Change log:
+  - Updated `scripts/build/build_macos_release.sh`.
+  - Updated `scripts/build/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Started the separate alpha build-matrix / packaging track on
   `feat/alpha-build-matrix`.
   - Added a CI build matrix that runs the host-platform packaging script on:

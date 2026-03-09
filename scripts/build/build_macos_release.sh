@@ -18,6 +18,9 @@ arch() {
 }
 
 main() {
+  # Private alpha target floor: macOS 12.0.
+  export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
+
   cargo build --release --locked --bin "${BIN}"
 
   if [[ ! -f "${TARGET_BIN}" ]]; then
@@ -40,6 +43,9 @@ rust-mule macOS release bundle
 
 Run:
   ./rust-mule
+
+Platform:
+  Built with MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}
 
 Config:
   rust-mule reads ./config.toml from the current working directory.
