@@ -1673,6 +1673,37 @@ async fn uploads_endpoint_lists_active_uploads() {
 }
 
 #[tokio::test]
+async fn uploads_endpoint_lists_recent_expired_session_reason() {
+    let (kad_tx, _kad_rx) = mpsc::channel(8);
+    let state = test_state(kad_tx);
+    state.upload_service.note_sending(
+        "deadbeefdeadbeefdeadbeefdeadbeef",
+        "peer-expired",
+        0,
+        511,
+        Duration::from_millis(1),
+        crate::upload::UploadPayloadSource::SharedFile,
+    );
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let app = test_app(state);
+
+    let resp = app
+        .oneshot(authorized_api_get("/api/v1/uploads"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_json(resp).await;
+    let uploads = body["uploads"].as_array().expect("uploads array");
+    assert_eq!(uploads.len(), 1);
+    assert_eq!(uploads[0]["session_count"].as_u64(), Some(0));
+    assert_eq!(uploads[0]["recent_session_count"].as_u64(), Some(1));
+    assert_eq!(
+        uploads[0]["recent_sessions"][0]["terminal_reason"].as_str(),
+        Some("expired")
+    );
+}
+
+#[tokio::test]
 async fn download_mutation_endpoints_update_service_state() {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

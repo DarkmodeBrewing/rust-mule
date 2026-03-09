@@ -11,6 +11,21 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#55` review feedback on terminal-reason contract coverage.
+  - The Playwright uploads mock now includes `terminal_reason: null` on active sessions, matching
+    the real `/api/v1/uploads` contract.
+  - Added an API test that forces a short-lived upload session to expire and verifies
+    `recent_sessions[0].terminal_reason == \"expired\"`.
+- Decisions:
+  - keep the uploads contract explicit: active sessions serialize `terminal_reason = null`,
+    recent sessions serialize a concrete terminal reason when available.
+- Next steps:
+  - watch PR `#55` for any remaining review comments.
+- Change log:
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Added terminal reason metadata to recent upload sessions.
   - `recent_sessions` now expose `terminal_reason`.
   - Current implementation sets terminal reason to `expired` when active upload sessions age
