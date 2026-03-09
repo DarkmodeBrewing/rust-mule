@@ -48,7 +48,10 @@ impl RollingTransferRate {
 
     fn prune(&mut self, now: Instant) {
         while let Some(sample) = self.samples.front() {
-            if now.duration_since(sample.at) > WINDOW_30S {
+            if now
+                .checked_duration_since(sample.at)
+                .is_some_and(|elapsed| elapsed > WINDOW_30S)
+            {
                 self.samples.pop_front();
             } else {
                 break;
@@ -60,7 +63,10 @@ impl RollingTransferRate {
 fn rate_for_window(samples: &VecDeque<ByteSample>, now: Instant, window: Duration) -> u64 {
     let bytes = samples
         .iter()
-        .filter(|sample| now.duration_since(sample.at) <= window)
+        .filter(|sample| {
+            now.checked_duration_since(sample.at)
+                .is_some_and(|elapsed| elapsed <= window)
+        })
         .map(|sample| sample.bytes)
         .sum::<u64>();
     bytes / window.as_secs()
@@ -93,5 +99,16 @@ mod tests {
         let snapshot = rate.snapshot_at(start + Duration::from_secs(31));
         assert_eq!(snapshot.rate_bps_5s, 1500 / 5);
         assert_eq!(snapshot.rate_bps_30s, 1500 / 30);
+    }
+
+    #[test]
+    fn rolling_transfer_rate_skips_future_samples_without_panicking() {
+        let start = Instant::now();
+        let mut rate = RollingTransferRate::default();
+        rate.note_bytes_at(start + Duration::from_secs(5), 500);
+
+        let snapshot = rate.snapshot_at(start);
+        assert_eq!(snapshot.rate_bps_5s, 0);
+        assert_eq!(snapshot.rate_bps_30s, 0);
     }
 }

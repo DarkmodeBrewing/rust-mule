@@ -24,7 +24,9 @@ pub(crate) struct DownloadEntry {
     pub(crate) file_size: u64,
     pub(crate) state: String,
     pub(crate) downloaded_bytes: u64,
+    /// Average transfer rate over the last 5 seconds, in bytes per second.
     pub(crate) rate_bps_5s: u64,
+    /// Average transfer rate over the last 30 seconds, in bytes per second.
     pub(crate) rate_bps_30s: u64,
     pub(crate) progress_pct: u8,
     pub(crate) missing_ranges: usize,
@@ -102,7 +104,9 @@ pub(crate) struct UploadEntry {
     pub(crate) file_hash_md4_hex: String,
     pub(crate) total_upload_requests: u64,
     pub(crate) requested_bytes_total: u64,
+    /// Average transfer rate over the last 5 seconds, in bytes per second.
     pub(crate) rate_bps_5s: u64,
+    /// Average transfer rate over the last 30 seconds, in bytes per second.
     pub(crate) rate_bps_30s: u64,
     pub(crate) last_requested_unix_secs: Option<u64>,
     pub(crate) last_peer_id_hex: Option<String>,

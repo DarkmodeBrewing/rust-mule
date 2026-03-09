@@ -11,6 +11,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-09): Addressed PR review feedback for transfer-rate telemetry.
+  - Hardened `RollingTransferRate` against future-dated samples by switching away from
+    `Instant::duration_since(...)` assumptions in prune/rate calculations.
+  - Added an explicit regression test proving future-dated samples are ignored instead of
+    panicking.
+  - Documented that the `rate_bps_*` API fields are bytes per second, despite the
+    historical `bps` suffix.
+- Decisions:
+  - treat the future-sample panic risk as a real correctness issue and fix it in this PR.
+  - defer fixed-bucket/per-second aggregation for a later optimization pass; current sample
+    volume is acceptable for this operator-facing telemetry slice.
+- Next steps:
+  - watch PR `#50` for any remaining review comments.
+  - if rate polling becomes hot, replace per-sample storage with bounded time buckets.
+- Change log:
+  - Updated `src/transfer_rate.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-08): Added transfer-rate telemetry for downloads and uploads.
   - Added shared rolling-window transfer-rate helper with explicit 5s and 30s windows.
   - Download snapshots now include `rate_bps_5s` and `rate_bps_30s`, populated from
