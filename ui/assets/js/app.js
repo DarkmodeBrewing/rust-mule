@@ -1223,6 +1223,7 @@ window.appDownloads = function appDownloads() {
                   started_label: formatUnixSecs(session.started_unix_secs),
                   updated_label: formatUnixSecs(session.last_updated_unix_secs),
                   payload_source_label: session.payload_source || 'unknown',
+                  terminal_reason_label: session.terminal_reason || 'active',
                 }))
               : [],
             recent_sessions: Array.isArray(item.recent_sessions)
@@ -1232,6 +1233,7 @@ window.appDownloads = function appDownloads() {
                   started_label: formatUnixSecs(session.started_unix_secs),
                   updated_label: formatUnixSecs(session.last_updated_unix_secs),
                   payload_source_label: session.payload_source || 'unknown',
+                  terminal_reason_label: session.terminal_reason || 'unknown',
                 }))
               : [],
           }))

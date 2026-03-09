@@ -1663,6 +1663,10 @@ async fn uploads_endpoint_lists_active_uploads() {
     assert_eq!(uploads[0]["sessions"][0]["session_id"].as_u64(), Some(1));
     assert_eq!(uploads[0]["sessions"][0]["phase"].as_str(), Some("held"));
     assert_eq!(
+        uploads[0]["sessions"][0]["terminal_reason"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
         uploads[0]["sessions"][1]["payload_source"].as_str(),
         Some("shared_file")
     );

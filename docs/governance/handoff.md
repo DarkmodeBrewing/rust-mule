@@ -11,6 +11,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Added terminal reason metadata to recent upload sessions.
+  - `recent_sessions` now expose `terminal_reason`.
+  - Current implementation sets terminal reason to `expired` when active upload sessions age
+    out by TTL and move into recent-session history.
+  - Active `sessions` intentionally keep `terminal_reason = null`.
+  - `/ui/downloads` now shows terminal reason on recent sessions in the `Active Uploads` table.
+- Decisions:
+  - scope terminal reason to recent sessions only; active sessions are non-terminal by definition.
+  - start with `expired` only and keep the model open for later causes (`completed`,
+    `cancelled`, `replaced`) once uploader-side lifecycle signals exist.
+- Next steps:
+  - decide whether upload-session lifecycle should emit explicit completion/cancel signals so
+    recent sessions can distinguish those terminal states from passive expiry.
+  - decide whether the uploads UI should visually separate active sessions from recent terminal
+    sessions more strongly once more terminal reasons exist.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/downloads.html`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#54` review feedback on upload session history bounds and mapping drift.
   - Added `MAX_RECENT_SESSIONS_PER_FILE = 128` so recent upload session history is bounded by
     both time and count.

@@ -251,6 +251,7 @@ const UPLOADS_PAYLOAD = {
           payload_source: 'shared_file',
           started_unix_secs: 110,
           last_updated_unix_secs: 118,
+          terminal_reason: 'expired',
         },
       ],
       held_ranges: [{ start: 524288, end: 589823 }],
