@@ -1704,6 +1704,42 @@ async fn uploads_endpoint_lists_recent_expired_session_reason() {
 }
 
 #[tokio::test]
+async fn uploads_endpoint_lists_recent_dropped_session_reason() {
+    let (kad_tx, _kad_rx) = mpsc::channel(8);
+    let state = test_state(kad_tx);
+    state.upload_service.note_held(
+        "dropfeeddropfeeddropfeeddropfeed",
+        "peer-dropped",
+        0,
+        511,
+        Duration::from_secs(30),
+    );
+    state.upload_service.note_terminal(
+        "dropfeeddropfeeddropfeeddropfeed",
+        "peer-dropped",
+        0,
+        511,
+        crate::upload::UploadTerminalReason::Dropped,
+    );
+    let app = test_app(state);
+
+    let resp = app
+        .oneshot(authorized_api_get("/api/v1/uploads"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = response_json(resp).await;
+    let uploads = body["uploads"].as_array().expect("uploads array");
+    assert_eq!(uploads.len(), 1);
+    assert_eq!(uploads[0]["session_count"].as_u64(), Some(0));
+    assert_eq!(uploads[0]["recent_session_count"].as_u64(), Some(1));
+    assert_eq!(
+        uploads[0]["recent_sessions"][0]["terminal_reason"].as_str(),
+        Some("dropped")
+    );
+}
+
+#[tokio::test]
 async fn download_mutation_endpoints_update_service_state() {
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
