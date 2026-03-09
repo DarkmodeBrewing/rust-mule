@@ -28,8 +28,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     in the first alpha-readiness slice.
 - Next steps:
   - run the standard local validation plus a local Linux release-bundle build.
-  - decide whether the next alpha-readiness slice should add artifact smoke checks (for example,
-    `rust-mule --version` and `--help` on the packaged binary) or formalize an alpha checklist.
+  - decide whether the next alpha-readiness slice should formalize an alpha checklist or pin an
+    explicit macOS support floor.
 - Change log:
   - Updated `.github/workflows/ci.yml`.
   - Updated `scripts/build/README.md`.

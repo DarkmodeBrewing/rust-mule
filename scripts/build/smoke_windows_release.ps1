@@ -1,9 +1,9 @@
-$ErrorActionPreference = "Stop"
-
 param(
     [Parameter(Mandatory = $true)]
     [string]$Archive
 )
+
+$ErrorActionPreference = "Stop"
 
 if (-not (Test-Path $Archive)) {
     throw "archive not found: $Archive"
@@ -14,13 +14,19 @@ New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 
 try {
     Expand-Archive -Path $Archive -DestinationPath $TempDir -Force
-    $ExtractRoot = Get-ChildItem -Path $TempDir -Directory | Select-Object -First 1
-    if (-not $ExtractRoot) {
-        throw "expected extracted release directory in $Archive"
+    $ExtractDirs = @(Get-ChildItem -Path $TempDir -Directory)
+    if ($ExtractDirs.Count -eq 1) {
+        $ExtractRoot = $ExtractDirs[0].FullName
+    }
+    elseif ($ExtractDirs.Count -eq 0) {
+        $ExtractRoot = $TempDir
+    }
+    else {
+        throw "expected single extracted release directory in $Archive (found $($ExtractDirs.Count))"
     }
 
-    $Bin = Join-Path $ExtractRoot.FullName "rust-mule.exe"
-    $Cfg = Join-Path $ExtractRoot.FullName "config.example.toml"
+    $Bin = Join-Path $ExtractRoot "rust-mule.exe"
+    $Cfg = Join-Path $ExtractRoot "config.example.toml"
 
     if (-not (Test-Path $Bin)) {
         throw "expected executable $Bin"
