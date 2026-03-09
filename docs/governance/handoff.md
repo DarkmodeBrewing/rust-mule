@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-08
+Last Reviewed: 2026-03-09
 
 # Handoff / Continuation Notes
 
@@ -10,6 +10,32 @@ This file exists because chat sessions are not durable project memory. In the ne
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
 ## Status (2026-02-19)
+
+- Status (2026-03-09): Added aggregate transfer rates to `/api/v1/status` and the overview UI.
+  - `GET /api/v1/status` now returns:
+    - `download_rate_bps_5s`
+    - `download_rate_bps_30s`
+    - `upload_rate_bps_5s`
+    - `upload_rate_bps_30s`
+  - The aggregate values are computed at the API layer by summing current per-download and
+    per-upload rolling rates.
+  - The overview page now shows aggregate 5s download and upload rates as top-level KPIs.
+- Decisions:
+  - keep the KAD service status/watch payload unchanged; aggregate transfer rates belong to
+    the API composition layer, not the KAD core status struct.
+  - use the 5s aggregate rate in the overview UI and keep the 30s aggregate available in the
+    API for monitoring agents or future UI expansion.
+- Next steps:
+  - decide whether to surface aggregate 30s rates in the overview UI as secondary labels.
+  - decide whether `zero_fill_fallback` traffic should raise a top-level warning when
+    aggregate upload rate is non-zero.
+- Change log:
+  - Updated `src/api/handlers/core.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `ui/index.html`.
+  - Updated `ui/assets/js/app.js`.
+  - Updated `ui/tests/e2e/mock-server.mjs`.
+  - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-09): Addressed PR review feedback for transfer-rate telemetry.
   - Hardened `RollingTransferRate` against future-dated samples by switching away from

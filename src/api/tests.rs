@@ -934,6 +934,15 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         crate::share::SharedLibrary::default(),
     ));
     let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
+    let upload_service = Arc::new(crate::upload::UploadService::new(shared_library.clone()));
+    upload_service.note_sending(
+        "feedbeadfeedbeadfeedbeadfeedbead",
+        "peer-status",
+        0,
+        1023,
+        Duration::from_secs(30),
+        crate::upload::UploadPayloadSource::SharedFile,
+    );
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new("test-token".to_string())),
         token_path: Arc::new(PathBuf::from("data/api.token")),
@@ -945,7 +954,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         config: config.clone(),
         shared_library: shared_library.clone(),
         publish_tracker: publish_tracker.clone(),
-        upload_service: Arc::new(crate::upload::UploadService::new(shared_library.clone())),
+        upload_service,
         shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
             shared_library,
             config,
@@ -1058,6 +1067,20 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     assert_eq!(
         status_json.get("recv_res_total").and_then(Value::as_u64),
         status_json.get("recv_ress_total").and_then(Value::as_u64)
+    );
+    assert_eq!(status_json["download_rate_bps_5s"].as_u64(), Some(0));
+    assert_eq!(status_json["download_rate_bps_30s"].as_u64(), Some(0));
+    assert!(
+        status_json["upload_rate_bps_5s"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0
+    );
+    assert!(
+        status_json["upload_rate_bps_30s"]
+            .as_u64()
+            .unwrap_or_default()
+            > 0
     );
     assert!(
         status_json

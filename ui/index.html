@@ -185,6 +185,14 @@
             <div class="kpi" x-text="status?.live_10m ?? 0"></div>
             <span class="label">Live Nodes (10m)</span>
           </div>
+          <div class="card">
+            <div class="kpi" x-text="status?.download_rate_label ?? '0 B/s'"></div>
+            <span class="label">Download Rate (5s)</span>
+          </div>
+          <div class="card">
+            <div class="kpi" x-text="status?.upload_rate_label ?? '0 B/s'"></div>
+            <span class="label">Upload Rate (5s)</span>
+          </div>
         </div>
 
         <div class="card">

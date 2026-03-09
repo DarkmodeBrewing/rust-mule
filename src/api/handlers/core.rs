@@ -52,6 +52,29 @@ pub(crate) struct SessionResponse {
     pub(crate) ok: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub(crate) struct StatusResponse {
+    #[serde(flatten)]
+    pub(crate) status: KadServiceStatus,
+    /// Aggregate download transfer rate over the last 5 seconds, in bytes per second.
+    pub(crate) download_rate_bps_5s: u64,
+    /// Aggregate download transfer rate over the last 30 seconds, in bytes per second.
+    pub(crate) download_rate_bps_30s: u64,
+    /// Aggregate upload transfer rate over the last 5 seconds, in bytes per second.
+    pub(crate) upload_rate_bps_5s: u64,
+    /// Aggregate upload transfer rate over the last 30 seconds, in bytes per second.
+    pub(crate) upload_rate_bps_30s: u64,
+}
+
+fn saturating_rate_sum<I>(rates: I) -> u64
+where
+    I: IntoIterator<Item = u64>,
+{
+    rates
+        .into_iter()
+        .fold(0u64, |acc, rate| acc.saturating_add(rate))
+}
+
 pub(crate) async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
@@ -126,11 +149,28 @@ pub(crate) async fn session_logout(
 
 pub(crate) async fn status(
     State(state): State<ApiState>,
-) -> Result<Json<KadServiceStatus>, StatusCode> {
+) -> Result<Json<StatusResponse>, StatusCode> {
     let Some(s) = (*state.status_rx.borrow()).clone() else {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     };
-    Ok(Json(s))
+    let downloads = match state.download_handle.snapshot().await {
+        Ok((_download_status, downloads)) => downloads,
+        Err(err) => {
+            tracing::warn!(
+                error = %err,
+                "failed to snapshot downloads for status; reporting zero aggregate download rates"
+            );
+            Vec::new()
+        }
+    };
+    let uploads = state.upload_service.snapshot_all();
+    Ok(Json(StatusResponse {
+        status: s,
+        download_rate_bps_5s: saturating_rate_sum(downloads.iter().map(|d| d.rate_bps_5s)),
+        download_rate_bps_30s: saturating_rate_sum(downloads.iter().map(|d| d.rate_bps_30s)),
+        upload_rate_bps_5s: saturating_rate_sum(uploads.iter().map(|u| u.rate_bps_5s)),
+        upload_rate_bps_30s: saturating_rate_sum(uploads.iter().map(|u| u.rate_bps_30s)),
+    }))
 }
 
 pub(crate) async fn events(
