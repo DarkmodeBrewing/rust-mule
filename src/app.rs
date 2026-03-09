@@ -770,9 +770,20 @@ async fn run_download_transfer_pump(
                         opcode: crate::download::protocol::OP_SENDINGPART,
                         payload: payload.payload,
                     };
-                    let _ = download_handle
-                        .ingest_inbound_packet(d.part_number, lease.peer_id, packet)
-                        .await;
+                    let peer_id = lease.peer_id.clone();
+                    if download_handle
+                        .ingest_inbound_packet(d.part_number, peer_id, packet)
+                        .await
+                        .is_ok()
+                    {
+                        upload_service.note_terminal(
+                            &crate::kad::KadId(lease.file_hash).to_hex_lower(),
+                            &lease.peer_id,
+                            lease.block.start,
+                            lease.block.end,
+                            crate::upload::UploadTerminalReason::Completed,
+                        );
+                    }
                 }
                 if !leases.is_empty() {
                     // Keep one held lease queue per part; do not stack new reservations while held.
@@ -879,9 +890,19 @@ async fn run_download_transfer_pump(
                     opcode: crate::download::protocol::OP_SENDINGPART,
                     payload: payload.payload,
                 };
-                let _ = download_handle
+                if download_handle
                     .ingest_inbound_packet(d.part_number, peer_id.clone(), packet)
-                    .await;
+                    .await
+                    .is_ok()
+                {
+                    upload_service.note_terminal(
+                        &file_hash.to_hex_lower(),
+                        &peer_id,
+                        block.start,
+                        block.end,
+                        crate::upload::UploadTerminalReason::Completed,
+                    );
+                }
             }
         }
     }
