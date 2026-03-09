@@ -11,6 +11,32 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Started the private alpha checklist/release-readiness follow-up on
+  `feat/alpha-checklist`.
+  - Added `docs/30_operations/ALPHA_RELEASE_CHECKLIST.md` as the explicit pre-tag checklist for a
+    private alpha such as `v0.1.0-alpha.1`.
+  - The checklist captures:
+    - supported alpha platform targets
+    - artifact/build requirements
+    - CLI/config contract
+    - end-to-end flow expectations
+    - known alpha caveats
+    - tagging criteria
+  - Surfaced the checklist in `docs/index.md` and aligned `docs/README.md`.
+- Decisions:
+  - keep alpha release-readiness as an operations doc, not a handoff-only note, so the checklist
+    remains visible and reviewable outside chat continuity.
+  - treat `v0.1.0-alpha.1` as the recommended first private alpha tag once the checklist is
+    satisfied or explicitly deferred item-by-item.
+- Next steps:
+  - review the checklist against the remaining orchestrator needs.
+  - decide whether `--print-effective-config` is still required before cutting the first alpha.
+- Change log:
+  - Added `docs/30_operations/ALPHA_RELEASE_CHECKLIST.md`.
+  - Updated `docs/index.md`.
+  - Updated `docs/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Started the repo-config cleanup follow-up on
   `feat/config-example-cleanup`.
   - The tracked `config.toml` was normalized from a lab-specific file into an alpha-safe example
