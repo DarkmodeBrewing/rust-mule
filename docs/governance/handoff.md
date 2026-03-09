@@ -11,6 +11,53 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Addressed PR `#59` review feedback for the alpha CLI basics branch.
+  - `--help`, `-?`, and `--version` now short-circuit parsing, so they still succeed even when
+    trailing unknown flags are present.
+  - `--config` now rejects flag-like values such as `--check-config` instead of silently treating
+    them as a config path.
+  - `main` now returns `Result<(), MainError>` directly, with `From` conversions for CLI/config/app
+    errors and a boxed app-error variant to keep the result error small enough for clean clippy.
+  - Added CLI parser coverage for help/version short-circuit behavior and invalid flag-like config
+    paths.
+- Decisions:
+  - keep help/version behavior forgiving for orchestration and shell probing workflows; explicit
+    help/version requests take precedence over later parse failures.
+  - reject `--config` values that begin with `-` to avoid ambiguous flag consumption.
+- Next steps:
+  - merge PR `#59`.
+  - start the separate alpha build-matrix / packaging branch after the CLI slice lands.
+- Change log:
+  - Updated `src/main.rs`.
+  - Updated `docs/governance/handoff.md`.
+
+- Status (2026-03-09): Started the private alpha-readiness track with explicit CLI/config basics.
+  - `rust-mule` now supports:
+    - `--config <path>`
+    - `--check-config`
+    - `--help`
+    - `-?`
+    - `--version`
+  - Normal startup now loads config explicitly via `load_config(...)` and no longer auto-creates
+    `config.toml` on missing-path startup. This gives the binary a predictable contract for
+    orchestrators like `mule-doctor`.
+  - `--check-config` validates config and exits without booting the app.
+  - Added unit coverage for CLI parsing in `src/main.rs`.
+- Decisions:
+  - treat missing config as an error for normal app startup; alpha/orchestrator workflows need an
+    explicit config file contract, not silent file creation.
+  - keep `load_or_create_config(...)` available for code paths that still intentionally want that
+    behavior, but stop using it in the main application entrypoint.
+- Next steps:
+  - decide whether alpha-readiness should next add `--print-effective-config` or `--data-dir`
+    overrides for orchestration workflows.
+  - decide whether the self-test binary should also move off `load_or_create_config(...)` for
+    stricter alpha consistency.
+- Change log:
+  - Updated `src/config_io.rs`.
+  - Reworked `src/main.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#58` review feedback on uploads UI utility drift and reason grouping.
   - Added a real `.items-center` utility class so the recent-session badge rows align as intended
     instead of relying on an undefined utility.
