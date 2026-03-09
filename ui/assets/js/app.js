@@ -136,6 +136,9 @@ function enrichOverviewStatus(status, previous = null) {
   };
   next.download_rate_label = formatRate(next.download_rate_bps_5s || 0);
   next.upload_rate_label = formatRate(next.upload_rate_bps_5s || 0);
+  next.zero_fill_upload_rate_label = formatRate(
+    next.zero_fill_upload_rate_bps_5s || 0,
+  );
   return next;
 }
 
@@ -277,6 +280,7 @@ window.indexApp = function indexApp() {
     token: '',
     status: null,
     sse: null,
+    statusPollTimer: null,
     searchThreads: [],
     selectedSearchId: '',
 
@@ -326,6 +330,7 @@ window.indexApp = function indexApp() {
         await this.refreshThreads();
         this.selectInitialThread();
         this.startEvents();
+        this.startStatusPolling();
       } catch (err) {
         this.error = String(err?.message || err);
       } finally {
@@ -396,6 +401,24 @@ window.indexApp = function indexApp() {
         this.sse = null;
       }
       this.connected = false;
+    },
+
+    startStatusPolling() {
+      this.stopStatusPolling();
+      this.statusPollTimer = setInterval(() => {
+        this.refreshStatus();
+      }, 15000);
+      window.addEventListener('beforeunload', () => {
+        this.stopStatusPolling();
+        this.stopEvents();
+      });
+    },
+
+    stopStatusPolling() {
+      if (this.statusPollTimer) {
+        clearInterval(this.statusPollTimer);
+        this.statusPollTimer = null;
+      }
     },
 
     startNewSearch() {
@@ -1177,6 +1200,10 @@ window.appDownloads = function appDownloads() {
             ...item,
             requested_bytes_total_pretty: formatBytes(item.requested_bytes_total || 0),
             rate_label: `${formatRate(item.rate_bps_5s)} (5s) / ${formatRate(item.rate_bps_30s)} (30s)`,
+            zero_fill_rate_label: `${formatRate(item.zero_fill_rate_bps_5s)} (5s) / ${formatRate(item.zero_fill_rate_bps_30s)} (30s)`,
+            zero_fill_requested_bytes_total_pretty: formatBytes(
+              item.zero_fill_requested_bytes_total || 0,
+            ),
             active_peer_ids_label: Array.isArray(item.active_peer_ids)
               ? item.active_peer_ids.join(', ')
               : '',

@@ -195,6 +195,11 @@
                         x-bind:class="upload.active_request ? 'state-running' : 'state-idle'"
                         x-text="'requests: ' + upload.total_upload_requests"
                       ></span>
+                      <span
+                        class="badge state-failed"
+                        x-show="upload.zero_fill_active || upload.zero_fill_requests_total > 0"
+                        x-text="'zero-fill: ' + upload.zero_fill_requests_total"
+                      ></span>
                     </div>
                   </td>
                   <td>
@@ -212,6 +217,14 @@
                     </div>
                     <div class="mt-2">
                       <small>source: <span x-text="upload.payload_source_label"></span></small>
+                    </div>
+                    <div class="mt-2" x-show="upload.zero_fill_active || upload.zero_fill_requests_total > 0">
+                      <small>
+                        fallback bytes:
+                        <span x-text="upload.zero_fill_requested_bytes_total_pretty"></span> ·
+                        rate:
+                        <span x-text="upload.zero_fill_rate_label"></span>
+                      </small>
                     </div>
                     <div class="mt-2" x-show="upload.active_since_unix_secs">
                       <small>active since: <span x-text="upload.active_since_label"></span></small>

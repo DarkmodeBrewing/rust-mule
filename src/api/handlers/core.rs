@@ -64,6 +64,12 @@ pub(crate) struct StatusResponse {
     pub(crate) upload_rate_bps_5s: u64,
     /// Aggregate upload transfer rate over the last 30 seconds, in bytes per second.
     pub(crate) upload_rate_bps_30s: u64,
+    /// Aggregate zero-fill fallback upload rate over the last 5 seconds, in bytes per second.
+    pub(crate) zero_fill_upload_rate_bps_5s: u64,
+    /// Aggregate zero-fill fallback upload rate over the last 30 seconds, in bytes per second.
+    pub(crate) zero_fill_upload_rate_bps_30s: u64,
+    pub(crate) zero_fill_active_uploads: usize,
+    pub(crate) zero_fill_warning: bool,
 }
 
 fn saturating_rate_sum<I>(rates: I) -> u64
@@ -170,6 +176,16 @@ pub(crate) async fn status(
         download_rate_bps_30s: saturating_rate_sum(downloads.iter().map(|d| d.rate_bps_30s)),
         upload_rate_bps_5s: saturating_rate_sum(uploads.iter().map(|u| u.rate_bps_5s)),
         upload_rate_bps_30s: saturating_rate_sum(uploads.iter().map(|u| u.rate_bps_30s)),
+        zero_fill_upload_rate_bps_5s: saturating_rate_sum(
+            uploads.iter().map(|u| u.zero_fill_rate_bps_5s),
+        ),
+        zero_fill_upload_rate_bps_30s: saturating_rate_sum(
+            uploads.iter().map(|u| u.zero_fill_rate_bps_30s),
+        ),
+        zero_fill_active_uploads: uploads.iter().filter(|u| u.zero_fill_active).count(),
+        zero_fill_warning: uploads
+            .iter()
+            .any(|u| u.zero_fill_active || u.zero_fill_rate_bps_5s > 0),
     }))
 }
 
