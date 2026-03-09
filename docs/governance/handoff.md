@@ -11,6 +11,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Added explicit uploader-side `dropped` terminal lifecycle signals.
+  - `UploadTerminalReason` now includes `Dropped` alongside the existing `Expired`.
+  - `UploadActivityTracker` exposes an explicit terminalization path so active held/sending
+    sessions can move into `recent_sessions` with a concrete reason instead of aging out
+    passively to `expired`.
+  - The download transfer pump now marks held upload leases as `dropped` when their owning
+    download part leaves the active set (`cancelled`, `completed`, or `error`) before the lease
+    is sent.
+  - `/api/v1/uploads` now surfaces `terminal_reason = "dropped"` for those recent sessions.
+- Decisions:
+  - implement only uploader lifecycle transitions that are directly observable from the current
+    architecture; do not invent `completed` or `cancelled` signals until there are explicit call
+    sites for them.
+  - treat held-lease discard in the transfer pump as a real uploader terminal event, distinct
+    from passive TTL expiry.
+- Next steps:
+  - decide whether uploader-side `completed` and `replaced` terminal reasons should be wired once
+    the transfer pump has explicit send completion/supersession hooks.
+  - decide whether recent session rendering in `/ui/downloads` should visually group `expired`
+    vs `dropped` sessions more strongly as more terminal reasons are added.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `src/app.rs`.
+  - Updated `src/api/handlers/downloads.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#55` review feedback on terminal-reason contract coverage.
   - The Playwright uploads mock now includes `terminal_reason: null` on active sessions, matching
     the real `/api/v1/uploads` contract.

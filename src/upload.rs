@@ -65,6 +65,7 @@ pub struct UploadSessionSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UploadTerminalReason {
     Expired,
+    Dropped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +121,18 @@ impl UploadService {
     ) {
         self.activity
             .note_sending(hash_hex, peer_id_hex, start, end, ttl, payload_source);
+    }
+
+    pub fn note_terminal(
+        &self,
+        hash_hex: &str,
+        peer_id_hex: &str,
+        start: u64,
+        end: u64,
+        reason: UploadTerminalReason,
+    ) {
+        self.activity
+            .note_terminal(hash_hex, peer_id_hex, start, end, reason);
     }
 
     pub fn snapshot_for_hash(&self, hash_hex: &str) -> UploadActivitySnapshot {
@@ -325,6 +338,30 @@ impl UploadActivityTracker {
         out
     }
 
+    pub fn note_terminal(
+        &self,
+        hash_hex: &str,
+        peer_id_hex: &str,
+        start: u64,
+        end: u64,
+        reason: UploadTerminalReason,
+    ) {
+        let now = Instant::now();
+        let mut inner = recover_lock(&self.inner, "upload activity");
+        let Some(file) = inner.files.get_mut(&hash_hex.to_ascii_lowercase()) else {
+            return;
+        };
+        prune_expired(file, now, RECENT_SESSION_RETENTION);
+        if let Some(index) = file.active_ranges.iter().position(|range| {
+            range.start == start && range.end == end && range.peer_id_hex == peer_id_hex
+        }) {
+            let mut range = file.active_ranges.remove(index);
+            range.expires_at = now + RECENT_SESSION_RETENTION;
+            range.terminal_reason = Some(reason);
+            push_recent_session(file, range);
+        }
+    }
+
     fn note(
         &self,
         hash_hex: &str,
@@ -472,6 +509,7 @@ fn snapshot_from_file(hash_hex: String, file: &mut FileUploadActivity) -> Upload
 
 fn prune_expired(file: &mut FileUploadActivity, now: Instant, recent_retention: Duration) {
     let mut still_active = Vec::with_capacity(file.active_ranges.len());
+    let mut expired_ranges = Vec::new();
     for mut range in file.active_ranges.drain(..) {
         if range.expires_at > now {
             still_active.push(range);
@@ -479,10 +517,24 @@ fn prune_expired(file: &mut FileUploadActivity, now: Instant, recent_retention: 
         }
         range.expires_at = now + recent_retention;
         range.terminal_reason = Some(UploadTerminalReason::Expired);
-        file.recent_sessions.push(range);
+        expired_ranges.push(range);
     }
     file.active_ranges = still_active;
+    for range in expired_ranges {
+        push_recent_session(file, range);
+    }
     file.recent_sessions.retain(|range| range.expires_at > now);
+    if file.recent_sessions.len() > MAX_RECENT_SESSIONS_PER_FILE {
+        let keep_from = file
+            .recent_sessions
+            .len()
+            .saturating_sub(MAX_RECENT_SESSIONS_PER_FILE);
+        file.recent_sessions.drain(0..keep_from);
+    }
+}
+
+fn push_recent_session(file: &mut FileUploadActivity, range: TrackedUploadRange) {
+    file.recent_sessions.push(range);
     if file.recent_sessions.len() > MAX_RECENT_SESSIONS_PER_FILE {
         let keep_from = file
             .recent_sessions
@@ -666,6 +718,21 @@ mod tests {
         assert_eq!(
             snapshot.recent_sessions[0].terminal_reason,
             Some(UploadTerminalReason::Expired)
+        );
+    }
+
+    #[test]
+    fn tracker_moves_terminalled_session_to_recent_history() {
+        let tracker = UploadActivityTracker::default();
+        tracker.note_held("drop", "peer-drop", 0, 127, Duration::from_secs(30));
+        tracker.note_terminal("drop", "peer-drop", 0, 127, UploadTerminalReason::Dropped);
+
+        let snapshot = tracker.snapshot_for_hash("drop");
+        assert_eq!(snapshot.sessions.len(), 0);
+        assert_eq!(snapshot.recent_sessions.len(), 1);
+        assert_eq!(
+            snapshot.recent_sessions[0].terminal_reason,
+            Some(UploadTerminalReason::Dropped)
         );
     }
 

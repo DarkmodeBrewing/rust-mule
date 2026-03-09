@@ -368,6 +368,7 @@ fn session_snapshot_to_entry(session: crate::upload::UploadSessionSnapshot) -> U
         last_updated_unix_secs: session.last_updated_unix_secs,
         terminal_reason: session.terminal_reason.map(|reason| match reason {
             UploadTerminalReason::Expired => "expired".to_string(),
+            UploadTerminalReason::Dropped => "dropped".to_string(),
         }),
     }
 }

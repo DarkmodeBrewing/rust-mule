@@ -712,19 +712,33 @@ async fn run_download_transfer_pump(
         for d in &downloads {
             active_parts.insert(d.part_number, d.state);
         }
+        let mut dropped_leases = Vec::new();
         held.retain(|part, leases| {
             if leases.is_empty() {
                 return false;
             }
-            active_parts.get(part).is_some_and(|state| {
+            let keep = active_parts.get(part).is_some_and(|state| {
                 !matches!(
                     state,
                     crate::download::PartState::Cancelled
                         | crate::download::PartState::Completed
                         | crate::download::PartState::Error
                 )
-            })
+            });
+            if !keep {
+                dropped_leases.extend(leases.iter().cloned());
+            }
+            keep
         });
+        for lease in dropped_leases {
+            upload_service.note_terminal(
+                &crate::kad::KadId(lease.file_hash).to_hex_lower(),
+                &lease.peer_id,
+                lease.block.start,
+                lease.block.end,
+                crate::upload::UploadTerminalReason::Dropped,
+            );
+        }
 
         for d in downloads {
             match d.state {
