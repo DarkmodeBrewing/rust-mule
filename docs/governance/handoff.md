@@ -11,6 +11,18 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status (2026-02-19)
 
+- Status (2026-03-09): Applied a CI rustfmt follow-up on the zero-fill fallback warning branch.
+  - Reformatted `/api/v1/status` zero-fill warning aggregation and related API tests to the
+    current rustfmt layout expected by CI.
+- Decisions:
+  - treat CI formatting drift as a direct branch fix; no behavior changes were needed.
+- Next steps:
+  - watch PR `#52` for any remaining review or CI findings.
+- Change log:
+  - Updated `src/api/handlers/core.rs`.
+  - Updated `src/api/tests.rs`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Added zero-fill fallback warning telemetry to uploads, status, and UI.
   - `UploadActivityTracker` now records zero-fill fallback activity separately from normal
     upload traffic:

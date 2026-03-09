@@ -183,7 +183,9 @@ pub(crate) async fn status(
             uploads.iter().map(|u| u.zero_fill_rate_bps_30s),
         ),
         zero_fill_active_uploads: uploads.iter().filter(|u| u.zero_fill_active).count(),
-        zero_fill_warning: uploads.iter().any(|u| u.zero_fill_active || u.zero_fill_rate_bps_5s > 0),
+        zero_fill_warning: uploads
+            .iter()
+            .any(|u| u.zero_fill_active || u.zero_fill_rate_bps_5s > 0),
     }))
 }
 
