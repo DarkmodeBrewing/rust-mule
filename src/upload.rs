@@ -7,6 +7,9 @@ use std::{
 };
 use tokio::sync::RwLock;
 
+const RECENT_SESSION_RETENTION: Duration = Duration::from_secs(120);
+const MAX_RECENT_SESSIONS_PER_FILE: usize = 128;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UploadRangePhase {
     Held,
@@ -41,6 +44,8 @@ pub struct UploadActivitySnapshot {
     pub last_payload_source: Option<UploadPayloadSource>,
     pub active_ranges: Vec<UploadRangeSnapshot>,
     pub sessions: Vec<UploadSessionSnapshot>,
+    pub recent_session_count: usize,
+    pub recent_sessions: Vec<UploadSessionSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -209,6 +214,7 @@ struct FileUploadActivity {
     last_peer_id_hex: Option<String>,
     last_payload_source: Option<UploadPayloadSource>,
     active_ranges: Vec<TrackedUploadRange>,
+    recent_sessions: Vec<TrackedUploadRange>,
 }
 
 #[derive(Debug, Clone)]
@@ -290,7 +296,7 @@ impl UploadActivityTracker {
         let Some(file) = inner.files.get_mut(&hash_hex.to_ascii_lowercase()) else {
             return UploadActivitySnapshot::default();
         };
-        prune_expired(file, now);
+        prune_expired(file, now, RECENT_SESSION_RETENTION);
         snapshot_from_file(hash_hex.to_ascii_lowercase(), file)
     }
 
@@ -299,8 +305,11 @@ impl UploadActivityTracker {
         let mut inner = recover_lock(&self.inner, "upload activity");
         let mut out = Vec::new();
         for (hash_hex, file) in inner.files.iter_mut() {
-            prune_expired(file, now);
-            if file.total_requests == 0 && file.active_ranges.is_empty() {
+            prune_expired(file, now, RECENT_SESSION_RETENTION);
+            if file.total_requests == 0
+                && file.active_ranges.is_empty()
+                && file.recent_sessions.is_empty()
+            {
                 continue;
             }
             out.push(snapshot_from_file(hash_hex.clone(), file));
@@ -324,7 +333,7 @@ impl UploadActivityTracker {
         let hash_hex = hash_hex.to_ascii_lowercase();
         let existing_session_id = {
             let file = inner.files.entry(hash_hex.clone()).or_default();
-            prune_expired(file, now);
+            prune_expired(file, now, RECENT_SESSION_RETENTION);
             file.active_ranges
                 .iter()
                 .find(|range| {
@@ -442,23 +451,50 @@ fn snapshot_from_file(hash_hex: String, file: &mut FileUploadActivity) -> Upload
         sessions: file
             .active_ranges
             .iter()
-            .map(|range| UploadSessionSnapshot {
-                session_id: range.session_id,
-                start: range.start,
-                end: range.end,
-                bytes_total: range.end.saturating_sub(range.start).saturating_add(1),
-                phase: range.phase,
-                peer_id_hex: range.peer_id_hex.clone(),
-                payload_source: range.payload_source,
-                started_unix_secs: range.started_unix_secs,
-                last_updated_unix_secs: range.last_updated_unix_secs,
-            })
+            .map(tracked_range_to_session_snapshot)
+            .collect(),
+        recent_session_count: file.recent_sessions.len(),
+        recent_sessions: file
+            .recent_sessions
+            .iter()
+            .map(tracked_range_to_session_snapshot)
             .collect(),
     }
 }
 
-fn prune_expired(file: &mut FileUploadActivity, now: Instant) {
-    file.active_ranges.retain(|range| range.expires_at > now);
+fn prune_expired(file: &mut FileUploadActivity, now: Instant, recent_retention: Duration) {
+    let mut still_active = Vec::with_capacity(file.active_ranges.len());
+    for mut range in file.active_ranges.drain(..) {
+        if range.expires_at > now {
+            still_active.push(range);
+            continue;
+        }
+        range.expires_at = now + recent_retention;
+        file.recent_sessions.push(range);
+    }
+    file.active_ranges = still_active;
+    file.recent_sessions.retain(|range| range.expires_at > now);
+    if file.recent_sessions.len() > MAX_RECENT_SESSIONS_PER_FILE {
+        let keep_from = file
+            .recent_sessions
+            .len()
+            .saturating_sub(MAX_RECENT_SESSIONS_PER_FILE);
+        file.recent_sessions.drain(0..keep_from);
+    }
+}
+
+fn tracked_range_to_session_snapshot(range: &TrackedUploadRange) -> UploadSessionSnapshot {
+    UploadSessionSnapshot {
+        session_id: range.session_id,
+        start: range.start,
+        end: range.end,
+        bytes_total: range.end.saturating_sub(range.start).saturating_add(1),
+        phase: range.phase,
+        peer_id_hex: range.peer_id_hex.clone(),
+        payload_source: range.payload_source,
+        started_unix_secs: range.started_unix_secs,
+        last_updated_unix_secs: range.last_updated_unix_secs,
+    }
 }
 
 fn recover_lock<'a, T>(mutex: &'a Mutex<T>, label: &str) -> std::sync::MutexGuard<'a, T> {
@@ -598,6 +634,44 @@ mod tests {
         let second = tracker.snapshot_for_hash("fade");
         assert_eq!(second.sessions.len(), 1);
         assert!(second.sessions[0].session_id > first_id);
+    }
+
+    #[test]
+    fn tracker_keeps_recent_session_history_after_expiry() {
+        let tracker = UploadActivityTracker::default();
+        tracker.note_sending(
+            "hist",
+            "peer-hist",
+            0,
+            127,
+            Duration::from_millis(1),
+            UploadPayloadSource::SharedFile,
+        );
+        std::thread::sleep(Duration::from_millis(5));
+        let snapshot = tracker.snapshot_for_hash("hist");
+        assert_eq!(snapshot.sessions.len(), 0);
+        assert_eq!(snapshot.recent_sessions.len(), 1);
+        assert_eq!(snapshot.recent_session_count, 1);
+        assert_eq!(snapshot.recent_sessions[0].peer_id_hex, "peer-hist");
+    }
+
+    #[test]
+    fn tracker_caps_recent_session_history_per_file() {
+        let tracker = UploadActivityTracker::default();
+        for idx in 0..140u64 {
+            tracker.note_held(
+                "cap",
+                &format!("peer-{idx}"),
+                idx * 10,
+                idx * 10 + 9,
+                Duration::from_millis(1),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(5));
+        let snapshot = tracker.snapshot_for_hash("cap");
+        assert_eq!(snapshot.sessions.len(), 0);
+        assert_eq!(snapshot.recent_session_count, 128);
+        assert_eq!(snapshot.recent_sessions.len(), 128);
     }
 
     #[test]
