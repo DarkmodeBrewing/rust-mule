@@ -9,7 +9,23 @@ This file exists because chat sessions are not durable project memory. In the ne
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
-## Status (2026-02-19)
+## Status
+
+- Status (2026-03-09): Addressed PR `#53` review feedback on uploader session identity.
+  - `UploadActivityTracker::note(...)` now prunes expired ranges before looking up an existing
+    session id, so expired `peer_id + start + end` ranges cannot recycle an old `session_id`.
+  - Added a regression test proving that a new request after TTL expiry receives a new
+    runtime session id.
+  - Simplified the handoff status section header to `## Status` to avoid the stale
+    date-bearing section title.
+- Decisions:
+  - treat `session_id` uniqueness across active runtime sessions as a real behavioral contract
+    for the uploads API.
+- Next steps:
+  - watch PR `#53` for any remaining review comments.
+- Change log:
+  - Updated `src/upload.rs`.
+  - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-09): Added a first-class uploader session model to the uploads API/UI.
   - `UploadActivityTracker` now assigns stable runtime `session_id` values to active upload

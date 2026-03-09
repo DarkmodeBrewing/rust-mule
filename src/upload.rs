@@ -322,7 +322,9 @@ impl UploadActivityTracker {
         let expires_at = now + ttl;
         let mut inner = recover_lock(&self.inner, "upload activity");
         let hash_hex = hash_hex.to_ascii_lowercase();
-        let existing_session_id = inner.files.get(&hash_hex).and_then(|file| {
+        let existing_session_id = {
+            let file = inner.files.entry(hash_hex.clone()).or_default();
+            prune_expired(file, now);
             file.active_ranges
                 .iter()
                 .find(|range| {
@@ -331,13 +333,14 @@ impl UploadActivityTracker {
                         && range.peer_id_hex == meta.peer_id_hex
                 })
                 .map(|range| range.session_id)
-        });
-        let session_id = existing_session_id.unwrap_or_else(|| {
+        };
+        let session_id = if let Some(session_id) = existing_session_id {
+            session_id
+        } else {
             inner.next_session_id = inner.next_session_id.saturating_add(1);
             inner.next_session_id
-        });
+        };
         let file = inner.files.entry(hash_hex).or_default();
-        prune_expired(file, now);
 
         if let Some(existing) = file.active_ranges.iter_mut().find(|range| {
             range.start == start && range.end == end && range.peer_id_hex == meta.peer_id_hex
@@ -581,6 +584,20 @@ mod tests {
         assert_eq!(snapshots[0].file_hash_md4_hex, "beef");
         assert_eq!(snapshots[0].active_peer_ids, vec!["peer-b".to_string()]);
         assert_eq!(snapshots[0].sessions.len(), 1);
+    }
+
+    #[test]
+    fn tracker_allocates_new_session_id_after_expiry() {
+        let tracker = UploadActivityTracker::default();
+        tracker.note_held("fade", "peer-expire", 0, 63, Duration::from_millis(1));
+        let first = tracker.snapshot_for_hash("fade");
+        assert_eq!(first.sessions.len(), 1);
+        let first_id = first.sessions[0].session_id;
+        std::thread::sleep(Duration::from_millis(5));
+        tracker.note_held("fade", "peer-expire", 0, 63, Duration::from_secs(1));
+        let second = tracker.snapshot_for_hash("fade");
+        assert_eq!(second.sessions.len(), 1);
+        assert!(second.sessions[0].session_id > first_id);
     }
 
     #[test]
