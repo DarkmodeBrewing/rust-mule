@@ -8,6 +8,51 @@ on:
   pull_request:
 
 jobs:
+  build-matrix:
+    name: build-matrix-${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_glob: dist/*.tar.gz
+            build_cmd: scripts/build/build_linux_release.sh
+          - os: macos-latest
+            artifact_glob: dist/*.tar.gz
+            build_cmd: scripts/build/build_macos_release.sh
+          - os: windows-latest
+            artifact_glob: dist/*.zip
+            build_cmd: ./scripts/build/build_windows_release.ps1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build release bundle (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ${{ matrix.build_cmd }}
+        shell: bash
+      - name: Build release bundle (Windows)
+        if: runner.os == 'Windows'
+        run: ${{ matrix.build_cmd }}
+        shell: pwsh
+      - name: Verify release artifact exists (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          ls -l dist
+          compgen -G "${{ matrix.artifact_glob }}" >/dev/null
+        shell: bash
+      - name: Verify release artifact exists (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          Get-ChildItem dist
+          if (-not (Get-ChildItem -Path "${{ matrix.artifact_glob }}" -ErrorAction SilentlyContinue)) {
+            throw "Expected release artifact matching ${{ matrix.artifact_glob }}"
+          }
+        shell: pwsh
+
   kad-scripts-smoke:
     runs-on: ubuntu-latest
     steps:

@@ -11,6 +11,30 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-09): Started the separate alpha build-matrix / packaging track on
+  `feat/alpha-build-matrix`.
+  - Added a CI build matrix that runs the host-platform packaging script on:
+    - Linux
+    - macOS
+    - Windows
+  - Each matrix job now verifies that the expected packaged artifact is produced under `dist/`,
+    so release-bundle breakage shows up on PRs before a tag is cut.
+  - Updated `scripts/build/README.md` to document the relationship between the CI build matrix,
+    the tagged release workflow, and the intended private alpha flow.
+- Decisions:
+  - keep alpha packaging validation as a separate branch from the CLI basics work; release
+    validation and CLI ergonomics are distinct concerns and should remain separately reviewable.
+  - validate host-platform packaging first rather than introducing cross-compilation complexity
+    in the first alpha-readiness slice.
+- Next steps:
+  - run the standard local validation plus a local Linux release-bundle build.
+  - decide whether the next alpha-readiness slice should add artifact smoke checks (for example,
+    `rust-mule --version` and `--help` on the packaged binary) or formalize an alpha checklist.
+- Change log:
+  - Updated `.github/workflows/ci.yml`.
+  - Updated `scripts/build/README.md`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-09): Addressed PR `#59` review feedback for the alpha CLI basics branch.
   - `--help`, `-?`, and `--version` now short-circuit parsing, so they still succeed even when
     trailing unknown flags are present.
