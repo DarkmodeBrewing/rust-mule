@@ -126,6 +126,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - prefer long-lived immutable caching only if filenames become fingerprinted
     - otherwise use a shorter TTL/revalidation policy so deploys do not strand stale UI assets
   - keep HTML routes separately revalidated; do not cache application pages like immutable assets.
+  - investigate the startup race behind:
+    `UI auto-open skipped: API/UI/token did not become ready before timeout`
+    when `data/api.token` appears shortly after process start.
+  - split that investigation into separate readiness causes so logs say whether auto-open missed:
+    API bind, UI route readiness, token-file creation, or token readability.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Split the old monolithic `ui/assets/js/app.js` into `ui/assets/js/app-core.js` plus page-specific modules under `ui/assets/js/pages/` so each UI page only loads the controller it uses.
@@ -178,6 +183,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated the shared rail styling in `ui/assets/css/base.css` so navigation items and search
     thread rows use the same full-width padded treatment.
   - Updated `ui/assets/css/base.css` with reserved-height/status-strip helpers for lower startup
+  - Added backlog notes for the UI auto-open/token readiness race observed during alpha startup,
+    where `data/api.token` can appear in the same minute as the warning but still miss the
+    current readiness timeout window.
     layout shift.
   - Updated `ui/index.html` and `ui/search.html` to use the new stable status-strip/feedback
     classes.

@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-08
+Last Reviewed: 2026-03-10
 
 # Task Plan
 
@@ -106,6 +106,18 @@ Last Reviewed: 2026-03-08
     UI values are stable and comparable across sessions
   - ensure zero-fill fallback uploads still report served bytes/rates truthfully and can be
     distinguished from shared-file-backed upload rates when needed
+- add UI auto-open startup race backlog:
+  - investigate `UI auto-open skipped: API/UI/token did not become ready before timeout`
+    when `data/api.token` is created shortly after startup
+  - verify ordering between API bind, UI static readiness probe, token-file creation, and
+    auto-open timeout window
+  - make the readiness gate resilient to near-simultaneous token-file creation instead of
+    treating that startup race as a hard skip
+  - add logging that distinguishes:
+    - API port not ready
+    - UI route not ready
+    - token file missing
+    - token file present but unreadable/empty
 
 ## v1 Stable Interop Release Gates
 
