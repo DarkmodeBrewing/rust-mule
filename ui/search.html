@@ -82,6 +82,16 @@
           </ul>
         </nav>
 
+        <div class="mt-4">
+          <button
+            class="btn btn-primary"
+            type="button"
+            @click="startNewSearch()"
+          >
+            + New Search
+          </button>
+        </div>
+
         <h3 class="mt-4">Search Threads</h3>
         <ul class="search-list mt-3">
           <template x-if="searchThreads.length === 0">
@@ -114,16 +124,6 @@
             </li>
           </template>
         </ul>
-
-        <div class="mt-4">
-          <button
-            class="btn btn-primary"
-            type="button"
-            @click="startNewSearch()"
-          >
-            + New Search
-          </button>
-        </div>
       </aside>
 
       <main id="main-content" class="main-scroll grid gap-4" tabindex="-1">

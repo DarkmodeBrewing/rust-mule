@@ -222,6 +222,10 @@ function sessionControlMixin() {
     sessionActive: null,
     sessionChecking: false,
 
+    startNewSearch() {
+      goToSearchPage();
+    },
+
     get sessionStateLabel() {
       if (this.sessionActive === true) {
         return 'session: active';
@@ -457,10 +461,6 @@ window.indexApp = function indexApp() {
         clearInterval(this.statusPollTimer);
         this.statusPollTimer = null;
       }
-    },
-
-    startNewSearch() {
-      goToSearchPage();
     },
 
     async stopActiveSearch() {

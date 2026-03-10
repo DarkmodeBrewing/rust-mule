@@ -37,6 +37,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - turned the sidebar into a flush left rail
     - gave the main content a unified full-height surface
     - increased visual separation between primary and destructive buttons
+  - Moved the `+ New Search` action into a stable slot in the left rail across all pages so it
+    remains reachable even when the Search Threads list grows.
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -51,6 +53,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     polled/UI-facing and should not surface bootstrap lag as a gateway timeout.
   - keep the current information architecture for now, but make the app shell read as a proper
     two-pane desktop application instead of a stack of detached cards.
+  - keep primary search creation as a stable rail action, not as content that can be pushed out of
+    reach by dynamic thread state.
 - Next steps:
   - retest the refreshed shell/button treatment on the older Mac and collect the next batch of
     actual layout/usability issues.
@@ -70,6 +74,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `ui/assets/css/color-dark.css`, `ui/assets/css/colors-light.css`, and
     `ui/assets/css/color-hc.css` to give primary and destructive buttons distinct foreground and
     background treatment.
+  - Updated all `ui/*.html` sidebars to place `+ New Search` directly under Navigation.
+  - Updated `ui/assets/js/app.js` so `startNewSearch()` lives in the shared session/UI mixin and
+    is available from every page shell.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 
