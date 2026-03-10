@@ -131,6 +131,31 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     when `data/api.token` appears shortly after process start.
   - split that investigation into separate readiness causes so logs say whether auto-open missed:
     API bind, UI route readiness, token-file creation, or token readability.
+  - classify search-thread origins so shared-library keyword publish jobs do not show up as
+    ordinary user search threads in the Search UI.
+  - review shared-library keyword publish lifetime separately from UI thread lifetime:
+    - the local `keyword_job` TTL is only the retry/progress/UI window (~2h)
+    - remote peers that accepted `PUBLISH_KEY` keep entries on their own keyword-store TTL
+    - decide whether shared-library keyword publishing should become a sustained refresh
+      responsibility instead of a short-lived startup/background burst
+  - refactor search-page information architecture:
+    - remove search threads from the global sidebar
+    - make `/ui/search` a compact active-search index
+    - move the current search workflow/detail surface to a dedicated detail route
+  - split the current combined downloads/shared-library UI into separate `Downloads` and `Shared`
+    navigation/pages so transfer troubleshooting and library/publish management stop competing for
+    one page.
+  - add timed refresh or broader reactive wiring for UI stats that currently stay stale until
+    manual reload.
+  - do a documentation hygiene pass:
+    - decide what belongs on GitHub Pages versus what should stay internal-only
+    - align repository/community-facing docs with GitHub community standards
+  - archive governance working docs so `handoff.md` and `TASKS.md` stay short/current instead of
+    accumulating indefinite historical narrative.
+  - preserve timed-out searches as explicit UI state instead of letting them disappear; add
+    per-search and bulk resubmit/remove actions for timed-out searches.
+  - rebalance `info` vs `debug` logging so operator-relevant progress stays visible at `info`
+    while bucket-refresh chatter moves behind `debug`.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Split the old monolithic `ui/assets/js/app.js` into `ui/assets/js/app-core.js` plus page-specific modules under `ui/assets/js/pages/` so each UI page only loads the controller it uses.
@@ -186,6 +211,26 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Added backlog notes for the UI auto-open/token readiness race observed during alpha startup,
     where `data/api.token` can appear in the same minute as the warning but still miss the
     current readiness timeout window.
+  - Added backlog notes for search-thread origin classification after shared-library filename
+    tokenization produced multiple visible search threads from one shared archive name.
+  - Added backlog notes that shared-library keyword publishing may need a sustained refresh
+    strategy because the local keyword-job TTL only bounds retry/UI lifetime, not remote keyword
+    store retention.
+  - Added backlog notes for a search-page IA cleanup so active-search listing moves into
+    `/ui/search` and the current workflow surface becomes a dedicated detail page instead of
+    overflowing the global sidebar.
+  - Added backlog notes for splitting the combined downloads/shared-library page into separate
+    `Downloads` and `Shared` surfaces.
+  - Added backlog notes for UI stats refresh/reactivity so page counters stop drifting into a
+    partially stale state between manual reloads.
+  - Added backlog notes for documentation hygiene, GitHub Pages publishing scope, and GitHub
+    community-standard repository docs.
+  - Added backlog notes for archiving governance docs so active working documents stay concise and
+    history moves into `docs/governance/archive/`.
+  - Added backlog notes for timed-out search lifecycle handling so failed searches remain visible
+    and actionable instead of silently disappearing from the UI.
+  - Added backlog notes for logging-surface cleanup so `info` logs narrate real operator progress
+    and verbose bucket refresh detail moves behind `debug`.
     layout shift.
   - Updated `ui/index.html` and `ui/search.html` to use the new stable status-strip/feedback
     classes.

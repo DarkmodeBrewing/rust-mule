@@ -71,6 +71,13 @@ Last Reviewed: 2026-03-10
   - audit trace/routing logs and move non-essential internals behind debug-enabled gating
   - specifically gate verbose bucket/routing-table detail logs behind debug flag
   - keep default logs operator-focused (health/progress/errors) and avoid high-cardinality noisy output
+  - rebalance `info` vs `debug` so `info` still shows meaningful forward progress:
+    - search dispatched / search completed / search timed out
+    - download queued / started / resumed / completed / failed
+    - publish/index actions started / completed / failed
+  - avoid letting `info` collapse into only periodic status/bucket refresh noise
+  - treat bucket refresh chatter as debug-level unless it directly signals an operator-relevant
+    state transition or failure
 - add acceptance/soak validation hardening backlog:
   - fail phase0 gate when key metrics resolve to `nan`/unexpected `SKIP` unless explicitly allowlisted
   - add lightweight script sanity mode in CI for soak scripts (env parsing, trap behavior, report/summary generation)
@@ -118,6 +125,93 @@ Last Reviewed: 2026-03-10
     - UI route not ready
     - token file missing
     - token file present but unreadable/empty
+- add search-thread classification backlog:
+  - stop surfacing background keyword publish/search jobs as ordinary user search threads
+  - current symptom: shared-library indexing of filenames like
+    `rust-mule-35a24e3-macos-x86_64.tar.gz` produces multiple visible search threads for split
+    filename tokens
+  - classify search-thread origins explicitly, for example:
+    - user search
+    - background keyword publish
+    - background source lookup/publish
+  - keep user-facing Search UI focused on operator/user-initiated searches
+  - move background publish/discovery activity into shared-library status, operator diagnostics,
+    or a separate background-jobs/debug surface
+  - preserve internal tokenization/indexing behavior if it is protocol-correct; fix the UI/API
+    abstraction first so internal jobs do not leak into the user search model
+  - review shared-library keyword publish lifetime separately from UI thread lifetime:
+    - the local `keyword_job` TTL is only the retry/progress/UI window (~2h)
+    - remote peers that accepted `PUBLISH_KEY` keep entries on their own keyword-store TTL
+    - if reachability is weak during the initial local window, rust-mule may stop retrying too
+      early
+    - decide whether shared-library keyword publishing should become a sustained refresh
+      responsibility instead of a short-lived startup/background burst
+- add search-page information architecture cleanup backlog:
+  - remove search threads from the global sidebar; that rail does not scale once many searches are
+    active
+  - make `/ui/search` the compact active-search index/list page
+  - move the current search workflow/detail surface to a dedicated detail route, for example:
+    `/ui/search/detail?id=<search_id>`
+  - keep the search index optimized for dense scanning of many concurrent searches
+  - keep per-search controls, results, and deep state on the dedicated detail view instead of
+    overloading the main search page or the global navigation rail
+- add shared/downloads page split backlog:
+  - split the current combined downloads/shared-library surface into separate navigation items:
+    - `Downloads`
+    - `Shared`
+  - keep download transfer lifecycle, queue state, and download troubleshooting on `Downloads`
+  - move shared-library inventory, publish status, shared-folder controls, and uploader-focused
+    visibility to `Shared`
+  - reduce page density and mixed responsibilities by avoiding one oversized combined operations
+    page
+- add UI stats refresh backlog:
+  - audit which UI stats are currently static until full page reload versus updated via SSE/polling
+  - add a timed refresh loop for non-reactive stats where SSE coverage does not exist yet
+  - or extend the reactive/evented data model so those stats update without manual refresh
+  - keep refresh cadence conservative enough to avoid unnecessary API churn while still making the
+    UI feel alive during real operation
+  - ensure page-level stats surfaces are internally consistent (avoid some counters updating live
+    while neighboring counters stay stale)
+- add documentation hygiene and publishing-scope backlog:
+  - decide which documentation should be published to GitHub Pages versus kept as internal
+    governance/handoff/backlog material
+  - define explicit inclusion/exclusion rules for the VitePress/Pages build so operational and
+    governance docs are not exposed accidentally
+  - audit docs navigation so published docs present a coherent external-facing information
+    architecture instead of mirroring internal working notes
+- add governance-doc archiving backlog:
+  - create an archive structure under `docs/governance/archive/`
+  - keep `handoff.md` short and current:
+    - current status
+    - active decisions
+    - next steps
+    - recent change log only
+  - keep `TASKS.md` focused on active backlog/priorities rather than historical narrative
+  - move stale or historical entries into dated or milestone-based archive files
+  - add archive references from the active docs so history remains discoverable without keeping the
+    working docs bloated
+- add GitHub community-standards documentation backlog:
+  - align repo/community docs with GitHub community standards where applicable
+  - review and maintain the expected top-level/community-facing files such as:
+    - `README`
+    - `LICENSE`
+    - `CODE_OF_CONDUCT`
+    - `CONTRIBUTING`
+    - issue/PR templates as needed
+    - support/security/community guidance where appropriate
+  - make sure the published docs and repository root docs complement each other instead of
+    duplicating or contradicting each other
+- add timed-out search lifecycle backlog:
+  - do not silently drop timed-out searches from the UI
+  - preserve timed-out searches as explicit state with clear status labeling
+  - allow per-search actions:
+    - resubmit timed-out search
+    - remove timed-out search
+  - add bulk actions:
+    - remove all timed-out searches
+    - resubmit all timed-out searches
+  - keep timeout history visible long enough for operator triage instead of making failed searches
+    appear to vanish
 
 ## v1 Stable Interop Release Gates
 
