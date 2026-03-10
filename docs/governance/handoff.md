@@ -116,9 +116,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - treat Lighthouse CLS findings as a layout-reservation problem first, not a boot-screen problem.
     The immediate fix is to reserve stable space in the existing shell and pages instead of adding
     another startup route/surface.
+  - treat HTTP cache headers as a separate follow-up from the alpha UI trimming pass. They are
+    worth adding for repeat navigations across the multi-page UI, but they do not materially solve
+    first-load JS execution cost or Lighthouse unused-JS findings.
 - Next steps:
-  - retest the page-role cleanup on the older Mac and collect the next batch of actual
-    layout/usability issues.
+  - open and merge the alpha UI stabilization PR.
+  - follow up with static-asset cache headers:
+    - use cache headers for JS/CSS/image assets served under `/ui/assets/`
+    - prefer long-lived immutable caching only if filenames become fingerprinted
+    - otherwise use a shorter TTL/revalidation policy so deploys do not strand stale UI assets
+  - keep HTML routes separately revalidated; do not cache application pages like immutable assets.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Split the old monolithic `ui/assets/js/app.js` into `ui/assets/js/app-core.js` plus page-specific modules under `ui/assets/js/pages/` so each UI page only loads the controller it uses.
@@ -133,6 +140,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     `ready: false` with an empty list.
   - Updated `ui/assets/css/base.css` to make the shell full-bleed, convert the sidebar into a
     flush rail, and give the main pane a unified background surface.
+  - Split the UI controller payload into `ui/assets/js/app-core.js` plus page-specific modules
+    under `ui/assets/js/pages/`, and updated `ui/assets/js/ui-bootstrap.js` plus all UI pages to
+    load only the controller needed for the current page.
   - Updated `ui/assets/css/color-dark.css`, `ui/assets/css/colors-light.css`, and
     `ui/assets/css/color-hc.css` to give primary and destructive buttons distinct foreground and
     background treatment.
