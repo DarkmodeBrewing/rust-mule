@@ -1,7 +1,7 @@
 # Private Alpha Release Checklist
 
 Status: ACTIVE
-Last Reviewed: 2026-03-09
+Last Reviewed: 2026-03-10
 
 This checklist defines the minimum bar for cutting a private alpha tag such as
 `v0.1.0-alpha.1`.
@@ -22,16 +22,17 @@ Primary goals:
 - Linux:
   - native release bundle built on `ubuntu-latest`
 - macOS:
-  - native release bundle built on `macos-latest`
-  - intended private alpha support floor: `macOS 12.0`
-  - implemented via `MACOSX_DEPLOYMENT_TARGET=12.0`
+  - native arm64 release bundle built on `macos-latest`
+  - x86_64 target build produced on `macos-latest`
+  - intended private alpha Intel support floor: `macOS 12.0`
+  - implemented for the x86_64 build via `MACOSX_DEPLOYMENT_TARGET=12.0`
 - Windows:
   - native release bundle built on `windows-latest`
 
 Notes:
 
-- macOS 12 support is intentionally targeted, but still requires runtime verification on a real
-  macOS 12 machine before claiming it as validated.
+- Intel macOS 12 support is intentionally targeted for the x86_64 build, but still requires
+  runtime verification on a real macOS 12 Intel machine before claiming it as validated.
 - Multi-platform release artifacts are built natively in CI/release workflows, not by
   cross-compiling everything from Linux.
 

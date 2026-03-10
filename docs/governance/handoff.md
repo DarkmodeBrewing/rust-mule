@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-09
+Last Reviewed: 2026-03-10
 
 # Handoff / Continuation Notes
 
@@ -10,6 +10,35 @@ This file exists because chat sessions are not durable project memory. In the ne
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.
 
 ## Status
+
+- Status (2026-03-10): Started the macOS dual-architecture packaging follow-up on
+  `feat/macos-dual-arch-builds`.
+  - The macOS build script now packages according to an explicit Rust target triple instead of the
+    host machine architecture, so a macOS runner can produce separate `arm64` and `x86_64`
+    bundles.
+  - The Intel (`x86_64-apple-darwin`) build keeps the `MACOSX_DEPLOYMENT_TARGET=12.0` floor for
+    the older private-alpha test Mac.
+  - The Apple Silicon (`aarch64-apple-darwin`) build is now a distinct artifact and no longer
+    inherits the Intel macOS 12 floor by default.
+  - CI and release workflows were expanded to build separate macOS arm64 and x86_64 artifacts.
+- Decisions:
+  - package macOS arm64 and x86_64 as separate tarballs rather than introducing a universal binary
+    for the first alpha iteration.
+  - scope the macOS 12 deployment floor only to the x86_64 build, because that is the actual
+    compatibility need.
+  - describe the x86_64 macOS bundle as a target build on `macos-latest`, not a native Intel-host
+    build, because the workflow is selecting `x86_64-apple-darwin` on the current macOS runner.
+- Next steps:
+  - run the standard validation set.
+  - inspect the CI/release workflow shape carefully, since the macOS x86_64 build now depends on
+    cross-target packaging from `macos-latest`.
+- Change log:
+  - Updated `scripts/build/build_macos_release.sh`.
+  - Updated `.github/workflows/ci.yml`.
+  - Updated `.github/workflows/release.yml`.
+  - Updated `scripts/build/README.md`.
+  - Updated `docs/30_operations/ALPHA_RELEASE_CHECKLIST.md`.
+  - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-09): Fixed the docs site build failure caused by
   `docs/governance/REVIEWERS_CHECKLIST.md`.

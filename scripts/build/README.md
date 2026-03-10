@@ -30,14 +30,29 @@ Output: `dist/rust-mule-<gitsha>-linux-<arch>.tar.gz`
 scripts/build/build_macos_release.sh
 ```
 
-Output: `dist/rust-mule-<gitsha>-macos-<arch>.tar.gz`
+Default output on Apple Silicon hosts:
+
+- `dist/rust-mule-<gitsha>-macos-arm64.tar.gz`
+
+Explicit target builds:
+
+```bash
+MACOS_BUILD_TARGET=aarch64-apple-darwin scripts/build/build_macos_release.sh
+MACOS_BUILD_TARGET=x86_64-apple-darwin scripts/build/build_macos_release.sh
+```
+
+Outputs:
+
+- `dist/rust-mule-<gitsha>-macos-arm64.tar.gz`
+- `dist/rust-mule-<gitsha>-macos-x86_64.tar.gz`
 
 Private alpha support floor:
 
-- `MACOSX_DEPLOYMENT_TARGET=12.0`
+- Intel macOS (`x86_64-apple-darwin`): `MACOSX_DEPLOYMENT_TARGET=12.0`
+- Apple Silicon macOS (`aarch64-apple-darwin`): no explicit deployment floor is forced by default
 
-The macOS build script exports that deployment target by default so both CI builds and tagged
-release builds target macOS 12 unless explicitly overridden.
+The macOS build script applies the deployment floor only to the Intel build, because the older
+private-alpha test machine is Intel macOS 12. The arm64 build remains a separate artifact.
 
 ## Windows (PowerShell)
 
@@ -57,7 +72,8 @@ Output: `dist/rust-mule-<gitsha>-windows-<arch>.zip`
 
 - `.github/workflows/ci.yml` now validates the host-platform packaging script on:
   - Linux
-  - macOS
+  - macOS arm64
+  - macOS x86_64
   - Windows
 - The CI build matrix also performs packaged-artifact smoke checks after bundling.
 - `.github/workflows/release.yml` still publishes tagged release artifacts using the same
