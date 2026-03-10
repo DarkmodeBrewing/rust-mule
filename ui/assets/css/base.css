@@ -18,19 +18,22 @@ a:hover {
 }
 
 .skip-link {
-  position: absolute;
+  position: fixed;
   left: var(--s-3);
-  top: calc(-1 * var(--s-5));
+  top: var(--s-3);
+  transform: translateY(calc(-100% - var(--s-3)));
   z-index: 1000;
   background: var(--panel);
   color: var(--fg);
   border: var(--line) solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--s-2) var(--s-3);
+  transition: transform 120ms ease;
 }
 
-.skip-link:focus {
-  top: var(--s-3);
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 .sr-only {

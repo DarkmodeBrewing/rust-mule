@@ -25,6 +25,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Search thread lists now prefer the original keyword label when available instead of showing
     only the opaque search hash; the hash is retained as secondary context when it differs from
     the label.
+  - Fixed the skip-link affordance so it stays fully off-screen until keyboard focus instead of
+    remaining half-visible in the top-left corner.
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -32,6 +34,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     behavior between classic `defer` scripts and ES modules.
   - store and expose the original keyword text through the KAD search job so the UI can render a
     human-readable search thread title consistently across pages.
+  - keep the skip-link accessibility affordance, but hide it until focus rather than removing it.
 - Next steps:
   - retest the UI on the older Mac and collect the next batch of actual layout/usability issues.
 - Change log:
@@ -40,6 +43,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated Overview sidebar links in all `ui/*.html` pages to `/ui/`.
   - Updated KAD search API/service plumbing to retain `keyword_label`.
   - Updated search thread rendering in all `ui/*.html` pages to prefer the label over the hash.
+  - Updated `ui/assets/css/base.css` to make `.skip-link` focus-only visible.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 
