@@ -49,7 +49,7 @@
     <section class="container shell">
       <aside class="card sidebar" aria-label="Sidebar">
         <h2>rust-mule</h2>
-        <p>Search dashboard shell</p>
+        <p>System overview and startup state</p>
         <div class="flex gap-2 flex-wrap mt-3">
           <span
             class="badge"
@@ -128,11 +128,11 @@
       <main id="main-content" class="main-scroll grid gap-4" tabindex="-1">
         <div class="card">
           <div class="flex gap-3 flex-wrap">
-            <h1>Search Overview: <span x-text="activeThreadTitle"></span></h1>
+            <h1>Overview</h1>
             <span
               class="badge"
-              x-bind:class="activeThreadStateClass"
-              x-text="activeThreadState"
+              x-bind:class="status?.ready ? 'state-done' : 'state-idle'"
+              x-text="status?.ready ? 'kad: ready' : 'kad: bootstrapping'"
             ></span>
             <span
               class="badge"
@@ -145,20 +145,12 @@
             <button class="btn ml-auto" type="button" @click="refreshStatus()">
               Refresh
             </button>
-            <button class="btn" type="button" @click="stopActiveSearch()">
-              Stop
-            </button>
-            <button class="btn" type="button" @click="exportActiveSearch()">
-              Export
-            </button>
-            <button
-              class="btn btn-danger"
-              type="button"
-              @click="deleteActiveSearch()"
-            >
-              Delete
-            </button>
           </div>
+          <p class="mt-3">
+            Node, transfer, and search activity summary for the current client.
+            Use the dedicated pages for search workflows, downloads, logs, and
+            routing diagnostics.
+          </p>
           <p
             class="mt-3"
             x-show="error"
@@ -208,40 +200,96 @@
         </div>
 
         <div class="card">
-          <h2>Progress</h2>
-          <p>Minimal v1 progress view (counters + timeline hooks).</p>
-          <div class="badge mt-3">
-            requests sent: <span x-text="status?.recv_req ?? 0"></span>
+          <div class="flex gap-3 flex-wrap">
+            <h2>Search Activity</h2>
+            <a class="btn ml-auto" href="/ui/search">Open Search Workspace</a>
           </div>
-          <div class="badge mt-3">
-            responses received: <span x-text="status?.recv_res ?? 0"></span>
+          <div class="grid grid-3 mt-3">
+            <div>
+              <div class="kpi" x-text="searchThreads.length"></div>
+              <span class="label">Active Search Threads</span>
+            </div>
+            <div>
+              <div
+                class="kpi"
+                x-text="searchThreads.reduce((acc, thread) => acc + (thread.hits || 0), 0)"
+              ></div>
+              <span class="label">Total Observed Hits</span>
+            </div>
+            <div>
+              <div
+                class="kpi"
+                x-text="searchThreads.length > 0 ? searchThreads[0].display_label : 'none'"
+              ></div>
+              <span class="label">Most Recent Search</span>
+            </div>
           </div>
-        </div>
-
-        <div class="card">
-          <h2>Results</h2>
           <table class="table mt-3">
             <caption class="sr-only">
-              Search results overview table
+              Recent search threads table
             </caption>
             <thead>
               <tr>
-                <th scope="col">File</th>
-                <th scope="col">Size</th>
-                <th scope="col">Sources</th>
-                <th scope="col">Confidence</th>
+                <th scope="col">Search</th>
+                <th scope="col">State</th>
+                <th scope="col">Hits</th>
+                <th scope="col">Age</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td colspan="4">Result list wiring is next; layout ready.</td>
-              </tr>
+              <template x-if="searchThreads.length === 0">
+                <tr>
+                  <td colspan="4">No active search threads yet.</td>
+                </tr>
+              </template>
+              <template x-for="thread in searchThreads" :key="thread.search_id_hex">
+                <tr>
+                  <td>
+                    <a
+                      x-bind:href="'/ui/search_details?searchId=' + thread.search_id_hex"
+                      x-text="thread.display_label"
+                    ></a>
+                  </td>
+                  <td>
+                    <span
+                      class="badge"
+                      x-bind:class="thread.state_class"
+                      x-text="thread.state"
+                    ></span>
+                  </td>
+                  <td x-text="thread.hits"></td>
+                  <td>
+                    <span x-text="thread.created_secs_ago"></span>s
+                  </td>
+                </tr>
+              </template>
             </tbody>
           </table>
         </div>
 
         <div class="card">
-          <h2>Activity / Logs</h2>
+          <h2>Service Counters</h2>
+          <div class="flex gap-3 flex-wrap mt-3">
+            <div class="badge">
+              requests received: <span x-text="status?.recv_req ?? 0"></span>
+            </div>
+            <div class="badge">
+              responses received: <span x-text="status?.recv_res ?? 0"></span>
+            </div>
+            <div class="badge">
+              timeouts: <span x-text="status?.timeouts ?? 0"></span>
+            </div>
+            <div class="badge">
+              sent req total: <span x-text="status?.sent_reqs_total ?? 0"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="flex gap-3 flex-wrap">
+            <h2>Raw Status</h2>
+            <a class="btn ml-auto" href="/ui/log">Open Logs</a>
+          </div>
           <pre class="log" x-text="prettyStatus"></pre>
         </div>
       </main>

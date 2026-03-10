@@ -52,6 +52,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - successful submit now clears and refocuses the inputs
     - the search form now stays disabled until the existing `/api/v1/searches.ready` signal says
       KAD search is actually ready
+  - Reworked the page roles so `/ui/` is a real application overview instead of a single-search
+    control surface:
+    - removed the stale overview-only active-search controls and controller state
+    - changed the landing page into a health/search summary with recent search activity and raw
+      status links
+    - updated sidebar subtitles so each page describes its actual purpose
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -74,9 +80,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     labels/classes at creation time, so explicit updaters are safer here.
   - use the already-available search-thread readiness signal in the frontend instead of letting the
     user discover bootstrap lag by hitting the search form and walking into a timeout path.
+  - keep search execution and detailed search management on the dedicated search pages; the
+    overview page should summarize system state, not drive one arbitrary active search thread.
 - Next steps:
-  - retest the refreshed shell/button treatment on the older Mac and collect the next batch of
-    actual layout/usability issues.
+  - retest the page-role cleanup on the older Mac and collect the next batch of actual
+    layout/usability issues.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Updated all `ui/*.html` page shells.
@@ -105,6 +113,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     row.
   - Updated `ui/assets/js/app.js` and `ui/search.html` so the search form is disabled until KAD
     search is ready, and successful submit clears/refocuses the inputs.
+  - Updated `ui/index.html` to become a true application overview page with search activity,
+    service counters, and raw-status sections.
+  - Removed stale active-search overview controller state from `ui/assets/js/app.js`.
+  - Updated sidebar subtitle copy in `ui/search.html`, `ui/search_details.html`,
+    `ui/node_stats.html`, `ui/log.html`, and `ui/settings.html`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs` to match the new overview-page contract.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 

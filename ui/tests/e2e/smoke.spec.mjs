@@ -8,11 +8,13 @@ async function ensureAuthenticated(page) {
 test.describe('rust-mule ui smoke', () => {
   test('overview renders core sections', async ({ page }) => {
     await ensureAuthenticated(page);
-    await expect(page.getByRole('heading', { name: /Search Overview/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Search Activity' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: 'Raw Status' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Searches' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Downloads' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Nodes / Routing' })).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Logs' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Logs', exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
   });
 

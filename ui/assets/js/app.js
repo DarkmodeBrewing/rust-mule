@@ -334,30 +334,6 @@ window.indexApp = function indexApp() {
     sse: null,
     statusPollTimer: null,
     searchThreads: [],
-    selectedSearchId: '',
-
-    get activeThread() {
-      if (!this.selectedSearchId) {
-        return null;
-      }
-      return (
-        this.searchThreads.find(
-          (t) => t.search_id_hex === this.selectedSearchId,
-        ) || null
-      );
-    },
-
-    get activeThreadTitle() {
-      return this.activeThread?.display_label || 'No active search selected';
-    },
-
-    get activeThreadState() {
-      return this.activeThread?.state || 'idle';
-    },
-
-    get activeThreadStateClass() {
-      return this.activeThread?.state_class || stateClass('idle');
-    },
 
     get prettyStatus() {
       if (!this.status) {
@@ -380,7 +356,6 @@ window.indexApp = function indexApp() {
         this.token = await bootstrapToken();
         await this.refreshStatus();
         await this.refreshThreads();
-        this.selectInitialThread();
         this.startEvents();
         this.startStatusPolling();
       } catch (err) {
@@ -388,18 +363,6 @@ window.indexApp = function indexApp() {
       } finally {
         this.loading = false;
       }
-    },
-
-    selectInitialThread() {
-      const fromQuery = parseSearchIdFromQuery();
-      if (
-        fromQuery &&
-        this.searchThreads.some((t) => t.search_id_hex === fromQuery)
-      ) {
-        this.selectedSearchId = fromQuery;
-        return;
-      }
-      this.selectedSearchId = this.searchThreads[0]?.search_id_hex || '';
     },
 
     async refreshStatus() {
@@ -415,14 +378,6 @@ window.indexApp = function indexApp() {
     async refreshThreads() {
       try {
         await loadSearchThreads(this);
-        if (
-          this.selectedSearchId &&
-          !this.searchThreads.some(
-            (t) => t.search_id_hex === this.selectedSearchId,
-          )
-        ) {
-          this.selectedSearchId = this.searchThreads[0]?.search_id_hex || '';
-        }
       } catch (err) {
         this.error = String(err?.message || err);
       }
@@ -470,60 +425,6 @@ window.indexApp = function indexApp() {
       if (this.statusPollTimer) {
         clearInterval(this.statusPollTimer);
         this.statusPollTimer = null;
-      }
-    },
-
-    async stopActiveSearch() {
-      if (!this.activeThread) {
-        this.notice = 'No active search selected to stop.';
-        return;
-      }
-      try {
-        const id = this.activeThread.search_id_hex;
-        const resp = await apiPost(`/searches/${id}/stop`, {});
-        if (resp?.stopped) {
-          this.notice = `Stopped search ${id}.`;
-        } else {
-          this.notice = `Search ${id} was not active.`;
-        }
-        await this.refreshThreads();
-      } catch (err) {
-        this.error = String(err?.message || err);
-      }
-    },
-
-    async exportActiveSearch() {
-      if (!this.activeThread) {
-        this.notice = 'No active search selected to export.';
-        return;
-      }
-      try {
-        const details = await apiGet(
-          `/searches/${this.activeThread.search_id_hex}`,
-        );
-        downloadJson(`search-${this.activeThread.search_id_hex}.json`, details);
-        this.notice = `Exported search ${this.activeThread.search_id_hex}.`;
-      } catch (err) {
-        this.error = String(err?.message || err);
-      }
-    },
-
-    async deleteActiveSearch() {
-      if (!this.activeThread) {
-        this.notice = 'No active search selected to remove from view.';
-        return;
-      }
-      try {
-        const id = this.activeThread.search_id_hex;
-        const resp = await apiDelete(`/searches/${id}`);
-        if (resp?.deleted) {
-          this.notice = `Deleted search ${id}.`;
-        } else {
-          this.notice = `Search ${id} was not found.`;
-        }
-        await this.refreshThreads();
-      } catch (err) {
-        this.error = String(err?.message || err);
       }
     },
   };
