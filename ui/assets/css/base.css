@@ -96,6 +96,7 @@ a:hover {
 .badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--layout-badge-gap);
   padding: var(--layout-badge-pad-y) var(--layout-badge-pad-x);
   border-radius: var(--layout-badge-radius);
@@ -195,6 +196,7 @@ a:hover {
 
 .flex {
   display: flex;
+  align-items: center;
 }
 
 .flex-wrap {

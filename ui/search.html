@@ -128,7 +128,14 @@
 
       <main id="main-content" class="main-scroll grid gap-4" tabindex="-1">
         <div class="card">
-          <h1>Keyword Search</h1>
+          <div class="flex gap-3 flex-wrap">
+            <h1>Keyword Search</h1>
+            <span
+              class="badge"
+              x-bind:class="searchReady ? 'state-done' : 'state-idle'"
+              x-text="searchReady ? 'kad: ready' : 'kad: bootstrapping'"
+            ></span>
+          </div>
           <p>
             First version: queue Kad keyword lookup and fetch cached hits by
             keyword hash.

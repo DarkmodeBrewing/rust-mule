@@ -58,6 +58,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - changed the landing page into a health/search summary with recent search activity and raw
       status links
     - updated sidebar subtitles so each page describes its actual purpose
+  - Tightened a small follow-up UI pass from the latest alpha screenshots:
+    - the search page now shows the same KAD readiness badge pattern as the overview
+    - flex rows now center-align their children so badges/buttons stop stretching vertically
+    - the settings page no longer shows the unrelated search/routing KPI boxes
+    - the shared-folder editor now explicitly explains why there is no browser-side folder picker
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -82,6 +87,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     user discover bootstrap lag by hitting the search form and walking into a timeout path.
   - keep search execution and detailed search management on the dedicated search pages; the
     overview page should summarize system state, not drive one arbitrary active search thread.
+  - do not add a fake folder picker to the settings page: the browser does not reliably provide a
+    durable absolute path that can be written back into `config.toml`, so a plain textarea plus a
+    clear explanation is more honest than a broken picker affordance.
 - Next steps:
   - retest the page-role cleanup on the older Mac and collect the next batch of actual
     layout/usability issues.
@@ -119,6 +127,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated sidebar subtitle copy in `ui/search.html`, `ui/search_details.html`,
     `ui/node_stats.html`, `ui/log.html`, and `ui/settings.html`.
   - Updated `ui/tests/e2e/smoke.spec.mjs` to match the new overview-page contract.
+  - Updated `ui/search.html` to show a KAD readiness badge.
+  - Updated `ui/assets/css/base.css` so generic flex rows center-align children and badges center
+    their contents instead of stretching vertically.
+  - Removed the unrelated search/routing KPI boxes from `ui/settings.html`.
+  - Added explanatory copy to `ui/settings.html` describing why shared folders still require
+    explicit filesystem paths.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 
