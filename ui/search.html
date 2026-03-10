@@ -140,10 +140,26 @@
             role="alert"
             aria-live="assertive"
           ></p>
+          <p
+            class="mt-3"
+            x-show="notice"
+            x-text="notice"
+            role="status"
+            aria-live="polite"
+          ></p>
         </div>
 
         <div class="card">
           <h2>Search Form</h2>
+          <p
+            class="mt-3"
+            x-show="!searchReady"
+            role="status"
+            aria-live="polite"
+          >
+            Search service is still starting. The form will unlock once KAD
+            search is ready.
+          </p>
           <form class="form-grid mt-3" @submit.prevent="submitSearch()">
             <div class="field">
               <label for="query">Keyword Query</label>
@@ -153,6 +169,7 @@
                 type="text"
                 placeholder="ubuntu iso"
                 x-model="query"
+                x-bind:disabled="!searchReady || submitting || loading"
                 autocomplete="off"
               />
             </div>
@@ -165,6 +182,7 @@
                 type="text"
                 placeholder="00112233445566778899aabbccddeeff"
                 x-model="keywordIdHex"
+                x-bind:disabled="!searchReady || submitting || loading"
                 autocomplete="off"
               />
             </div>
@@ -173,7 +191,7 @@
               <button
                 class="btn btn-primary"
                 type="submit"
-                x-bind:disabled="submitting || loading"
+                x-bind:disabled="!searchReady || submitting || loading"
               >
                 <span
                   x-text="submitting ? 'Searching...' : 'Search Keyword'"
@@ -183,7 +201,7 @@
                 class="btn"
                 type="button"
                 @click="refreshResults()"
-                x-bind:disabled="submitting || loading"
+                x-bind:disabled="!searchReady || submitting || loading"
               >
                 Refresh Results
               </button>

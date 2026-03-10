@@ -48,6 +48,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     frozen at `unknown`.
   - Changed node-stats chart layout so the graphs render on their own rows instead of sharing a
     cramped three-column band.
+  - Fixed two search-form UX bugs:
+    - successful submit now clears and refocuses the inputs
+    - the search form now stays disabled until the existing `/api/v1/searches.ready` signal says
+      KAD search is actually ready
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -68,6 +72,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     the application should read like a tool, not a marketing site.
   - avoid getter-based UI state inside spread mixins; the object spread froze the session-pill
     labels/classes at creation time, so explicit updaters are safer here.
+  - use the already-available search-thread readiness signal in the frontend instead of letting the
+    user discover bootstrap lag by hitting the search form and walking into a timeout path.
 - Next steps:
   - retest the refreshed shell/button treatment on the older Mac and collect the next batch of
     actual layout/usability issues.
@@ -97,6 +103,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     `checkSession()` instead of getter values frozen by object spread.
   - Updated `ui/node_stats.html` so the charts stack vertically instead of sharing a three-column
     row.
+  - Updated `ui/assets/js/app.js` and `ui/search.html` so the search form is disabled until KAD
+    search is ready, and successful submit clears/refocuses the inputs.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 

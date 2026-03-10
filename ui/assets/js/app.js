@@ -69,6 +69,9 @@ async function loadSearchThreads(ctx) {
   const data = await apiGet('/searches');
   const threads = Array.isArray(data?.searches) ? data.searches : [];
   ctx.searchThreads = threads.map(normalizeSearchThread);
+  if ('searchReady' in ctx) {
+    ctx.searchReady = Boolean(data?.ready);
+  }
 }
 
 function downloadJson(filename, data) {
@@ -531,7 +534,9 @@ window.appSearch = function appSearch() {
     ...sessionControlMixin(),
     loading: false,
     submitting: false,
+    searchReady: false,
     error: '',
+    notice: '',
     query: '',
     keywordIdHex: '',
     searchResponse: null,
@@ -573,11 +578,18 @@ window.appSearch = function appSearch() {
     },
 
     async submitSearch() {
+      if (!this.searchReady) {
+        this.error = 'Search service is still starting. Wait for KAD readiness.';
+        this.focusQueryInput();
+        return;
+      }
       this.submitting = true;
       this.error = '';
+      this.notice = '';
       try {
         const payload = this.buildPayload();
         this.searchResponse = await apiPost('/kad/search_keyword', payload);
+        this.clearSearchInputs();
         await this.refreshResults();
         await this.refreshThreads();
       } catch (err) {
@@ -592,6 +604,10 @@ window.appSearch = function appSearch() {
     },
 
     async refreshResults() {
+      if (!this.searchReady) {
+        this.notice = 'Search results are unavailable until KAD search is ready.';
+        return;
+      }
       const keywordIdHex = this.activeKeywordIdHex;
       if (!keywordIdHex) {
         this.keywordResults = null;
@@ -603,10 +619,21 @@ window.appSearch = function appSearch() {
     },
 
     startNewSearch() {
+      this.notice = '';
       this.query = '';
       this.keywordIdHex = '';
       this.searchResponse = null;
       this.keywordResults = null;
+      this.focusQueryInput();
+    },
+
+    clearSearchInputs() {
+      this.query = '';
+      this.keywordIdHex = '';
+      this.focusQueryInput();
+    },
+
+    focusQueryInput() {
       const queryInput = document.getElementById('query');
       if (queryInput) {
         queryInput.focus();
