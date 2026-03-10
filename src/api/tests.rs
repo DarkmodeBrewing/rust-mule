@@ -814,7 +814,9 @@ async fn status_route_is_rate_limited_when_threshold_exceeded() {
             .oneshot(authorized_api_get("/api/v1/status"))
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = response_json(resp).await;
+        assert_eq!(body["ready"], false);
     }
 
     let limited = app

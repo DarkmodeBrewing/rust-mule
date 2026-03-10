@@ -136,7 +136,7 @@ impl Default for KadServiceConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct KadServiceStatus {
     pub uptime_secs: u64,
     pub routing: usize,
