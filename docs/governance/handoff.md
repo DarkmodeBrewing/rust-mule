@@ -39,6 +39,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - increased visual separation between primary and destructive buttons
   - Moved the `+ New Search` action into a stable slot in the left rail across all pages so it
     remains reachable even when the Search Threads list grows.
+  - Flattened the shell styling further so the UI reads less like a glossy dashboard and more like
+    a utilitarian application workspace:
+    - section cards now render as flat bordered blocks
+    - Search Threads now reads as a rail section instead of a floating widget
+    - the main pane reads as one coherent surface with divided sections
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -55,6 +60,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     two-pane desktop application instead of a stack of detached cards.
   - keep primary search creation as a stable rail action, not as content that can be pushed out of
     reach by dynamic thread state.
+  - prefer plain section blocks and border dividers over rounded/glowing cards for the alpha UI;
+    the application should read like a tool, not a marketing site.
 - Next steps:
   - retest the refreshed shell/button treatment on the older Mac and collect the next batch of
     actual layout/usability issues.
@@ -77,6 +84,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated all `ui/*.html` sidebars to place `+ New Search` directly under Navigation.
   - Updated `ui/assets/js/app.js` so `startNewSearch()` lives in the shared session/UI mixin and
     is available from every page shell.
+  - Updated `ui/assets/css/base.css` to flatten `.card` styling, turn Search Threads into a rail
+    section with top/bottom dividers, and make the main pane read as a continuous utilitarian
+    workspace.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 

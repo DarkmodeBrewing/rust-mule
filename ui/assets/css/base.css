@@ -73,21 +73,10 @@ a:hover {
 }
 
 .card {
-  background:
-    radial-gradient(
-      var(--layout-card-glow-1-width) var(--layout-card-glow-1-height) at 20% 0%,
-      var(--card-glow-accent),
-      transparent 60%
-    ),
-    radial-gradient(
-      var(--layout-card-glow-2-width) var(--layout-card-glow-2-height) at 80% 0%,
-      var(--card-glow-signal),
-      transparent 55%
-    ),
-    var(--panel);
+  background: transparent;
   border: var(--line) solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border-radius: 0;
+  box-shadow: none;
   padding: var(--s-5);
 }
 
@@ -270,11 +259,32 @@ a:hover {
   gap: var(--s-2);
 }
 
+.nav-list {
+  gap: var(--s-1);
+}
+
+.nav-list a {
+  display: block;
+  width: 100%;
+  padding: var(--s-1) 0;
+}
+
+.search-list {
+  width: 100%;
+  gap: 0;
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
+}
+
 .search-item {
-  border: var(--line) solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 0;
+  border-bottom: var(--line) solid var(--border);
   padding: var(--layout-list-item-pad-y) var(--layout-list-item-pad-x);
-  background: var(--panel-2);
+  background: transparent;
+}
+
+.search-item:last-child {
+  border-bottom: 0;
 }
 
 .state-running {
@@ -311,14 +321,19 @@ a:hover {
   min-height: 100vh;
   padding: var(--s-5);
   align-content: start;
-  background:
-    radial-gradient(
-      56.25rem 22rem at 12% 0%,
-      var(--card-glow-accent),
-      transparent 60%
-    ),
-    linear-gradient(180deg, var(--bg), var(--bg-2)),
-    var(--panel-2);
+  background: var(--panel-2);
+}
+
+.main-scroll > .card {
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  padding-left: var(--s-3);
+  padding-right: var(--s-3);
+}
+
+.main-scroll > .card:first-child {
+  border-top: var(--line) solid var(--border);
 }
 
 .form-grid {
