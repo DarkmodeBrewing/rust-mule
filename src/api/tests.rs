@@ -1115,6 +1115,10 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         .unwrap();
     assert_eq!(searches_resp.status(), StatusCode::OK);
     let searches_json = response_json(searches_resp).await;
+    assert_eq!(
+        searches_json.get("ready").and_then(Value::as_bool),
+        Some(true)
+    );
     let searches = searches_json
         .get("searches")
         .and_then(Value::as_array)

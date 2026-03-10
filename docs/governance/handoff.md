@@ -30,6 +30,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Changed `/api/v1/status` startup semantics so it now returns `200` with `ready: false` and a
     zeroed status payload during early boot instead of returning `503` until KAD bootstrap
     finishes.
+  - Changed `/api/v1/searches` startup semantics so it now returns `200` with `ready: false` and
+    an empty list during early KAD startup instead of timing out with `504`.
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -40,6 +42,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - keep the skip-link accessibility affordance, but hide it until focus rather than removing it.
   - treat `/api/v1/status` as an application status document, not as a transport-level readiness
     probe; use a structured `ready` flag during startup instead of `503`.
+  - use the same structured startup approach for the search thread list, because that page is
+    polled/UI-facing and should not surface bootstrap lag as a gateway timeout.
 - Next steps:
   - retest the UI on the older Mac and collect the next batch of actual layout/usability issues.
 - Change log:
@@ -51,6 +55,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `ui/assets/css/base.css` to make `.skip-link` focus-only visible.
   - Updated `/api/v1/status` to return a startup payload with `ready: false` when KAD has not yet
     published its first status snapshot.
+  - Updated `/api/v1/searches` to return `{ ready, searches }` and treat startup timeout as
+    `ready: false` with an empty list.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 

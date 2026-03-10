@@ -437,6 +437,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/v1/searches') {
     return sendJson(res, 200, {
+      ready: true,
       searches: [
         {
           search_id_hex: SEARCH_ID,

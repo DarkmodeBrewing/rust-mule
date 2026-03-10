@@ -70,6 +70,7 @@ pub(crate) struct KadKeywordResultsResponse {
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SearchListResponse {
+    pub(crate) ready: bool,
     pub(crate) searches: Vec<KadKeywordSearchInfo>,
 }
 
@@ -257,12 +258,13 @@ pub(crate) async fn searches(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
 
-    let searches = tokio::time::timeout(API_CMD_TIMEOUT, rx)
-        .await
-        .map_err(|_| StatusCode::GATEWAY_TIMEOUT)?
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let (ready, searches) = match tokio::time::timeout(API_CMD_TIMEOUT, rx).await {
+        Ok(Ok(searches)) => (true, searches),
+        Ok(Err(_)) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+        Err(_) => (false, Vec::new()),
+    };
 
-    Ok(Json(SearchListResponse { searches }))
+    Ok(Json(SearchListResponse { ready, searches }))
 }
 
 pub(crate) async fn search_details(
