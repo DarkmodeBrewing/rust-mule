@@ -56,6 +56,9 @@ window.appSearch = function appSearch() {
 
     async submitSearch() {
       if (!this.searchReady) {
+        await this.refreshThreads();
+      }
+      if (!this.searchReady) {
         this.error = 'Search service is still starting. Wait for KAD readiness.';
         this.focusQueryInput();
         return;

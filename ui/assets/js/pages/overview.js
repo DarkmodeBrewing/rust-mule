@@ -73,7 +73,10 @@ window.indexApp = function indexApp() {
       try {
         this.sse = openStatusEventStream(
           (status) => {
-            this.status = enrichOverviewStatus(status, this.status);
+            this.status = enrichOverviewStatus(
+              { ...status, ready: true },
+              this.status,
+            );
             this.connected = true;
           },
           (message) => {

@@ -14,10 +14,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Status (2026-03-10): Started the alpha UI stabilization track on
   `feat/alpha-ui-stabilization`.
   - Fixed a UI boot-order failure seen on the older macOS machine where Alpine evaluated
-    `x-data="...()"` expressions before `ui/assets/js/app.js` had attached the page factories to
+    `x-data="...()"` expressions before the page bootstrap had attached the page factories to
     `window`.
-  - Added `ui/assets/js/ui-bootstrap.js` so the UI now imports `app.js` first and only then loads
-    Alpine.
+  - Added `ui/assets/js/ui-bootstrap.js` so the UI now imports the page-specific controller
+    module first and only then loads Alpine.
   - Updated all UI pages to use the new bootstrap module instead of loading Alpine before the app
     module.
   - Normalized the sidebar Overview navigation target to `/ui/` across all pages so the route is
