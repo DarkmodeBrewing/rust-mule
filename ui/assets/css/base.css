@@ -258,13 +258,14 @@ a:hover {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--s-2);
+  width: 100%;
 }
 
 .nav-list a {
   display: block;
+  width: 100%;
   padding: var(--s-2) var(--s-3);
-  border: var(--line) solid transparent;
+  border: var(--line) solid var(--nav-item-border, transparent);
   background: var(--nav-item-bg, transparent);
   color: var(--fg-2);
   text-decoration: none;
@@ -287,28 +288,35 @@ a:hover {
   gap: var(--s-1);
 }
 
-.nav-list a {
-  display: block;
-  width: 100%;
+.search-list {
+  gap: var(--s-1);
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
   padding: var(--s-1) 0;
 }
 
-.search-list {
-  width: 100%;
-  gap: 0;
-  border-top: var(--line) solid var(--border);
-  border-bottom: var(--line) solid var(--border);
-}
-
 .search-item {
-  border: 0;
-  border-bottom: var(--line) solid var(--border);
-  padding: var(--layout-list-item-pad-y) var(--layout-list-item-pad-x);
-  background: transparent;
+  display: grid;
+  gap: var(--s-2);
+  width: 100%;
+  border: var(--line) solid var(--nav-item-border, transparent);
+  padding: var(--s-2) var(--s-3);
+  background: var(--nav-item-bg, transparent);
 }
 
-.search-item:last-child {
-  border-bottom: 0;
+.search-item:hover {
+  background: var(--nav-item-hover-bg, var(--table-row-hover-bg));
+  border-color: var(--nav-item-hover-border, var(--border));
+}
+
+.search-item a {
+  display: block;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.search-item a:hover {
+  text-decoration: none;
 }
 
 .state-running {

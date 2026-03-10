@@ -68,6 +68,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - turned sidebar navigation into explicit application chrome with hover and active states
     - active navigation now uses the same dark-blue family as the main workspace instead of
       looking like a plain text link
+  - Tightened the sidebar rail structure from the next alpha screenshot pass:
+    - navigation items now span the full rail width with more padding
+    - active state is now a filled background, not just an outline
+    - Search Threads now inherits the same rail item treatment so the sidebar reads as one system
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -99,6 +103,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     and make startup state explicit and honest with `ready` badges/disabled controls. A dedicated
     boot screen would add routing/state complexity without solving the underlying page clarity
     issues first.
+  - keep the sidebar as a unified control rail: navigation and search-thread rows should share the
+    same structural treatment so the left pane reads like application chrome instead of a mixed bag
+    of links and ad hoc list content.
 - Next steps:
   - retest the page-role cleanup on the older Mac and collect the next batch of actual
     layout/usability issues.
@@ -147,6 +154,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     `ui/assets/css/color-dark.css`, `ui/assets/css/colors-light.css`, and
     `ui/assets/css/color-hc.css` so active/hover states read like application navigation instead
     of plain links.
+  - Updated the shared rail styling in `ui/assets/css/base.css` so navigation items and search
+    thread rows use the same full-width padded treatment.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 
