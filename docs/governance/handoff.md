@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-09
+Last Reviewed: 2026-03-10
 
 # Handoff / Continuation Notes
 
@@ -26,6 +26,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     for the first alpha iteration.
   - scope the macOS 12 deployment floor only to the x86_64 build, because that is the actual
     compatibility need.
+  - describe the x86_64 macOS bundle as a target build on `macos-latest`, not a native Intel-host
+    build, because the workflow is selecting `x86_64-apple-darwin` on the current macOS runner.
 - Next steps:
   - run the standard validation set.
   - inspect the CI/release workflow shape carefully, since the macOS x86_64 build now depends on

@@ -22,24 +22,28 @@ jobs:
         run: npm run docs:build
 
   build-matrix:
-    name: build-matrix-${{ matrix.os }}
+    name: build-matrix-${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
+            label: linux
             artifact_glob: dist/*.tar.gz
             build_cmd: scripts/build/build_linux_release.sh
           - os: macos-latest
+            label: macos-arm64
             artifact_glob: dist/*-macos-arm64.tar.gz
             build_cmd: MACOS_BUILD_TARGET=aarch64-apple-darwin scripts/build/build_macos_release.sh
             rust_target: aarch64-apple-darwin
           - os: macos-latest
+            label: macos-x86_64
             artifact_glob: dist/*-macos-x86_64.tar.gz
             build_cmd: MACOS_BUILD_TARGET=x86_64-apple-darwin scripts/build/build_macos_release.sh
             rust_target: x86_64-apple-darwin
           - os: windows-latest
+            label: windows
             artifact_glob: dist/*.zip
             build_cmd: ./scripts/build/build_windows_release.ps1
     steps:
