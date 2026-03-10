@@ -44,6 +44,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - section cards now render as flat bordered blocks
     - Search Threads now reads as a rail section instead of a floating widget
     - the main pane reads as one coherent surface with divided sections
+  - Fixed the left-rail session pill so it now reflects real session state instead of staying
+    frozen at `unknown`.
+  - Changed node-stats chart layout so the graphs render on their own rows instead of sharing a
+    cramped three-column band.
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -62,6 +66,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     reach by dynamic thread state.
   - prefer plain section blocks and border dividers over rounded/glowing cards for the alpha UI;
     the application should read like a tool, not a marketing site.
+  - avoid getter-based UI state inside spread mixins; the object spread froze the session-pill
+    labels/classes at creation time, so explicit updaters are safer here.
 - Next steps:
   - retest the refreshed shell/button treatment on the older Mac and collect the next batch of
     actual layout/usability issues.
@@ -87,6 +93,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated `ui/assets/css/base.css` to flatten `.card` styling, turn Search Threads into a rail
     section with top/bottom dividers, and make the main pane read as a continuous utilitarian
     workspace.
+  - Updated `ui/assets/js/app.js` so the session pill uses explicit mutable UI fields updated by
+    `checkSession()` instead of getter values frozen by object spread.
+  - Updated `ui/node_stats.html` so the charts stack vertically instead of sharing a three-column
+    row.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 

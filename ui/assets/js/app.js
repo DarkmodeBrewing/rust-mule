@@ -221,19 +221,11 @@ function sessionControlMixin() {
   return {
     sessionActive: null,
     sessionChecking: false,
+    sessionStateLabel: 'session: unknown',
+    sessionStateClass: '',
 
     startNewSearch() {
       goToSearchPage();
-    },
-
-    get sessionStateLabel() {
-      if (this.sessionActive === true) {
-        return 'session: active';
-      }
-      if (this.sessionActive === false) {
-        return 'session: expired';
-      }
-      return 'session: unknown';
     },
 
     uploadTerminalReasonClass(reason) {
@@ -267,37 +259,52 @@ function sessionControlMixin() {
         .sort((a, b) => a.reason.localeCompare(b.reason));
     },
 
-    get sessionStateClass() {
+    updateSessionStateUi() {
+      if (this.sessionChecking) {
+        this.sessionStateLabel = 'session: checking';
+        this.sessionStateClass = 'state-running';
+        return;
+      }
       if (this.sessionActive === true) {
-        return 'state-done';
+        this.sessionStateLabel = 'session: active';
+        this.sessionStateClass = 'state-done';
+        return;
       }
       if (this.sessionActive === false) {
-        return 'state-idle';
+        this.sessionStateLabel = 'session: expired';
+        this.sessionStateClass = 'state-idle';
+        return;
       }
-      return '';
+      this.sessionStateLabel = 'session: unknown';
+      this.sessionStateClass = '';
     },
 
     async checkSession() {
       this.sessionChecking = true;
+      this.updateSessionStateUi();
       try {
         const resp = await fetch('/api/v1/session/check');
         if (resp.ok) {
           this.sessionActive = true;
+          this.updateSessionStateUi();
           return true;
         }
         if (resp.status === 401 || resp.status === 403) {
           this.sessionActive = false;
+          this.updateSessionStateUi();
           return false;
         }
         throw new Error(`session check failed: ${resp.status}`);
       } catch (err) {
         this.sessionActive = false;
+        this.updateSessionStateUi();
         if ('error' in this) {
           this.error = String(err?.message || err);
         }
         return false;
       } finally {
         this.sessionChecking = false;
+        this.updateSessionStateUi();
       }
     },
 
