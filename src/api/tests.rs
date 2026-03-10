@@ -383,10 +383,18 @@ fn embeds_required_ui_files() {
         "assets/css/colors-light.css",
         "assets/css/color-hc.css",
         "assets/js/alpine.min.js",
-        "assets/js/app.js",
+        "assets/js/app-core.js",
         "assets/js/chart.min.js",
         "assets/js/helpers.js",
         "assets/js/theme-init.js",
+        "assets/js/ui-bootstrap.js",
+        "assets/js/pages/overview.js",
+        "assets/js/pages/search.js",
+        "assets/js/pages/search-details.js",
+        "assets/js/pages/node-stats.js",
+        "assets/js/pages/logs.js",
+        "assets/js/pages/downloads.js",
+        "assets/js/pages/settings.js",
     ];
 
     for path in required {

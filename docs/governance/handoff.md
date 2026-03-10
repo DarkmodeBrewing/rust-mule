@@ -73,6 +73,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - active state is now a filled background, not just an outline
     - Search Threads now inherits the same rail item treatment so the sidebar reads as one system
   - Applied a Lighthouse-driven layout-stability pass aimed at reducing startup CLS:
+  - Split the UI controller bundle by page after the alpha Lighthouse run so the app no longer ships every Alpine controller to every page; the shared helpers now live in `app-core.js` and `ui-bootstrap.js` imports the page-specific controller based on a `data-ui-page` attribute.
     - reserved space for session/status strips and feedback rows
     - stabilized badge widths for the startup state pills
     - gave the sidebar search-thread area a fixed minimum footprint so the rail does not jump when
@@ -120,6 +121,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     layout/usability issues.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
+  - Split the old monolithic `ui/assets/js/app.js` into `ui/assets/js/app-core.js` plus page-specific modules under `ui/assets/js/pages/` so each UI page only loads the controller it uses.
   - Updated all `ui/*.html` page shells.
   - Updated Overview sidebar links in all `ui/*.html` pages to `/ui/`.
   - Updated KAD search API/service plumbing to retain `keyword_label`.
