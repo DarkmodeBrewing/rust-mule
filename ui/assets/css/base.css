@@ -261,6 +261,28 @@ a:hover {
   gap: var(--s-2);
 }
 
+.nav-list a {
+  display: block;
+  padding: var(--s-2) var(--s-3);
+  border: var(--line) solid transparent;
+  background: var(--nav-item-bg, transparent);
+  color: var(--fg-2);
+  text-decoration: none;
+}
+
+.nav-list a:hover {
+  background: var(--nav-item-hover-bg, var(--table-row-hover-bg));
+  border-color: var(--nav-item-hover-border, var(--border));
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.nav-list a[aria-current='page'] {
+  background: var(--nav-item-active-bg, var(--panel-2));
+  border-color: var(--nav-item-active-border, var(--border));
+  color: var(--fg);
+}
+
 .nav-list {
   gap: var(--s-1);
 }

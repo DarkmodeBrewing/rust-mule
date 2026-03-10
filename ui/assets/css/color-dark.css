@@ -31,6 +31,11 @@ html[data-theme='dark'] {
   --btn-danger-bg: rgba(255, 77, 109, 0.2);
   --btn-danger-border: rgba(255, 123, 148, 0.6);
   --btn-danger-fg: #ffe3e9;
+  --nav-item-bg: rgba(255, 255, 255, 0.02);
+  --nav-item-hover-bg: rgba(255, 255, 255, 0.05);
+  --nav-item-hover-border: rgba(255, 255, 255, 0.08);
+  --nav-item-active-bg: #0f141b;
+  --nav-item-active-border: rgba(51, 195, 255, 0.18);
 
   --table-head-bg: rgba(255, 255, 255, 0.02);
   --table-row-hover-bg: rgba(51, 195, 255, 0.04);

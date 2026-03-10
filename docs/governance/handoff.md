@@ -63,6 +63,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - flex rows now center-align their children so badges/buttons stop stretching vertically
     - the settings page no longer shows the unrelated search/routing KPI boxes
     - the shared-folder editor now explicitly explains why there is no browser-side folder picker
+  - Tightened navigation/settings cleanup from the next alpha screenshot pass:
+    - removed the stray runtime snapshot panel from the settings page
+    - turned sidebar navigation into explicit application chrome with hover and active states
+    - active navigation now uses the same dark-blue family as the main workspace instead of
+      looking like a plain text link
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -90,6 +95,10 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - do not add a fake folder picker to the settings page: the browser does not reliably provide a
     durable absolute path that can be written back into `config.toml`, so a plain textarea plus a
     clear explanation is more honest than a broken picker affordance.
+  - do not add a separate boot screen yet. The better immediate fix is to keep the existing shell
+    and make startup state explicit and honest with `ready` badges/disabled controls. A dedicated
+    boot screen would add routing/state complexity without solving the underlying page clarity
+    issues first.
 - Next steps:
   - retest the page-role cleanup on the older Mac and collect the next batch of actual
     layout/usability issues.
@@ -133,6 +142,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Removed the unrelated search/routing KPI boxes from `ui/settings.html`.
   - Added explanatory copy to `ui/settings.html` describing why shared folders still require
     explicit filesystem paths.
+  - Removed the settings-page runtime snapshot panel.
+  - Updated sidebar navigation styling in `ui/assets/css/base.css`,
+    `ui/assets/css/color-dark.css`, `ui/assets/css/colors-light.css`, and
+    `ui/assets/css/color-hc.css` so active/hover states read like application navigation instead
+    of plain links.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 

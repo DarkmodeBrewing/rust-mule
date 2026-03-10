@@ -31,6 +31,11 @@ html[data-theme='light'] {
   --btn-danger-bg: rgba(200, 30, 58, 0.16);
   --btn-danger-border: rgba(200, 30, 58, 0.45);
   --btn-danger-fg: #8f1328;
+  --nav-item-bg: rgba(17, 24, 39, 0.02);
+  --nav-item-hover-bg: rgba(17, 24, 39, 0.05);
+  --nav-item-hover-border: rgba(17, 24, 39, 0.08);
+  --nav-item-active-bg: #eef2f9;
+  --nav-item-active-border: rgba(0, 111, 191, 0.18);
 
   --table-head-bg: rgba(17, 24, 39, 0.04);
   --table-row-hover-bg: rgba(0, 111, 191, 0.08);

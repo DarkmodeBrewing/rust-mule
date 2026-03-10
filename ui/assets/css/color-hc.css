@@ -31,6 +31,11 @@ html[data-theme='hc'] {
   --btn-danger-bg: #000000;
   --btn-danger-border: #ff2d55;
   --btn-danger-fg: #ff2d55;
+  --nav-item-bg: #000000;
+  --nav-item-hover-bg: #111111;
+  --nav-item-hover-border: #ffffff;
+  --nav-item-active-bg: #111111;
+  --nav-item-active-border: #00d5ff;
 
   --table-head-bg: #000000;
   --table-row-hover-bg: #111111;
