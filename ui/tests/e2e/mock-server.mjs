@@ -437,10 +437,12 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/api/v1/searches') {
     return sendJson(res, 200, {
+      ready: true,
       searches: [
         {
           search_id_hex: SEARCH_ID,
           keyword_id_hex: SEARCH_ID,
+          keyword_label: 'example keyword',
           state: 'running',
           created_secs_ago: 1,
           hits: 1,

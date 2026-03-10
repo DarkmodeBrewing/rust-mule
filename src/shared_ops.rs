@@ -399,6 +399,7 @@ pub async fn queue_keyword_publishes(
             if kad_cmd_tx
                 .send(KadServiceCommand::PublishKeyword {
                     keyword: keyword_id,
+                    keyword_label: Some(keyword.clone()),
                     file: file.file_id,
                     filename: filename.clone(),
                     file_size: file.file_size,

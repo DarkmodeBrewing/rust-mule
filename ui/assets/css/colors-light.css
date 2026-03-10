@@ -25,10 +25,18 @@ html[data-theme='light'] {
   --badge-bg: rgba(17, 24, 39, 0.04);
   --btn-bg: rgba(17, 24, 39, 0.05);
   --btn-hover-border: rgba(0, 111, 191, 0.35);
-  --btn-primary-bg: rgba(194, 68, 30, 0.12);
-  --btn-primary-border: rgba(194, 68, 30, 0.35);
-  --btn-danger-bg: rgba(200, 30, 58, 0.1);
-  --btn-danger-border: rgba(200, 30, 58, 0.35);
+  --btn-primary-bg: rgba(194, 68, 30, 0.16);
+  --btn-primary-border: rgba(194, 68, 30, 0.45);
+  --btn-primary-fg: #8e2f12;
+  --btn-danger-bg: rgba(200, 30, 58, 0.16);
+  --btn-danger-border: rgba(200, 30, 58, 0.45);
+  --btn-danger-fg: #8f1328;
+  --nav-item-border: rgba(17, 24, 39, 0.04);
+  --nav-item-bg: rgba(17, 24, 39, 0.02);
+  --nav-item-hover-bg: rgba(17, 24, 39, 0.05);
+  --nav-item-hover-border: rgba(17, 24, 39, 0.08);
+  --nav-item-active-bg: #e7eef9;
+  --nav-item-active-border: rgba(0, 111, 191, 0.24);
 
   --table-head-bg: rgba(17, 24, 39, 0.04);
   --table-row-hover-bg: rgba(0, 111, 191, 0.08);

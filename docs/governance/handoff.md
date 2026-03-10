@@ -11,6 +11,180 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-10): Started the alpha UI stabilization track on
+  `feat/alpha-ui-stabilization`.
+  - Fixed a UI boot-order failure seen on the older macOS machine where Alpine evaluated
+    `x-data="...()"` expressions before the page bootstrap had attached the page factories to
+    `window`.
+  - Added `ui/assets/js/ui-bootstrap.js` so the UI now imports the page-specific controller
+    module first and only then loads Alpine.
+  - Updated all UI pages to use the new bootstrap module instead of loading Alpine before the app
+    module.
+  - Normalized the sidebar Overview navigation target to `/ui/` across all pages so the route is
+    canonical and consistent on older browsers.
+  - Search thread lists now prefer the original keyword label when available instead of showing
+    only the opaque search hash; the hash is retained as secondary context when it differs from
+    the label.
+  - Fixed the skip-link affordance so it stays fully off-screen until keyboard focus instead of
+    remaining half-visible in the top-left corner.
+  - Changed `/api/v1/status` startup semantics so it now returns `200` with `ready: false` and a
+    zeroed status payload during early boot instead of returning `503` until KAD bootstrap
+    finishes.
+  - Changed `/api/v1/searches` startup semantics so it now returns `200` with `ready: false` and
+    an empty list during early KAD startup instead of timing out with `504`.
+  - Hardened the desktop shell/layout based on the older macOS alpha feedback:
+    - removed the floating outer app padding for `.container.shell`
+    - turned the sidebar into a flush left rail
+    - gave the main content a unified full-height surface
+    - increased visual separation between primary and destructive buttons
+  - Moved the `+ New Search` action into a stable slot in the left rail across all pages so it
+    remains reachable even when the Search Threads list grows.
+  - Flattened the shell styling further so the UI reads less like a glossy dashboard and more like
+    a utilitarian application workspace:
+    - section cards now render as flat bordered blocks
+    - Search Threads now reads as a rail section instead of a floating widget
+    - the main pane reads as one coherent surface with divided sections
+  - Fixed the left-rail session pill so it now reflects real session state instead of staying
+    frozen at `unknown`.
+  - Changed node-stats chart layout so the graphs render on their own rows instead of sharing a
+    cramped three-column band.
+  - Fixed two search-form UX bugs:
+    - successful submit now clears and refocuses the inputs
+    - the search form now stays disabled until the existing `/api/v1/searches.ready` signal says
+      KAD search is actually ready
+  - Reworked the page roles so `/ui/` is a real application overview instead of a single-search
+    control surface:
+    - removed the stale overview-only active-search controls and controller state
+    - changed the landing page into a health/search summary with recent search activity and raw
+      status links
+    - updated sidebar subtitles so each page describes its actual purpose
+  - Tightened a small follow-up UI pass from the latest alpha screenshots:
+    - the search page now shows the same KAD readiness badge pattern as the overview
+    - flex rows now center-align their children so badges/buttons stop stretching vertically
+    - the settings page no longer shows the unrelated search/routing KPI boxes
+    - the shared-folder editor now explicitly explains why there is no browser-side folder picker
+  - Tightened navigation/settings cleanup from the next alpha screenshot pass:
+    - removed the stray runtime snapshot panel from the settings page
+    - turned sidebar navigation into explicit application chrome with hover and active states
+    - active navigation now uses the same dark-blue family as the main workspace instead of
+      looking like a plain text link
+  - Tightened the sidebar rail structure from the next alpha screenshot pass:
+    - navigation items now span the full rail width with more padding
+    - active state is now a filled background, not just an outline
+    - Search Threads now inherits the same rail item treatment so the sidebar reads as one system
+  - Applied a Lighthouse-driven layout-stability pass aimed at reducing startup CLS:
+  - Split the UI controller bundle by page after the alpha Lighthouse run so the app no longer ships every Alpine controller to every page; the shared helpers now live in `app-core.js` and `ui-bootstrap.js` imports the page-specific controller based on a `data-ui-page` attribute.
+    - reserved space for session/status strips and feedback rows
+    - stabilized badge widths for the startup state pills
+    - gave the sidebar search-thread area a fixed minimum footprint so the rail does not jump when
+      async data arrives
+    - reserved height for the overview KPI/summary rows so empty-to-live transitions move less
+- Decisions:
+  - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
+    issue.
+  - prefer an explicit UI bootstrap module over relying on browser-specific script scheduling
+    behavior between classic `defer` scripts and ES modules.
+  - store and expose the original keyword text through the KAD search job so the UI can render a
+    human-readable search thread title consistently across pages.
+  - keep the skip-link accessibility affordance, but hide it until focus rather than removing it.
+  - treat `/api/v1/status` as an application status document, not as a transport-level readiness
+    probe; use a structured `ready` flag during startup instead of `503`.
+  - use the same structured startup approach for the search thread list, because that page is
+    polled/UI-facing and should not surface bootstrap lag as a gateway timeout.
+  - keep the current information architecture for now, but make the app shell read as a proper
+    two-pane desktop application instead of a stack of detached cards.
+  - keep primary search creation as a stable rail action, not as content that can be pushed out of
+    reach by dynamic thread state.
+  - prefer plain section blocks and border dividers over rounded/glowing cards for the alpha UI;
+    the application should read like a tool, not a marketing site.
+  - avoid getter-based UI state inside spread mixins; the object spread froze the session-pill
+    labels/classes at creation time, so explicit updaters are safer here.
+  - use the already-available search-thread readiness signal in the frontend instead of letting the
+    user discover bootstrap lag by hitting the search form and walking into a timeout path.
+  - keep search execution and detailed search management on the dedicated search pages; the
+    overview page should summarize system state, not drive one arbitrary active search thread.
+  - do not add a fake folder picker to the settings page: the browser does not reliably provide a
+    durable absolute path that can be written back into `config.toml`, so a plain textarea plus a
+    clear explanation is more honest than a broken picker affordance.
+  - do not add a separate boot screen yet. The better immediate fix is to keep the existing shell
+    and make startup state explicit and honest with `ready` badges/disabled controls. A dedicated
+    boot screen would add routing/state complexity without solving the underlying page clarity
+    issues first.
+  - keep the sidebar as a unified control rail: navigation and search-thread rows should share the
+    same structural treatment so the left pane reads like application chrome instead of a mixed bag
+    of links and ad hoc list content.
+  - treat Lighthouse CLS findings as a layout-reservation problem first, not a boot-screen problem.
+    The immediate fix is to reserve stable space in the existing shell and pages instead of adding
+    another startup route/surface.
+  - treat HTTP cache headers as a separate follow-up from the alpha UI trimming pass. They are
+    worth adding for repeat navigations across the multi-page UI, but they do not materially solve
+    first-load JS execution cost or Lighthouse unused-JS findings.
+- Next steps:
+  - open and merge the alpha UI stabilization PR.
+  - follow up with static-asset cache headers:
+    - use cache headers for JS/CSS/image assets served under `/ui/assets/`
+    - prefer long-lived immutable caching only if filenames become fingerprinted
+    - otherwise use a shorter TTL/revalidation policy so deploys do not strand stale UI assets
+  - keep HTML routes separately revalidated; do not cache application pages like immutable assets.
+- Change log:
+  - Added `ui/assets/js/ui-bootstrap.js`.
+  - Split the old monolithic `ui/assets/js/app.js` into `ui/assets/js/app-core.js` plus page-specific modules under `ui/assets/js/pages/` so each UI page only loads the controller it uses.
+  - Updated all `ui/*.html` page shells.
+  - Updated Overview sidebar links in all `ui/*.html` pages to `/ui/`.
+  - Updated KAD search API/service plumbing to retain `keyword_label`.
+  - Updated search thread rendering in all `ui/*.html` pages to prefer the label over the hash.
+  - Updated `ui/assets/css/base.css` to make `.skip-link` focus-only visible.
+  - Updated `/api/v1/status` to return a startup payload with `ready: false` when KAD has not yet
+    published its first status snapshot.
+  - Updated `/api/v1/searches` to return `{ ready, searches }` and treat startup timeout as
+    `ready: false` with an empty list.
+  - Updated `ui/assets/css/base.css` to make the shell full-bleed, convert the sidebar into a
+    flush rail, and give the main pane a unified background surface.
+  - Split the UI controller payload into `ui/assets/js/app-core.js` plus page-specific modules
+    under `ui/assets/js/pages/`, and updated `ui/assets/js/ui-bootstrap.js` plus all UI pages to
+    load only the controller needed for the current page.
+  - Updated `ui/assets/css/color-dark.css`, `ui/assets/css/colors-light.css`, and
+    `ui/assets/css/color-hc.css` to give primary and destructive buttons distinct foreground and
+    background treatment.
+  - Updated all `ui/*.html` sidebars to place `+ New Search` directly under Navigation.
+  - Updated `ui/assets/js/app.js` so `startNewSearch()` lives in the shared session/UI mixin and
+    is available from every page shell.
+  - Updated `ui/assets/css/base.css` to flatten `.card` styling, turn Search Threads into a rail
+    section with top/bottom dividers, and make the main pane read as a continuous utilitarian
+    workspace.
+  - Updated `ui/assets/js/app.js` so the session pill uses explicit mutable UI fields updated by
+    `checkSession()` instead of getter values frozen by object spread.
+  - Updated `ui/node_stats.html` so the charts stack vertically instead of sharing a three-column
+    row.
+  - Updated `ui/assets/js/app.js` and `ui/search.html` so the search form is disabled until KAD
+    search is ready, and successful submit clears/refocuses the inputs.
+  - Updated `ui/index.html` to become a true application overview page with search activity,
+    service counters, and raw-status sections.
+  - Removed stale active-search overview controller state from `ui/assets/js/app.js`.
+  - Updated sidebar subtitle copy in `ui/search.html`, `ui/search_details.html`,
+    `ui/node_stats.html`, `ui/log.html`, and `ui/settings.html`.
+  - Updated `ui/tests/e2e/smoke.spec.mjs` to match the new overview-page contract.
+  - Updated `ui/search.html` to show a KAD readiness badge.
+  - Updated `ui/assets/css/base.css` so generic flex rows center-align children and badges center
+    their contents instead of stretching vertically.
+  - Removed the unrelated search/routing KPI boxes from `ui/settings.html`.
+  - Added explanatory copy to `ui/settings.html` describing why shared folders still require
+    explicit filesystem paths.
+  - Removed the settings-page runtime snapshot panel.
+  - Updated sidebar navigation styling in `ui/assets/css/base.css`,
+    `ui/assets/css/color-dark.css`, `ui/assets/css/colors-light.css`, and
+    `ui/assets/css/color-hc.css` so active/hover states read like application navigation instead
+    of plain links.
+  - Updated the shared rail styling in `ui/assets/css/base.css` so navigation items and search
+    thread rows use the same full-width padded treatment.
+  - Updated `ui/assets/css/base.css` with reserved-height/status-strip helpers for lower startup
+    layout shift.
+  - Updated `ui/index.html` and `ui/search.html` to use the new stable status-strip/feedback
+    classes.
+  - Updated all page sidebars so the session strip uses the same reserved-height treatment.
+  - Updated API/UI test fixtures for `keyword_label`.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-10): Started the macOS dual-architecture packaging follow-up on
   `feat/macos-dual-arch-builds`.
   - The macOS build script now packages according to an explicit Rust target triple instead of the

@@ -269,6 +269,7 @@ struct KeywordPublishSpec {
 #[derive(Debug, Clone)]
 struct KeywordJob {
     created_at: Instant,
+    keyword_label: Option<String>,
     next_lookup_at: Instant,
     next_search_at: Instant,
     next_publish_at: Instant,
@@ -500,12 +501,16 @@ async fn handle_command(
         KadServiceCommand::SearchSources { file, file_size } => {
             send_search_sources(svc, sock, crypto, cfg, file, file_size).await?;
         }
-        KadServiceCommand::SearchKeyword { keyword } => {
+        KadServiceCommand::SearchKeyword {
+            keyword,
+            keyword_label,
+        } => {
             touch_keyword_interest(svc, cfg, keyword, now);
-            start_keyword_job_search(svc, sock, crypto, cfg, keyword, now).await?;
+            start_keyword_job_search(svc, sock, crypto, cfg, keyword, keyword_label, now).await?;
         }
         KadServiceCommand::PublishKeyword {
             keyword,
+            keyword_label,
             file,
             filename,
             file_size,
@@ -530,7 +535,17 @@ async fn handle_command(
             );
 
             start_keyword_job_publish(
-                svc, sock, crypto, cfg, keyword, file, filename, file_size, file_type, now,
+                svc,
+                sock,
+                crypto,
+                cfg,
+                keyword,
+                keyword_label,
+                file,
+                filename,
+                file_size,
+                file_type,
+                now,
             )
             .await?;
         }
@@ -596,6 +611,7 @@ async fn handle_command(
                     KadKeywordSearchInfo {
                         search_id_hex: keyword.to_hex_lower(),
                         keyword_id_hex: keyword.to_hex_lower(),
+                        keyword_label: job.keyword_label.clone(),
                         state: state.to_string(),
                         created_secs_ago: now.saturating_duration_since(job.created_at).as_secs(),
                         hits,
@@ -906,6 +922,7 @@ async fn start_keyword_job_search(
     crypto: KadServiceCrypto,
     cfg: &KadServiceConfig,
     keyword: KadId,
+    keyword_label: Option<String>,
     now: Instant,
 ) -> Result<()> {
     let job = svc
@@ -913,6 +930,7 @@ async fn start_keyword_job_search(
         .entry(keyword)
         .or_insert_with(|| KeywordJob {
             created_at: now,
+            keyword_label: keyword_label.clone(),
             next_lookup_at: now,
             next_search_at: now,
             next_publish_at: now,
@@ -924,6 +942,9 @@ async fn start_keyword_job_search(
             publish_ack_file: None,
         });
 
+    if let Some(label) = keyword_label.filter(|s| !s.is_empty()) {
+        job.keyword_label = Some(label);
+    }
     job.want_search = true;
     job.created_at = now;
     job.next_lookup_at = now;
@@ -942,6 +963,7 @@ async fn start_keyword_job_publish(
     crypto: KadServiceCrypto,
     cfg: &KadServiceConfig,
     keyword: KadId,
+    keyword_label: Option<String>,
     file: KadId,
     filename: String,
     file_size: u64,
@@ -953,6 +975,7 @@ async fn start_keyword_job_publish(
         .entry(keyword)
         .or_insert_with(|| KeywordJob {
             created_at: now,
+            keyword_label: keyword_label.clone(),
             next_lookup_at: now,
             next_search_at: now,
             next_publish_at: now,
@@ -964,6 +987,9 @@ async fn start_keyword_job_publish(
             publish_ack_file: None,
         });
 
+    if let Some(label) = keyword_label.filter(|s| !s.is_empty()) {
+        job.keyword_label = Some(label);
+    }
     job.publish = Some(KeywordPublishSpec {
         file,
         filename,

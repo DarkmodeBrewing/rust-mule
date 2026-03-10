@@ -383,10 +383,18 @@ fn embeds_required_ui_files() {
         "assets/css/colors-light.css",
         "assets/css/color-hc.css",
         "assets/js/alpine.min.js",
-        "assets/js/app.js",
+        "assets/js/app-core.js",
         "assets/js/chart.min.js",
         "assets/js/helpers.js",
         "assets/js/theme-init.js",
+        "assets/js/ui-bootstrap.js",
+        "assets/js/pages/overview.js",
+        "assets/js/pages/search.js",
+        "assets/js/pages/search-details.js",
+        "assets/js/pages/node-stats.js",
+        "assets/js/pages/logs.js",
+        "assets/js/pages/downloads.js",
+        "assets/js/pages/settings.js",
     ];
 
     for path in required {
@@ -814,7 +822,9 @@ async fn status_route_is_rate_limited_when_threshold_exceeded() {
             .oneshot(authorized_api_get("/api/v1/status"))
             .await
             .unwrap();
-        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = response_json(resp).await;
+        assert_eq!(body["ready"], false);
     }
 
     let limited = app
@@ -985,6 +995,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
                     let _ = respond_to.send(vec![KadKeywordSearchInfo {
                         search_id_hex: search_id_hex.clone(),
                         keyword_id_hex: search_id_hex.clone(),
+                        keyword_label: Some("demo keyword".to_string()),
                         state: "running".to_string(),
                         created_secs_ago: 5,
                         hits: 1,
@@ -1112,6 +1123,10 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         .unwrap();
     assert_eq!(searches_resp.status(), StatusCode::OK);
     let searches_json = response_json(searches_resp).await;
+    assert_eq!(
+        searches_json.get("ready").and_then(Value::as_bool),
+        Some(true)
+    );
     let searches = searches_json
         .get("searches")
         .and_then(Value::as_array)
@@ -1120,6 +1135,10 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     assert_eq!(
         searches[0].get("search_id_hex").and_then(Value::as_str),
         Some("00112233445566778899aabbccddeeff")
+    );
+    assert_eq!(
+        searches[0].get("keyword_label").and_then(Value::as_str),
+        Some("demo keyword")
     );
 
     let details_resp = app

@@ -2,6 +2,7 @@
 html,
 body {
   height: 100%;
+  margin: 0;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-ui);
@@ -18,19 +19,22 @@ a:hover {
 }
 
 .skip-link {
-  position: absolute;
+  position: fixed;
   left: var(--s-3);
-  top: calc(-1 * var(--s-5));
+  top: var(--s-3);
+  transform: translateY(calc(-100% - var(--s-3)));
   z-index: 1000;
   background: var(--panel);
   color: var(--fg);
   border: var(--line) solid var(--border);
   border-radius: var(--radius-sm);
   padding: var(--s-2) var(--s-3);
+  transition: transform 120ms ease;
 }
 
-.skip-link:focus {
-  top: var(--s-3);
+.skip-link:focus,
+.skip-link:focus-visible {
+  transform: translateY(0);
 }
 
 .sr-only {
@@ -51,6 +55,12 @@ a:hover {
   padding: var(--s-5);
 }
 
+.container.shell {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
 .nav {
   display: flex;
   gap: var(--s-3);
@@ -63,21 +73,10 @@ a:hover {
 }
 
 .card {
-  background:
-    radial-gradient(
-      var(--layout-card-glow-1-width) var(--layout-card-glow-1-height) at 20% 0%,
-      var(--card-glow-accent),
-      transparent 60%
-    ),
-    radial-gradient(
-      var(--layout-card-glow-2-width) var(--layout-card-glow-2-height) at 80% 0%,
-      var(--card-glow-signal),
-      transparent 55%
-    ),
-    var(--panel);
+  background: transparent;
   border: var(--line) solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+  border-radius: 0;
+  box-shadow: none;
   padding: var(--s-5);
 }
 
@@ -97,6 +96,7 @@ a:hover {
 .badge {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--layout-badge-gap);
   padding: var(--layout-badge-pad-y) var(--layout-badge-pad-x);
   border-radius: var(--layout-badge-radius);
@@ -105,6 +105,10 @@ a:hover {
   color: var(--fg-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+}
+
+.status-badge {
+  min-width: 10.5rem;
 }
 
 .items-center {
@@ -136,11 +140,13 @@ a:hover {
 .btn-primary {
   background: var(--btn-primary-bg);
   border-color: var(--btn-primary-border);
+  color: var(--btn-primary-fg, var(--fg));
 }
 
 .btn-danger {
   background: var(--btn-danger-bg);
   border-color: var(--btn-danger-border);
+  color: var(--btn-danger-fg, var(--fg));
 }
 
 .table {
@@ -194,6 +200,7 @@ a:hover {
 
 .flex {
   display: flex;
+  align-items: center;
 }
 
 .flex-wrap {
@@ -228,7 +235,7 @@ a:hover {
 .shell {
   display: grid;
   grid-template-columns: var(--layout-shell-sidebar-width) minmax(0, 1fr);
-  gap: var(--s-4);
+  gap: 0;
   min-height: var(--layout-shell-min-height);
 }
 
@@ -237,6 +244,16 @@ a:hover {
   top: 0;
   height: var(--layout-sidebar-height);
   overflow: auto;
+  border-radius: 0;
+  border-top: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-right: var(--line) solid var(--border);
+  box-shadow: none;
+  padding: var(--s-5);
+  background:
+    linear-gradient(180deg, var(--bg-2), var(--bg)),
+    var(--panel);
 }
 
 .nav-list,
@@ -245,14 +262,66 @@ a:hover {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--s-2);
+  width: 100%;
+}
+
+.nav-list a {
+  display: block;
+  width: 100%;
+  padding: var(--s-2) var(--s-3);
+  border: var(--line) solid var(--nav-item-border, transparent);
+  background: var(--nav-item-bg, transparent);
+  color: var(--fg-2);
+  text-decoration: none;
+}
+
+.nav-list a:hover {
+  background: var(--nav-item-hover-bg, var(--table-row-hover-bg));
+  border-color: var(--nav-item-hover-border, var(--border));
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.nav-list a[aria-current='page'] {
+  background: var(--nav-item-active-bg, var(--panel-2));
+  border-color: var(--nav-item-active-border, var(--border));
+  color: var(--fg);
+}
+
+.nav-list {
+  gap: var(--s-1);
+}
+
+.search-list {
+  gap: var(--s-1);
+  border-top: var(--line) solid var(--border);
+  border-bottom: var(--line) solid var(--border);
+  padding: var(--s-1) 0;
+  min-height: 10rem;
 }
 
 .search-item {
-  border: var(--line) solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--layout-list-item-pad-y) var(--layout-list-item-pad-x);
-  background: var(--panel-2);
+  display: grid;
+  gap: var(--s-2);
+  width: 100%;
+  border: var(--line) solid var(--nav-item-border, transparent);
+  padding: var(--s-2) var(--s-3);
+  background: var(--nav-item-bg, transparent);
+}
+
+.search-item:hover {
+  background: var(--nav-item-hover-bg, var(--table-row-hover-bg));
+  border-color: var(--nav-item-hover-border, var(--border));
+}
+
+.search-item a {
+  display: block;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.search-item a:hover {
+  text-decoration: none;
 }
 
 .state-running {
@@ -286,6 +355,36 @@ a:hover {
 
 .main-scroll {
   min-width: 0;
+  min-height: 100vh;
+  padding: var(--s-5);
+  align-content: start;
+  background: var(--panel-2);
+}
+
+.status-strip {
+  align-items: center;
+  min-height: 3rem;
+}
+
+.section-feedback {
+  min-height: 1.5rem;
+}
+
+.kpi-grid-stable > .card,
+.summary-grid-stable > div {
+  min-height: 4.75rem;
+}
+
+.main-scroll > .card {
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  padding-left: var(--s-3);
+  padding-right: var(--s-3);
+}
+
+.main-scroll > .card:first-child {
+  border-top: var(--line) solid var(--border);
 }
 
 .form-grid {
@@ -327,6 +426,10 @@ a:hover {
 }
 
 @media (max-width: 60rem) {
+  .container.shell {
+    padding: 0;
+  }
+
   .shell {
     grid-template-columns: 1fr;
   }
@@ -334,5 +437,11 @@ a:hover {
   .sidebar {
     position: static;
     height: auto;
+    border-right: 0;
+    border-bottom: var(--line) solid var(--border);
+  }
+
+  .main-scroll {
+    min-height: auto;
   }
 }

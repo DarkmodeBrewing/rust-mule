@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="dark" data-ui-page="search-details">
   <head>
     <meta charset="utf-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
@@ -42,8 +42,7 @@
       media="screen"
       href="/ui/assets/css/base.css"
     />
-    <script defer src="/ui/assets/js/alpine.min.js"></script>
-    <script type="module" src="/ui/assets/js/app.js"></script>
+    <script type="module" src="/ui/assets/js/ui-bootstrap.js"></script>
   </head>
 
   <body x-data="appSearchDetails()" x-init="init()">
@@ -51,10 +50,10 @@
     <section class="container shell">
       <aside class="card sidebar" aria-label="Sidebar">
         <h2>rust-mule</h2>
-        <p>Search dashboard shell</p>
-        <div class="flex gap-2 flex-wrap mt-3">
+        <p>Search thread details and hits</p>
+        <div class="flex gap-2 flex-wrap mt-3 status-strip">
           <span
-            class="badge"
+            class="badge status-badge"
             x-bind:class="sessionStateClass"
             x-text="sessionStateLabel"
           ></span>
@@ -74,7 +73,7 @@
         <h3 class="mt-4" id="primary-navigation-title">Navigation</h3>
         <nav aria-labelledby="primary-navigation-title">
           <ul class="nav-list mt-3">
-            <li><a href="/ui">Overview</a></li>
+            <li><a href="/ui/">Overview</a></li>
             <li><a href="/ui/search" aria-current="page">Searches</a></li>
             <li><a href="/ui/downloads">Downloads</a></li>
             <li><a href="/ui/node_stats">Nodes / Routing</a></li>
@@ -82,6 +81,16 @@
             <li><a href="/ui/settings">Settings</a></li>
           </ul>
         </nav>
+
+        <div class="mt-4">
+          <button
+            class="btn btn-primary"
+            type="button"
+            @click="startNewSearch()"
+          >
+            + New Search
+          </button>
+        </div>
 
         <h3 class="mt-4">Search Threads</h3>
         <ul class="search-list mt-3">
@@ -96,7 +105,11 @@
                 <a
                   x-bind:href="'/ui/search_details?searchId=' + thread.search_id_hex"
                 >
-                  <strong x-text="thread.search_id_hex"></strong>
+                  <strong x-text="thread.display_label"></strong>
+                  <small
+                    x-show="thread.has_distinct_label"
+                    x-text="thread.display_hash"
+                  ></small>
                 </a>
                 <span
                   class="badge"
