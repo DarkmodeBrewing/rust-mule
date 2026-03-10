@@ -32,6 +32,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     finishes.
   - Changed `/api/v1/searches` startup semantics so it now returns `200` with `ready: false` and
     an empty list during early KAD startup instead of timing out with `504`.
+  - Hardened the desktop shell/layout based on the older macOS alpha feedback:
+    - removed the floating outer app padding for `.container.shell`
+    - turned the sidebar into a flush left rail
+    - gave the main content a unified full-height surface
+    - increased visual separation between primary and destructive buttons
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -44,8 +49,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     probe; use a structured `ready` flag during startup instead of `503`.
   - use the same structured startup approach for the search thread list, because that page is
     polled/UI-facing and should not surface bootstrap lag as a gateway timeout.
+  - keep the current information architecture for now, but make the app shell read as a proper
+    two-pane desktop application instead of a stack of detached cards.
 - Next steps:
-  - retest the UI on the older Mac and collect the next batch of actual layout/usability issues.
+  - retest the refreshed shell/button treatment on the older Mac and collect the next batch of
+    actual layout/usability issues.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Updated all `ui/*.html` page shells.
@@ -57,6 +65,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     published its first status snapshot.
   - Updated `/api/v1/searches` to return `{ ready, searches }` and treat startup timeout as
     `ready: false` with an empty list.
+  - Updated `ui/assets/css/base.css` to make the shell full-bleed, convert the sidebar into a
+    flush rail, and give the main pane a unified background surface.
+  - Updated `ui/assets/css/color-dark.css`, `ui/assets/css/colors-light.css`, and
+    `ui/assets/css/color-hc.css` to give primary and destructive buttons distinct foreground and
+    background treatment.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 

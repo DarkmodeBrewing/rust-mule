@@ -27,8 +27,10 @@ html[data-theme='hc'] {
   --btn-hover-border: #00d5ff;
   --btn-primary-bg: #000000;
   --btn-primary-border: #ff8c00;
+  --btn-primary-fg: #ff8c00;
   --btn-danger-bg: #000000;
   --btn-danger-border: #ff2d55;
+  --btn-danger-fg: #ff2d55;
 
   --table-head-bg: #000000;
   --table-row-hover-bg: #111111;
