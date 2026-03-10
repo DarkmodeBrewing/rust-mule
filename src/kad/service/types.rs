@@ -263,9 +263,11 @@ pub enum KadServiceCommand {
     },
     SearchKeyword {
         keyword: KadId,
+        keyword_label: Option<String>,
     },
     PublishKeyword {
         keyword: KadId,
+        keyword_label: Option<String>,
         file: KadId,
         filename: String,
         file_size: u64,
@@ -347,6 +349,7 @@ pub struct KadKeywordHit {
 pub struct KadKeywordSearchInfo {
     pub search_id_hex: String,
     pub keyword_id_hex: String,
+    pub keyword_label: Option<String>,
     pub state: String,
     pub created_secs_ago: u64,
     pub hits: usize,

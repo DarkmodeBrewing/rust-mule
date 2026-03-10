@@ -22,17 +22,25 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     module.
   - Normalized the sidebar Overview navigation target to `/ui/` across all pages so the route is
     canonical and consistent on older browsers.
+  - Search thread lists now prefer the original keyword label when available instead of showing
+    only the opaque search hash; the hash is retained as secondary context when it differs from
+    the label.
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
   - prefer an explicit UI bootstrap module over relying on browser-specific script scheduling
     behavior between classic `defer` scripts and ES modules.
+  - store and expose the original keyword text through the KAD search job so the UI can render a
+    human-readable search thread title consistently across pages.
 - Next steps:
   - retest the UI on the older Mac and collect the next batch of actual layout/usability issues.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Updated all `ui/*.html` page shells.
   - Updated Overview sidebar links in all `ui/*.html` pages to `/ui/`.
+  - Updated KAD search API/service plumbing to retain `keyword_label`.
+  - Updated search thread rendering in all `ui/*.html` pages to prefer the label over the hash.
+  - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-10): Started the macOS dual-architecture packaging follow-up on

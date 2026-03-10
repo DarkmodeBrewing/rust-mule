@@ -985,6 +985,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
                     let _ = respond_to.send(vec![KadKeywordSearchInfo {
                         search_id_hex: search_id_hex.clone(),
                         keyword_id_hex: search_id_hex.clone(),
+                        keyword_label: Some("demo keyword".to_string()),
                         state: "running".to_string(),
                         created_secs_ago: 5,
                         hits: 1,
@@ -1120,6 +1121,10 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     assert_eq!(
         searches[0].get("search_id_hex").and_then(Value::as_str),
         Some("00112233445566778899aabbccddeeff")
+    );
+    assert_eq!(
+        searches[0].get("keyword_label").and_then(Value::as_str),
+        Some("demo keyword")
     );
 
     let details_resp = app

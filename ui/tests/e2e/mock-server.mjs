@@ -441,6 +441,7 @@ const server = http.createServer(async (req, res) => {
         {
           search_id_hex: SEARCH_ID,
           keyword_id_hex: SEARCH_ID,
+          keyword_label: 'example keyword',
           state: 'running',
           created_secs_ago: 1,
           hits: 1,

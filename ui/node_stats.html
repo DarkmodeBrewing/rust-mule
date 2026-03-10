@@ -98,7 +98,11 @@
                 <a
                   x-bind:href="'/ui/search_details?searchId=' + thread.search_id_hex"
                 >
-                  <strong x-text="thread.search_id_hex"></strong>
+                  <strong x-text="thread.display_label"></strong>
+                  <small
+                    x-show="thread.has_distinct_label"
+                    x-text="thread.display_hash"
+                  ></small>
                 </a>
                 <span
                   class="badge"

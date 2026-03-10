@@ -29,8 +29,15 @@ function stateClass(state) {
 
 function normalizeSearchThread(thread) {
   const nextState = typeof thread?.state === 'string' ? thread.state : 'idle';
+  const keywordLabel =
+    typeof thread?.keyword_label === 'string' ? thread.keyword_label.trim() : '';
+  const displayLabel = keywordLabel || thread?.search_id_hex || 'unknown search';
   return {
     ...thread,
+    keyword_label: keywordLabel || null,
+    display_label: displayLabel,
+    display_hash: thread?.search_id_hex || '',
+    has_distinct_label: Boolean(keywordLabel && keywordLabel !== thread?.search_id_hex),
     state: nextState,
     state_class: stateClass(nextState),
   };
@@ -327,7 +334,7 @@ window.indexApp = function indexApp() {
     },
 
     get activeThreadTitle() {
-      return this.activeThread?.search_id_hex || 'No active search selected';
+      return this.activeThread?.display_label || 'No active search selected';
     },
 
     get activeThreadState() {
