@@ -107,6 +107,10 @@ a:hover {
   font-size: var(--text-xs);
 }
 
+.status-badge {
+  min-width: 10.5rem;
+}
+
 .items-center {
   align-items: center;
 }
@@ -293,6 +297,7 @@ a:hover {
   border-top: var(--line) solid var(--border);
   border-bottom: var(--line) solid var(--border);
   padding: var(--s-1) 0;
+  min-height: 10rem;
 }
 
 .search-item {
@@ -354,6 +359,20 @@ a:hover {
   padding: var(--s-5);
   align-content: start;
   background: var(--panel-2);
+}
+
+.status-strip {
+  align-items: center;
+  min-height: 3rem;
+}
+
+.section-feedback {
+  min-height: 1.5rem;
+}
+
+.kpi-grid-stable > .card,
+.summary-grid-stable > div {
+  min-height: 4.75rem;
 }
 
 .main-scroll > .card {

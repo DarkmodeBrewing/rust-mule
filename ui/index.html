@@ -50,9 +50,9 @@
       <aside class="card sidebar" aria-label="Sidebar">
         <h2>rust-mule</h2>
         <p>System overview and startup state</p>
-        <div class="flex gap-2 flex-wrap mt-3">
+        <div class="flex gap-2 flex-wrap mt-3 status-strip">
           <span
-            class="badge"
+            class="badge status-badge"
             x-bind:class="sessionStateClass"
             x-text="sessionStateLabel"
           ></span>
@@ -127,19 +127,19 @@
 
       <main id="main-content" class="main-scroll grid gap-4" tabindex="-1">
         <div class="card">
-          <div class="flex gap-3 flex-wrap">
+          <div class="flex gap-3 flex-wrap status-strip">
             <h1>Overview</h1>
             <span
-              class="badge"
+              class="badge status-badge"
               x-bind:class="status?.ready ? 'state-done' : 'state-idle'"
               x-text="status?.ready ? 'kad: ready' : 'kad: bootstrapping'"
             ></span>
             <span
-              class="badge"
+              class="badge status-badge"
               x-text="connected ? 'sse: connected' : 'sse: disconnected'"
             ></span>
             <span
-              class="badge"
+              class="badge status-badge"
               x-text="token ? 'token: ready' : 'token: missing'"
             ></span>
             <button class="btn ml-auto" type="button" @click="refreshStatus()">
@@ -151,20 +151,20 @@
             Use the dedicated pages for search workflows, downloads, logs, and
             routing diagnostics.
           </p>
-          <p
-            class="mt-3"
-            x-show="error"
-            x-text="error"
-            role="alert"
-            aria-live="assertive"
-          ></p>
-          <p
-            class="mt-3"
-            x-show="notice"
-            x-text="notice"
-            role="status"
-            aria-live="polite"
-          ></p>
+          <div class="mt-3 section-feedback">
+            <p
+              x-show="error"
+              x-text="error"
+              role="alert"
+              aria-live="assertive"
+            ></p>
+            <p
+              x-show="notice"
+              x-text="notice"
+              role="status"
+              aria-live="polite"
+            ></p>
+          </div>
           <div
             class="badge mt-3"
             x-show="status?.zero_fill_warning"
@@ -176,7 +176,7 @@
           </div>
         </div>
 
-        <div class="grid grid-3" x-show="status">
+        <div class="grid grid-3 kpi-grid-stable" x-show="status">
           <div class="card">
             <div class="kpi" x-text="status?.routing ?? 0"></div>
             <span class="label">Routing Nodes</span>
@@ -204,7 +204,7 @@
             <h2>Search Activity</h2>
             <a class="btn ml-auto" href="/ui/search">Open Search Workspace</a>
           </div>
-          <div class="grid grid-3 mt-3">
+          <div class="grid grid-3 mt-3 summary-grid-stable">
             <div>
               <div class="kpi" x-text="searchThreads.length"></div>
               <span class="label">Active Search Threads</span>

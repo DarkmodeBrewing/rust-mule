@@ -72,6 +72,12 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - navigation items now span the full rail width with more padding
     - active state is now a filled background, not just an outline
     - Search Threads now inherits the same rail item treatment so the sidebar reads as one system
+  - Applied a Lighthouse-driven layout-stability pass aimed at reducing startup CLS:
+    - reserved space for session/status strips and feedback rows
+    - stabilized badge widths for the startup state pills
+    - gave the sidebar search-thread area a fixed minimum footprint so the rail does not jump when
+      async data arrives
+    - reserved height for the overview KPI/summary rows so empty-to-live transitions move less
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -106,6 +112,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - keep the sidebar as a unified control rail: navigation and search-thread rows should share the
     same structural treatment so the left pane reads like application chrome instead of a mixed bag
     of links and ad hoc list content.
+  - treat Lighthouse CLS findings as a layout-reservation problem first, not a boot-screen problem.
+    The immediate fix is to reserve stable space in the existing shell and pages instead of adding
+    another startup route/surface.
 - Next steps:
   - retest the page-role cleanup on the older Mac and collect the next batch of actual
     layout/usability issues.
@@ -156,6 +165,11 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     of plain links.
   - Updated the shared rail styling in `ui/assets/css/base.css` so navigation items and search
     thread rows use the same full-width padded treatment.
+  - Updated `ui/assets/css/base.css` with reserved-height/status-strip helpers for lower startup
+    layout shift.
+  - Updated `ui/index.html` and `ui/search.html` to use the new stable status-strip/feedback
+    classes.
+  - Updated all page sidebars so the session strip uses the same reserved-height treatment.
   - Updated API/UI test fixtures for `keyword_label`.
   - Updated `docs/governance/handoff.md`.
 
