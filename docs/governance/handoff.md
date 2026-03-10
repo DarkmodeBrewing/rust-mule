@@ -11,6 +11,27 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-10): Started the alpha UI stabilization track on
+  `feat/alpha-ui-stabilization`.
+  - Fixed a UI boot-order failure seen on the older macOS machine where Alpine evaluated
+    `x-data="...()"` expressions before `ui/assets/js/app.js` had attached the page factories to
+    `window`.
+  - Added `ui/assets/js/ui-bootstrap.js` so the UI now imports `app.js` first and only then loads
+    Alpine.
+  - Updated all UI pages to use the new bootstrap module instead of loading Alpine before the app
+    module.
+- Decisions:
+  - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
+    issue.
+  - prefer an explicit UI bootstrap module over relying on browser-specific script scheduling
+    behavior between classic `defer` scripts and ES modules.
+- Next steps:
+  - retest the UI on the older Mac and collect the next batch of actual layout/usability issues.
+- Change log:
+  - Added `ui/assets/js/ui-bootstrap.js`.
+  - Updated all `ui/*.html` page shells.
+  - Updated `docs/governance/handoff.md`.
+
 - Status (2026-03-10): Started the macOS dual-architecture packaging follow-up on
   `feat/macos-dual-arch-builds`.
   - The macOS build script now packages according to an explicit Rust target triple instead of the
