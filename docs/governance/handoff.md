@@ -20,6 +20,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     Alpine.
   - Updated all UI pages to use the new bootstrap module instead of loading Alpine before the app
     module.
+  - Normalized the sidebar Overview navigation target to `/ui/` across all pages so the route is
+    canonical and consistent on older browsers.
 - Decisions:
   - treat the current macOS issue as a frontend boot sequencing problem, not a backend bootstrap
     issue.
@@ -30,6 +32,7 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Updated all `ui/*.html` page shells.
+  - Updated Overview sidebar links in all `ui/*.html` pages to `/ui/`.
   - Updated `docs/governance/handoff.md`.
 
 - Status (2026-03-10): Started the macOS dual-architecture packaging follow-up on
