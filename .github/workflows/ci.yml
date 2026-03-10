@@ -32,15 +32,26 @@ jobs:
             artifact_glob: dist/*.tar.gz
             build_cmd: scripts/build/build_linux_release.sh
           - os: macos-latest
-            artifact_glob: dist/*.tar.gz
-            build_cmd: scripts/build/build_macos_release.sh
+            artifact_glob: dist/*-macos-arm64.tar.gz
+            build_cmd: MACOS_BUILD_TARGET=aarch64-apple-darwin scripts/build/build_macos_release.sh
+            rust_target: aarch64-apple-darwin
+          - os: macos-latest
+            artifact_glob: dist/*-macos-x86_64.tar.gz
+            build_cmd: MACOS_BUILD_TARGET=x86_64-apple-darwin scripts/build/build_macos_release.sh
+            rust_target: x86_64-apple-darwin
           - os: windows-latest
             artifact_glob: dist/*.zip
             build_cmd: ./scripts/build/build_windows_release.ps1
     steps:
       - uses: actions/checkout@v4
-      - name: Install Rust
+      - name: Install Rust (default host target)
+        if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust (macOS target)
+        if: runner.os == 'macOS'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
       - name: Build release bundle (Linux/macOS)

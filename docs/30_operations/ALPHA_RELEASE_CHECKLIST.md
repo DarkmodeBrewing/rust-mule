@@ -22,16 +22,17 @@ Primary goals:
 - Linux:
   - native release bundle built on `ubuntu-latest`
 - macOS:
-  - native release bundle built on `macos-latest`
-  - intended private alpha support floor: `macOS 12.0`
-  - implemented via `MACOSX_DEPLOYMENT_TARGET=12.0`
+  - native arm64 release bundle built on `macos-latest`
+  - native x86_64 release bundle built on `macos-latest`
+  - intended private alpha Intel support floor: `macOS 12.0`
+  - implemented for the x86_64 build via `MACOSX_DEPLOYMENT_TARGET=12.0`
 - Windows:
   - native release bundle built on `windows-latest`
 
 Notes:
 
-- macOS 12 support is intentionally targeted, but still requires runtime verification on a real
-  macOS 12 machine before claiming it as validated.
+- Intel macOS 12 support is intentionally targeted for the x86_64 build, but still requires
+  runtime verification on a real macOS 12 Intel machine before claiming it as validated.
 - Multi-platform release artifacts are built natively in CI/release workflows, not by
   cross-compiling everything from Linux.
 
