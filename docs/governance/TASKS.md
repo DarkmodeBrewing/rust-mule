@@ -172,6 +172,20 @@ Last Reviewed: 2026-03-10
     UI feel alive during real operation
   - ensure page-level stats surfaces are internally consistent (avoid some counters updating live
     while neighboring counters stay stale)
+- add runtime SAM/KAD transport resilience backlog:
+  - detect runtime loss of the effective SAM datagram/KAD transport session, not just startup
+    failure
+  - surface degraded/disconnected transport state explicitly in status/UI so a long-running client
+    cannot look healthy while inert
+  - automatically retry or recreate the SAM datagram session when the router reports transient
+    failures like `duplicate destination` during runtime reconnect paths
+  - improve diagnostics so logs and status distinguish:
+    - duplicate session id
+    - duplicate destination
+    - router disconnect
+    - tunnel-build/session-establish failure
+  - include a short destination/session fingerprint in warnings so multi-instance diagnosis is
+    possible without exposing full keys
 - add documentation hygiene and publishing-scope backlog:
   - decide which documentation should be published to GitHub Pages versus kept as internal
     governance/handoff/backlog material
