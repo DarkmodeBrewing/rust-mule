@@ -147,6 +147,9 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     one page.
   - add timed refresh or broader reactive wiring for UI stats that currently stay stale until
     manual reload.
+  - unify liveness terminology across overview and node-stats; do not let `/ui/node_stats`
+    invent a broader frontend-only meaning of `live` while `/ui/` shows the backend service
+    counters.
   - detect runtime loss of the effective SAM/KAD transport session, surface degraded/disconnected
     state explicitly, and auto-recover instead of allowing long-running clients to look healthy
     while inert.
@@ -229,6 +232,8 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     `Downloads` and `Shared` surfaces.
   - Added backlog notes for UI stats refresh/reactivity so page counters stop drifting into a
     partially stale state between manual reloads.
+  - Added backlog notes to unify `live`/`live_10m` terminology between overview and node-stats so
+    the UI stops showing two incompatible meanings of “live”.
   - Added backlog notes for runtime SAM/KAD session resilience so long-running clients surface and
     recover from transport loss instead of appearing healthy while inert.
   - Added backlog notes for documentation hygiene, GitHub Pages publishing scope, and GitHub

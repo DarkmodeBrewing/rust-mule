@@ -172,6 +172,11 @@ Last Reviewed: 2026-03-10
     UI feel alive during real operation
   - ensure page-level stats surfaces are internally consistent (avoid some counters updating live
     while neighboring counters stay stale)
+  - unify liveness terminology across `/ui/` and `/ui/node_stats`
+    - current bug: overview uses backend `live` / `live_10m`, while node-stats derives a broader
+      frontend-only `live` state from `last_seen_secs_ago`
+    - either reuse the backend counters everywhere or rename the node-stats categories so `live`
+      does not mean two different things in two places
 - add runtime SAM/KAD transport resilience backlog:
   - detect runtime loss of the effective SAM datagram/KAD transport session, not just startup
     failure
