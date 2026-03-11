@@ -78,6 +78,10 @@ Last Reviewed: 2026-03-10
   - avoid letting `info` collapse into only periodic status/bucket refresh noise
   - treat bucket refresh chatter as debug-level unless it directly signals an operator-relevant
     state transition or failure
+  - rate-limit or summarize repeated `kad_inbound_drop reason="legacy_kad1_disabled"` events per
+    peer/opcode window so one noisy legacy peer does not spam debug logs continuously
+  - keep counters for dropped legacy KAD1 traffic, but avoid one-line-per-packet logging for
+    sustained legacy request storms
 - add acceptance/soak validation hardening backlog:
   - fail phase0 gate when key metrics resolve to `nan`/unexpected `SKIP` unless explicitly allowlisted
   - add lightweight script sanity mode in CI for soak scripts (env parsing, trap behavior, report/summary generation)

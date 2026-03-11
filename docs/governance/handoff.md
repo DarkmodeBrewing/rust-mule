@@ -11,6 +11,14 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-11): Captured another alpha reliability/backlog note on
+  `chore/alpha-backlog-notes`.
+  - Observed repeated `kad_inbound_drop reason="legacy_kad1_disabled"` spam from a single legacy
+    peer sending `KADEMLIA_REQ (0x05)`.
+  - Confirmed the current behavior is protocol-correct but too noisy at debug granularity for a
+    sustained legacy peer.
+  - Added backlog guidance to rate-limit or summarize repeated legacy-KAD1 drop events per
+    peer/opcode window while keeping aggregate counters.
 - Status (2026-03-10): Started the alpha UI stabilization track on
   `feat/alpha-ui-stabilization`.
   - Fixed a UI boot-order failure seen on the older macOS machine where Alpine evaluated
