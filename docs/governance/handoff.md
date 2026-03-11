@@ -19,6 +19,16 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     sustained legacy peer.
   - Added backlog guidance to rate-limit or summarize repeated legacy-KAD1 drop events per
     peer/opcode window while keeping aggregate counters.
+- Status (2026-03-11): Captured another alpha product/backlog note on
+  `chore/alpha-backlog-notes`.
+  - Clarified the desired sharing model for completed downloads:
+    - user-configured share roots must continue to be blocked from overlapping the managed app
+      data directory
+    - the app-managed completed-download output (`incoming`) should nevertheless become
+      auto-shared by application policy
+  - Added backlog guidance to keep managed incoming shares distinct from user-configured shared
+    folders in the UI/API, and to preserve that semantic if download/incoming paths become
+    configurable later.
 - Status (2026-03-10): Started the alpha UI stabilization track on
   `feat/alpha-ui-stabilization`.
   - Fixed a UI boot-order failure seen on the older macOS machine where Alpine evaluated

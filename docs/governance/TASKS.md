@@ -49,6 +49,14 @@ Last Reviewed: 2026-03-10
   - expose timezone under Settings UI/API so it can be changed without manual file edits
   - apply configured timezone to application log timestamps (instead of UTC-only output)
   - document runtime behavior when timezone is invalid or unavailable
+- add managed incoming auto-share backlog:
+  - completed downloads in the app-managed `incoming` directory should become auto-shared by the
+    application without requiring the user to add the internal runtime data tree as a share root
+  - keep the existing safety rule that user-configured share roots must not overlap the managed
+    app data directory
+  - if download/incoming paths become configurable later, preserve the same semantic rule:
+    the managed completed-download output is auto-shared, regardless of path
+  - surface managed incoming shares distinctly from user-configured shared folders in the UI/API
 - add debug lookup traceability backlog:
   - implement `POST /api/v1/debug/trace_lookup` as debug-only endpoint
   - use async execution (`202 Accepted` + `trace_id`) with poll endpoint
