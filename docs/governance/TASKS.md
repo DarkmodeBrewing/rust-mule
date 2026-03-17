@@ -90,6 +90,19 @@ Last Reviewed: 2026-03-10
     peer/opcode window so one noisy legacy peer does not spam debug logs continuously
   - keep counters for dropped legacy KAD1 traffic, but avoid one-line-per-packet logging for
     sustained legacy request storms
+- add runtime SAM transport resilience backlog:
+  - model SAM transport/session lifecycle explicitly instead of treating
+    `SESSION STATUS RESULT=OK` as sufficient recovery proof by itself
+  - distinguish:
+    - control connection health
+    - session creation success
+    - datagram readiness
+    - verified usable transport
+  - require post-create transport verification before marking KAD transport healthy again
+  - surface degraded/recovering state in logs, `/api/v1/status`, and UI
+  - classify recovery failures explicitly (`duplicate_id`, `duplicate_destination`,
+    `control_framing_error`, `router_disconnect`, `tunnel_build_failed`, etc.)
+  - reference design: `docs/10_architecture/SAM_TRANSPORT_STATE_MACHINE.md`
 - add acceptance/soak validation hardening backlog:
   - fail phase0 gate when key metrics resolve to `nan`/unexpected `SKIP` unless explicitly allowlisted
   - add lightweight script sanity mode in CI for soak scripts (env parsing, trap behavior, report/summary generation)

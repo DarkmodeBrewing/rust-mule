@@ -11,6 +11,15 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-17): Added a SAM transport lifecycle design note after reviewing
+  `source_ref/yosemite`.
+  - New note: `docs/10_architecture/SAM_TRANSPORT_STATE_MACHINE.md`
+  - Captures a stricter runtime model for:
+    - SAM control/session state
+    - datagram readiness vs verified transport health
+    - explicit degraded/recovering state
+    - post-create verification before declaring KAD transport healthy again
+  - Linked the existing runtime SAM resilience backlog to the new design note.
 - Status (2026-03-11): Captured another alpha reliability/backlog note on
   `chore/alpha-backlog-notes`.
   - Observed repeated `kad_inbound_drop reason="legacy_kad1_disabled"` spam from a single legacy
