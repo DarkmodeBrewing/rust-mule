@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-10
+Last Reviewed: 2026-03-19
 
 # Handoff / Continuation Notes
 
@@ -11,6 +11,44 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-19): Added a storage compatibility decision note.
+  - New note: `docs/10_architecture/STORAGE_COMPATIBILITY_POLICY.md`
+  - Decision:
+    - treat compatibility as a boundary, not a blanket rule
+    - keep wire/protocol compatibility release-critical
+    - keep internal persistence Rust-native by default
+    - prefer import/export or migration adapters over full legacy on-disk parity
+  - Immediate implication:
+    - do not treat byte-for-byte iMule `.part.met` / `known.met` parity as the
+      default implementation goal unless cross-client runtime-state portability
+      becomes a concrete requirement
+- Status (2026-03-17): Added a SAM transport lifecycle design note after reviewing
+  `source_ref/yosemite`.
+  - New note: `docs/10_architecture/SAM_TRANSPORT_STATE_MACHINE.md`
+  - Captures a stricter runtime model for:
+    - SAM control/session state
+    - datagram readiness vs verified transport health
+    - explicit degraded/recovering state
+    - post-create verification before declaring KAD transport healthy again
+  - Linked the existing runtime SAM resilience backlog to the new design note.
+- Status (2026-03-11): Captured another alpha reliability/backlog note on
+  `chore/alpha-backlog-notes`.
+  - Observed repeated `kad_inbound_drop reason="legacy_kad1_disabled"` spam from a single legacy
+    peer sending `KADEMLIA_REQ (0x05)`.
+  - Confirmed the current behavior is protocol-correct but too noisy at debug granularity for a
+    sustained legacy peer.
+  - Added backlog guidance to rate-limit or summarize repeated legacy-KAD1 drop events per
+    peer/opcode window while keeping aggregate counters.
+- Status (2026-03-11): Captured another alpha product/backlog note on
+  `chore/alpha-backlog-notes`.
+  - Clarified the desired sharing model for completed downloads:
+    - user-configured share roots must continue to be blocked from overlapping the managed app
+      data directory
+    - the app-managed completed-download output (`incoming`) should nevertheless become
+      auto-shared by application policy
+  - Added backlog guidance to keep managed incoming shares distinct from user-configured shared
+    folders in the UI/API, and to preserve that semantic if download/incoming paths become
+    configurable later.
 - Status (2026-03-10): Started the alpha UI stabilization track on
   `feat/alpha-ui-stabilization`.
   - Fixed a UI boot-order failure seen on the older macOS machine where Alpine evaluated
@@ -126,6 +164,45 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
     - prefer long-lived immutable caching only if filenames become fingerprinted
     - otherwise use a shorter TTL/revalidation policy so deploys do not strand stale UI assets
   - keep HTML routes separately revalidated; do not cache application pages like immutable assets.
+  - investigate the startup race behind:
+    `UI auto-open skipped: API/UI/token did not become ready before timeout`
+    when `data/api.token` appears shortly after process start.
+  - split that investigation into separate readiness causes so logs say whether auto-open missed:
+    API bind, UI route readiness, token-file creation, or token readability.
+  - classify search-thread origins so shared-library keyword publish jobs do not show up as
+    ordinary user search threads in the Search UI.
+  - review shared-library keyword publish lifetime separately from UI thread lifetime:
+    - the local `keyword_job` TTL is only the retry/progress/UI window (~2h)
+    - remote peers that accepted `PUBLISH_KEY` keep entries on their own keyword-store TTL
+    - decide whether shared-library keyword publishing should become a sustained refresh
+      responsibility instead of a short-lived startup/background burst
+  - refactor search-page information architecture:
+    - remove search threads from the global sidebar
+    - make `/ui/search` a compact active-search index
+    - move the current search workflow/detail surface to a dedicated detail route
+  - split the current combined downloads/shared-library UI into separate `Downloads` and `Shared`
+    navigation/pages so transfer troubleshooting and library/publish management stop competing for
+    one page.
+  - add timed refresh or broader reactive wiring for UI stats that currently stay stale until
+    manual reload.
+  - unify liveness terminology across overview and node-stats; do not let `/ui/node_stats`
+    invent a broader frontend-only meaning of `live` while `/ui/` shows the backend service
+    counters.
+  - detect runtime loss of the effective SAM/KAD transport session, surface degraded/disconnected
+    state explicitly, and auto-recover instead of allowing long-running clients to look healthy
+    while inert.
+  - improve runtime SAM diagnostics so logs/status distinguish duplicate destination, duplicate
+    session id, router disconnect, and tunnel/session-establish failures with short
+    instance/destination fingerprints.
+  - do a documentation hygiene pass:
+    - decide what belongs on GitHub Pages versus what should stay internal-only
+    - align repository/community-facing docs with GitHub community standards
+  - archive governance working docs so `handoff.md` and `TASKS.md` stay short/current instead of
+    accumulating indefinite historical narrative.
+  - preserve timed-out searches as explicit UI state instead of letting them disappear; add
+    per-search and bulk resubmit/remove actions for timed-out searches.
+  - rebalance `info` vs `debug` logging so operator-relevant progress stays visible at `info`
+    while bucket-refresh chatter moves behind `debug`.
 - Change log:
   - Added `ui/assets/js/ui-bootstrap.js`.
   - Split the old monolithic `ui/assets/js/app.js` into `ui/assets/js/app-core.js` plus page-specific modules under `ui/assets/js/pages/` so each UI page only loads the controller it uses.
@@ -178,6 +255,33 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
   - Updated the shared rail styling in `ui/assets/css/base.css` so navigation items and search
     thread rows use the same full-width padded treatment.
   - Updated `ui/assets/css/base.css` with reserved-height/status-strip helpers for lower startup
+  - Added backlog notes for the UI auto-open/token readiness race observed during alpha startup,
+    where `data/api.token` can appear in the same minute as the warning but still miss the
+    current readiness timeout window.
+  - Added backlog notes for search-thread origin classification after shared-library filename
+    tokenization produced multiple visible search threads from one shared archive name.
+  - Added backlog notes that shared-library keyword publishing may need a sustained refresh
+    strategy because the local keyword-job TTL only bounds retry/UI lifetime, not remote keyword
+    store retention.
+  - Added backlog notes for a search-page IA cleanup so active-search listing moves into
+    `/ui/search` and the current workflow surface becomes a dedicated detail page instead of
+    overflowing the global sidebar.
+  - Added backlog notes for splitting the combined downloads/shared-library page into separate
+    `Downloads` and `Shared` surfaces.
+  - Added backlog notes for UI stats refresh/reactivity so page counters stop drifting into a
+    partially stale state between manual reloads.
+  - Added backlog notes to unify `live`/`live_10m` terminology between overview and node-stats so
+    the UI stops showing two incompatible meanings of “live”.
+  - Added backlog notes for runtime SAM/KAD session resilience so long-running clients surface and
+    recover from transport loss instead of appearing healthy while inert.
+  - Added backlog notes for documentation hygiene, GitHub Pages publishing scope, and GitHub
+    community-standard repository docs.
+  - Added backlog notes for archiving governance docs so active working documents stay concise and
+    history moves into `docs/governance/archive/`.
+  - Added backlog notes for timed-out search lifecycle handling so failed searches remain visible
+    and actionable instead of silently disappearing from the UI.
+  - Added backlog notes for logging-surface cleanup so `info` logs narrate real operator progress
+    and verbose bucket refresh detail moves behind `debug`.
     layout shift.
   - Updated `ui/index.html` and `ui/search.html` to use the new stable status-strip/feedback
     classes.
