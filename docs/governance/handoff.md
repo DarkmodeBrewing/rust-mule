@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-17
+Last Reviewed: 2026-03-19
 
 # Handoff / Continuation Notes
 
@@ -11,6 +11,17 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-19): Added a storage compatibility decision note.
+  - New note: `docs/10_architecture/STORAGE_COMPATIBILITY_POLICY.md`
+  - Decision:
+    - treat compatibility as a boundary, not a blanket rule
+    - keep wire/protocol compatibility release-critical
+    - keep internal persistence Rust-native by default
+    - prefer import/export or migration adapters over full legacy on-disk parity
+  - Immediate implication:
+    - do not treat byte-for-byte iMule `.part.met` / `known.met` parity as the
+      default implementation goal unless cross-client runtime-state portability
+      becomes a concrete requirement
 - Status (2026-03-17): Added a SAM transport lifecycle design note after reviewing
   `source_ref/yosemite`.
   - New note: `docs/10_architecture/SAM_TRANSPORT_STATE_MACHINE.md`
