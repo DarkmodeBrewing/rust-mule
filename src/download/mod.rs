@@ -2,6 +2,7 @@ pub mod errors;
 pub mod protocol;
 pub mod service;
 pub mod store;
+pub mod transfer;
 pub mod types;
 
 pub use errors::{DownloadError, DownloadStoreError};

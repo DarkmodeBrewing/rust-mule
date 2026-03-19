@@ -214,7 +214,9 @@ pub struct Kad2SearchResSources {
 #[derive(Debug, Clone)]
 pub struct Kad2SearchResSourceResult {
     pub source_id: KadId,
-    /// Best-effort: KAD source results may carry either SOURCEDEST or SOURCEUDEST (or both).
+    /// Best-effort: KAD source results may carry SOURCEDEST (transfer/TCP) and SOURCEUDEST
+    /// (KAD/UDP), or only one of them.
+    pub tcp_dest: Option<[u8; I2P_DEST_LEN]>,
     pub udp_dest: Option<[u8; I2P_DEST_LEN]>,
     pub source_type: Option<u8>,
 }
@@ -826,6 +828,7 @@ pub fn decode_kad2_publish_key_req_lenient(payload: &[u8]) -> Result<Kad2Publish
 pub fn encode_kad2_publish_source_req(
     file: KadId,
     source: KadId,
+    source_tcp_dest: &[u8; I2P_DEST_LEN],
     source_udp_dest: &[u8; I2P_DEST_LEN],
     file_size: Option<u64>,
 ) -> Vec<u8> {
@@ -833,7 +836,7 @@ pub fn encode_kad2_publish_source_req(
     let mut out = Vec::new();
     out.extend_from_slice(&file.to_crypt_bytes());
     out.extend_from_slice(&source.to_crypt_bytes());
-    write_publish_source_taglist(&mut out, source_udp_dest, file_size);
+    write_publish_source_taglist(&mut out, source_tcp_dest, source_udp_dest, file_size);
     out
 }
 
@@ -902,7 +905,7 @@ pub fn decode_kad2_publish_res_key(payload: &[u8]) -> Result<Kad2PublishResKey> 
 pub fn encode_kad2_search_res_sources(
     my_id: KadId,
     key: KadId,
-    results: &[(KadId, [u8; I2P_DEST_LEN])],
+    results: &[(KadId, [u8; I2P_DEST_LEN], [u8; I2P_DEST_LEN])],
 ) -> Vec<u8> {
     // iMule `CIndexed::SendResults` (kad2):
     // <sender KadID u128><key u128><count u16><result>*count
@@ -911,9 +914,9 @@ pub fn encode_kad2_search_res_sources(
     out.extend_from_slice(&my_id.to_crypt_bytes());
     out.extend_from_slice(&key.to_crypt_bytes());
     out.extend_from_slice(&(results.len().min(u16::MAX as usize) as u16).to_le_bytes());
-    for (source_id, udp_dest) in results.iter().take(u16::MAX as usize) {
+    for (source_id, tcp_dest, udp_dest) in results.iter().take(u16::MAX as usize) {
         out.extend_from_slice(&source_id.to_crypt_bytes());
-        write_source_taglist(&mut out, udp_dest);
+        write_source_taglist(&mut out, tcp_dest, udp_dest);
     }
     out
 }
@@ -941,18 +944,23 @@ pub fn encode_kad2_search_res_keyword(
     out
 }
 
-fn write_source_taglist(out: &mut Vec<u8>, udp_dest: &[u8; I2P_DEST_LEN]) {
+fn write_source_taglist(
+    out: &mut Vec<u8>,
+    tcp_dest: &[u8; I2P_DEST_LEN],
+    udp_dest: &[u8; I2P_DEST_LEN],
+) {
     // Minimum tagset required by iMule/aMule to treat a result as usable.
     // See iMule `Search.cpp::ProcessResultFile`.
     out.push(3); // tag count
 
     write_tag_uint8(out, TAG_SOURCETYPE, 1);
-    write_tag_address(out, TAG_SOURCEDEST, udp_dest);
+    write_tag_address(out, TAG_SOURCEDEST, tcp_dest);
     write_tag_address(out, TAG_SOURCEUDEST, udp_dest);
 }
 
 fn write_publish_source_taglist(
     out: &mut Vec<u8>,
+    tcp_dest: &[u8; I2P_DEST_LEN],
     udp_dest: &[u8; I2P_DEST_LEN],
     file_size: Option<u64>,
 ) {
@@ -967,7 +975,7 @@ fn write_publish_source_taglist(
     out.push(count);
 
     write_tag_uint8(out, TAG_SOURCETYPE, 1);
-    write_tag_address(out, TAG_SOURCEDEST, udp_dest);
+    write_tag_address(out, TAG_SOURCEDEST, tcp_dest);
     write_tag_address(out, TAG_SOURCEUDEST, udp_dest);
 
     if let Some(sz) = file_size {
@@ -1039,6 +1047,7 @@ pub fn decode_kad2_search_res_sources(payload: &[u8]) -> Result<Kad2SearchResSou
     for r in res.results {
         results.push(Kad2SearchResSourceResult {
             source_id: r.answer,
+            tcp_dest: r.tags.source_dest,
             udp_dest: r.tags.best_udp_dest(),
             source_type: r.tags.source_type,
         });
@@ -1588,7 +1597,7 @@ mod tests {
         let file = KadId([0x33; 16]);
         let source = KadId([0x44; 16]);
         let udp_dest = [0x55; I2P_DEST_LEN];
-        let payload = encode_kad2_publish_source_req(file, source, &udp_dest, Some(123));
+        let payload = encode_kad2_publish_source_req(file, source, &udp_dest, &udp_dest, Some(123));
 
         // iMule layout:
         // <fileID u128><sourceID u128><taglist>

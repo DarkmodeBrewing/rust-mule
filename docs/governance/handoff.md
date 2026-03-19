@@ -11,6 +11,46 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-19): Integrated the first real phase-2 peer transfer path on
+  `feature/download-phase2-transfer`.
+  - `src/app.rs` download pump no longer fabricates local `OP_SENDINGPART` packets via the
+    upload service.
+  - The pump now:
+    - reads `tcp_dest` from KAD source entries
+    - opens an outbound SAM `STREAM` session to that peer destination
+    - sends `OP_REQUESTPARTS`
+    - feeds the returned `OP_SENDINGPART` / `OP_COMPRESSEDPART` packet back into the download
+      service
+  - `src/download/transfer.rs` now also includes a small request/response helper for one block
+    over an arbitrary async stream, plus focused tests for success and unexpected opcode cases.
+- Decisions:
+  - keep this slice outbound-only for now; do not add inbound peer-transfer serving until the
+    basic client request/response path has been validated
+  - accept per-fetch temporary SAM `STREAM` sessions as the first integration step; session reuse
+    can be optimized later once the end-to-end path is stable
+- Next steps:
+  - add minimal inbound transfer serving for `OP_REQUESTPARTS` on top of `SamStream::accept`
+  - replace temporary per-fetch stream sessions with a longer-lived transfer session/pool
+  - stop publishing identical TCP/UDP destinations once a distinct transfer destination is added
+- Status (2026-03-19): Started the download phase-2 transport scaffolding on
+  `feature/download-phase2-transfer`.
+  - Added `src/download/transfer.rs` with:
+    - eD2k-style TCP packet header framing (`protocol`, `length`, `opcode`)
+    - async read/write helpers for transfer packets
+    - `OP_REQUESTPARTS` packet builder on top of existing download block payload encoding
+    - focused unit tests for roundtrip framing, invalid length, unsupported protocol, and max-size rejection
+  - This does not yet replace the existing phase-0 synthetic transfer pump in `src/app.rs`;
+    it adds the missing low-level transport layer needed before wiring real peer stream transfer.
+- Decisions:
+  - phase 2 should start by replacing missing transport primitives, not by further extending the synthetic pump
+  - keep the first slice transport-only and testable in isolation before integrating SAM stream peer flow
+- Next steps:
+  - add minimal peer transfer stream client/server helpers on top of `SamStream`
+  - wire `OP_REQUESTPARTS` send + `OP_SENDINGPART` receive into the download path
+  - then remove or strictly reduce the synthetic packet-injection bridge in `src/app.rs`
+- Change log:
+  - Added `src/download/transfer.rs`.
+  - Updated `src/download/mod.rs`.
 - Status (2026-03-19): Added a storage compatibility decision note.
   - New note: `docs/10_architecture/STORAGE_COMPATIBILITY_POLICY.md`
   - Decision:

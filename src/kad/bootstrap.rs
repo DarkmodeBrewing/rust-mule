@@ -245,7 +245,8 @@ pub async fn bootstrap(
     //
     // This exists mainly to support KADEMLIA2_PUBLISH_SOURCE_REQ (0x19) + KADEMLIA2_SEARCH_SOURCE_REQ (0x15)
     // enough for peers to stop retransmitting publish requests during bootstrap.
-    let mut sources_by_file = BTreeMap::<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>::new();
+    let mut sources_by_file =
+        BTreeMap::<KadId, BTreeMap<KadId, ([u8; I2P_DEST_LEN], [u8; I2P_DEST_LEN])>>::new();
 
     while Instant::now() < deadline {
         let remain = deadline.saturating_duration_since(Instant::now());
@@ -664,7 +665,7 @@ pub async fn bootstrap(
                     sources_by_file
                         .entry(req.file)
                         .or_default()
-                        .insert(req.source, udp_dest);
+                        .insert(req.source, (udp_dest, udp_dest));
                 }
 
                 let count = sources_by_file
@@ -734,7 +735,7 @@ pub async fn bootstrap(
                         m.iter()
                             .skip(req.start_position as usize)
                             .take(64)
-                            .map(|(sid, dest)| (*sid, *dest))
+                            .map(|(sid, (tcp_dest, udp_dest))| (*sid, *tcp_dest, *udp_dest))
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();

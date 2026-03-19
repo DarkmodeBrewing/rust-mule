@@ -880,7 +880,14 @@ pub(super) async fn handle_inbound_impl(
                     .sources_by_file
                     .entry(req.file)
                     .or_default()
-                    .insert(req.source, udp_dest)
+                    .insert(
+                        req.source,
+                        KadSourceEntry {
+                            source_id: req.source,
+                            tcp_dest: udp_dest,
+                            udp_dest,
+                        },
+                    )
                     .is_none();
                 if inserted {
                     svc.stats_window.new_store_source_entries += 1;
@@ -1042,7 +1049,7 @@ pub(super) async fn handle_inbound_impl(
                     m.iter()
                         .skip(req.start_position as usize)
                         .take(64)
-                        .map(|(sid, dest)| (*sid, *dest))
+                        .map(|(sid, entry)| (*sid, entry.tcp_dest, entry.udp_dest))
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
@@ -1125,11 +1132,20 @@ pub(super) async fn handle_inbound_impl(
             let mut source_results_in_packet = 0u64;
 
             for r in res.results {
-                if let Some(dest) = r.tags.best_udp_dest() {
+                if let Some(udp_dest) = r.tags.best_udp_dest() {
                     // Source-style result: key = file ID, answer = source ID.
                     let m = svc.sources_by_file.entry(res.key).or_default();
                     source_results_in_packet = source_results_in_packet.saturating_add(1);
-                    if m.insert(r.answer, dest).is_none() {
+                    if m.insert(
+                        r.answer,
+                        KadSourceEntry {
+                            source_id: r.answer,
+                            tcp_dest: r.tags.source_dest.unwrap_or(udp_dest),
+                            udp_dest,
+                        },
+                    )
+                    .is_none()
+                    {
                         inserted_sources += 1;
                         svc.stats_window.new_store_source_entries += 1;
                     }

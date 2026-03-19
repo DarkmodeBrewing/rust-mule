@@ -372,18 +372,30 @@ fn build_status_reports_source_store_totals() {
     let source_b = KadId([4u8; 16]);
     let source_c = KadId([5u8; 16]);
 
-    svc.sources_by_file
-        .entry(file_a)
-        .or_default()
-        .insert(source_a, [11u8; I2P_DEST_LEN]);
-    svc.sources_by_file
-        .entry(file_a)
-        .or_default()
-        .insert(source_b, [12u8; I2P_DEST_LEN]);
-    svc.sources_by_file
-        .entry(file_b)
-        .or_default()
-        .insert(source_c, [13u8; I2P_DEST_LEN]);
+    svc.sources_by_file.entry(file_a).or_default().insert(
+        source_a,
+        KadSourceEntry {
+            source_id: source_a,
+            tcp_dest: [11u8; I2P_DEST_LEN],
+            udp_dest: [11u8; I2P_DEST_LEN],
+        },
+    );
+    svc.sources_by_file.entry(file_a).or_default().insert(
+        source_b,
+        KadSourceEntry {
+            source_id: source_b,
+            tcp_dest: [12u8; I2P_DEST_LEN],
+            udp_dest: [12u8; I2P_DEST_LEN],
+        },
+    );
+    svc.sources_by_file.entry(file_b).or_default().insert(
+        source_c,
+        KadSourceEntry {
+            source_id: source_c,
+            tcp_dest: [13u8; I2P_DEST_LEN],
+            udp_dest: [13u8; I2P_DEST_LEN],
+        },
+    );
 
     let st = status::build_status_impl(&mut svc, started);
     assert_eq!(st.source_store_files, 2);
@@ -435,10 +447,14 @@ fn shared_publish_status_combines_source_and_keyword_response_state() {
     let t0 = Instant::now();
     let t1 = t0 + Duration::from_millis(40);
 
-    svc.sources_by_file
-        .entry(file)
-        .or_default()
-        .insert(svc.routing.my_id(), [0u8; I2P_DEST_LEN]);
+    svc.sources_by_file.entry(file).or_default().insert(
+        svc.routing.my_id(),
+        KadSourceEntry {
+            source_id: svc.routing.my_id(),
+            tcp_dest: [0u8; I2P_DEST_LEN],
+            udp_dest: [0u8; I2P_DEST_LEN],
+        },
+    );
     mark_source_publish_sent(&mut svc, file, t0);
     on_source_publish_response(&mut svc, file, "peer-a", t1);
     svc.keyword_jobs.insert(
@@ -541,7 +557,9 @@ fn cache_local_published_source_inserts_local_entry_once() {
 
     let by_file = svc.sources_by_file.get(&file).expect("file entry exists");
     assert_eq!(by_file.len(), 1);
-    assert_eq!(by_file.get(&crypto.my_kad_id), Some(&crypto.my_dest));
+    let entry = by_file.get(&crypto.my_kad_id).expect("local source entry");
+    assert_eq!(entry.tcp_dest, crypto.my_dest);
+    assert_eq!(entry.udp_dest, crypto.my_dest);
 }
 
 #[test]

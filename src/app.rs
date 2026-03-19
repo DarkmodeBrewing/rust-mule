@@ -3,7 +3,7 @@ use crate::{
     i2p::sam::{SamClient, SamDatagramSocket, SamDatagramTcp, SamError, SamKadSocket, SamKeys},
     single_instance::SingleInstanceLock,
 };
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::{
     net::{IpAddr, Ipv4Addr},
     path::{Path, PathBuf},
@@ -12,14 +12,6 @@ use std::{
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::time::{Duration, Instant};
-
-#[derive(Debug, Clone)]
-struct PumpHeldLease {
-    file_hash: [u8; 16],
-    peer_id: String,
-    block: crate::download::service::BlockRange,
-    held_at: Instant,
-}
 
 pub type AppResult<T> = std::result::Result<T, AppError>;
 
@@ -333,12 +325,16 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     if config.kad.service_enabled {
         let download_handle_for_pump = download_handle.clone();
         let kad_cmd_tx_for_pump = kad_cmd_tx.clone();
-        let upload_service_for_pump = Arc::clone(&upload_service);
+        let sam_host_for_pump = config.sam.host.clone();
+        let sam_port_for_pump = config.sam.port;
+        let sam_session_name_for_pump = config.sam.session_name.clone();
         tokio::spawn(async move {
             run_download_transfer_pump(
                 download_handle_for_pump,
                 kad_cmd_tx_for_pump,
-                upload_service_for_pump,
+                sam_host_for_pump,
+                sam_port_for_pump,
+                sam_session_name_for_pump,
             )
             .await;
         });
@@ -682,19 +678,19 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
 async fn run_download_transfer_pump(
     download_handle: crate::download::DownloadServiceHandle,
     kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
-    upload_service: Arc<crate::upload::UploadService>,
+    sam_host: String,
+    sam_port: u16,
+    sam_session_name: String,
 ) {
     const PUMP_TICK: Duration = Duration::from_secs(2);
-    const HOLD_TTL: Duration = Duration::from_secs(6);
-    const UPLOAD_ACTIVITY_TTL: Duration = Duration::from_secs(15);
     const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
     const SEARCH_MIN_INTERVAL: Duration = Duration::from_secs(30);
     const MAX_BLOCKS_PER_RESERVE: usize = 4;
     const BLOCK_SIZE: u64 = 64 * 1024;
+    const TRANSFER_IO_TIMEOUT: Duration = Duration::from_secs(15);
 
     let mut ticker = tokio::time::interval(PUMP_TICK);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut held = HashMap::<u16, VecDeque<PumpHeldLease>>::new();
     let mut last_search_by_file = HashMap::<String, Instant>::new();
 
     loop {
@@ -708,88 +704,10 @@ async fn run_download_transfer_pump(
             }
         };
 
-        let mut active_parts = HashMap::<u16, crate::download::PartState>::new();
-        for d in &downloads {
-            active_parts.insert(d.part_number, d.state);
-        }
-        let mut dropped_leases = Vec::new();
-        held.retain(|part, leases| {
-            if leases.is_empty() {
-                return false;
-            }
-            let keep = active_parts.get(part).is_some_and(|state| {
-                !matches!(
-                    state,
-                    crate::download::PartState::Cancelled
-                        | crate::download::PartState::Completed
-                        | crate::download::PartState::Error
-                )
-            });
-            if !keep {
-                dropped_leases.extend(leases.iter().cloned());
-            }
-            keep
-        });
-        for lease in dropped_leases {
-            upload_service.note_terminal(
-                &crate::kad::KadId(lease.file_hash).to_hex_lower(),
-                &lease.peer_id,
-                lease.block.start,
-                lease.block.end,
-                crate::upload::UploadTerminalReason::Dropped,
-            );
-        }
-
         for d in downloads {
             match d.state {
                 crate::download::PartState::Queued | crate::download::PartState::Downloading => {}
                 _ => continue,
-            }
-
-            if let Some(leases) = held.get_mut(&d.part_number) {
-                if let Some(front) = leases.front()
-                    && front.held_at.elapsed() >= HOLD_TTL
-                {
-                    let lease = leases.pop_front().expect("front exists");
-                    let file_hash_hex = crate::kad::KadId(lease.file_hash).to_hex_lower();
-                    let payload = upload_service
-                        .build_sending_part_payload(
-                            &lease.file_hash,
-                            lease.block.start,
-                            lease.block.end,
-                        )
-                        .await;
-                    upload_service.note_sending(
-                        &file_hash_hex,
-                        &lease.peer_id,
-                        lease.block.start,
-                        lease.block.end,
-                        UPLOAD_ACTIVITY_TTL,
-                        payload.source,
-                    );
-                    let packet = crate::download::service::InboundPacket {
-                        opcode: crate::download::protocol::OP_SENDINGPART,
-                        payload: payload.payload,
-                    };
-                    let peer_id = lease.peer_id.clone();
-                    if download_handle
-                        .ingest_inbound_packet(d.part_number, peer_id, packet)
-                        .await
-                        .is_ok()
-                    {
-                        upload_service.note_terminal(
-                            &file_hash_hex,
-                            &lease.peer_id,
-                            lease.block.start,
-                            lease.block.end,
-                            crate::upload::UploadTerminalReason::Completed,
-                        );
-                    }
-                }
-                if !leases.is_empty() {
-                    // Keep one held lease queue per part; do not stack new reservations while held.
-                    continue;
-                }
             }
 
             let file_hash = match crate::kad::KadId::from_hex(&d.file_hash_md4_hex) {
@@ -797,7 +715,6 @@ async fn run_download_transfer_pump(
                 Err(_) => continue,
             };
             let file_id = file_hash;
-            let file_hash_hex = file_hash.to_hex_lower();
             let file_size = d.file_size;
 
             let (tx, rx) = tokio::sync::oneshot::channel();
@@ -834,6 +751,7 @@ async fn run_download_transfer_pump(
                 continue;
             };
             let peer_id = source.source_id.to_hex_lower();
+            let peer_dest = crate::i2p::b64::encode(&source.tcp_dest);
 
             let blocks = match download_handle
                 .reserve_blocks_for_peer(
@@ -858,56 +776,107 @@ async fn run_download_transfer_pump(
                 continue;
             }
 
-            let hold_last = blocks.len() > 1;
-            let held_queue = held.entry(d.part_number).or_default();
-            for (idx, block) in blocks.iter().copied().enumerate() {
-                if hold_last && idx == blocks.len() - 1 {
-                    upload_service.note_held(
-                        &file_hash_hex,
-                        &peer_id,
-                        block.start,
-                        block.end,
-                        UPLOAD_ACTIVITY_TTL,
-                    );
-                    held_queue.push_back(PumpHeldLease {
-                        file_hash: file_hash.0,
-                        peer_id: peer_id.clone(),
-                        block,
-                        held_at: Instant::now(),
-                    });
-                    continue;
+            match fetch_blocks_from_peer(
+                &sam_host,
+                sam_port,
+                &sam_session_name,
+                &peer_dest,
+                file_hash.0,
+                &blocks,
+                TRANSFER_IO_TIMEOUT,
+            )
+            .await
+            {
+                Ok(packets) => {
+                    for (block, packet) in blocks.iter().copied().zip(packets.into_iter()) {
+                        if let Err(err) = download_handle
+                            .ingest_inbound_packet(d.part_number, peer_id.clone(), packet)
+                            .await
+                        {
+                            tracing::debug!(
+                                error = %err,
+                                part = d.part_number,
+                                peer = %peer_id,
+                                start = block.start,
+                                end = block.end,
+                                "download transfer ingest failed"
+                            );
+                        }
+                    }
                 }
-                let payload = upload_service
-                    .build_sending_part_payload(&file_hash.0, block.start, block.end)
-                    .await;
-                upload_service.note_sending(
-                    &file_hash_hex,
-                    &peer_id,
-                    block.start,
-                    block.end,
-                    UPLOAD_ACTIVITY_TTL,
-                    payload.source,
-                );
-                let packet = crate::download::service::InboundPacket {
-                    opcode: crate::download::protocol::OP_SENDINGPART,
-                    payload: payload.payload,
-                };
-                if download_handle
-                    .ingest_inbound_packet(d.part_number, peer_id.clone(), packet)
-                    .await
-                    .is_ok()
-                {
-                    upload_service.note_terminal(
-                        &file_hash_hex,
-                        &peer_id,
-                        block.start,
-                        block.end,
-                        crate::upload::UploadTerminalReason::Completed,
+                Err(err) => {
+                    tracing::debug!(
+                        error = %err,
+                        part = d.part_number,
+                        peer = %peer_id,
+                        dest = %crate::i2p::b64::short(&peer_dest),
+                        "download transfer fetch failed"
                     );
+                    for block in blocks {
+                        let _ = download_handle
+                            .mark_block_failed_by_peer(
+                                d.part_number,
+                                peer_id.clone(),
+                                block,
+                                err.to_string(),
+                            )
+                            .await;
+                    }
+                    let _ = download_handle.peer_disconnected(peer_id.clone()).await;
                 }
             }
         }
     }
+}
+
+async fn fetch_blocks_from_peer(
+    sam_host: &str,
+    sam_port: u16,
+    sam_session_name: &str,
+    peer_dest: &str,
+    file_hash: [u8; 16],
+    blocks: &[crate::download::service::BlockRange],
+    io_timeout: Duration,
+) -> AppResult<Vec<crate::download::service::InboundPacket>> {
+    let stream_session_id = format!("{sam_session_name}-download-xfer");
+    let mut sam = SamClient::connect_hello(sam_host, sam_port, "3.1", "3.3").await?;
+    let (stream_priv, _stream_pub) = sam.dest_generate().await?;
+
+    let _ = sam.session_destroy(&stream_session_id).await;
+    sam.session_create(
+        "STREAM",
+        &stream_session_id,
+        &stream_priv,
+        ["i2cp.messageReliability=BestEffort"],
+    )
+    .await?;
+
+    let result = async {
+        let mut stream =
+            crate::i2p::sam::SamStream::connect(sam_host, sam_port, &stream_session_id, peer_dest)
+                .await?;
+        let mut packets = Vec::with_capacity(blocks.len());
+        for block in blocks.iter().copied() {
+            let packet = tokio::time::timeout(
+                io_timeout,
+                crate::download::transfer::request_block(&mut stream, file_hash, block),
+            )
+            .await
+            .map_err(|_| {
+                AppError::InvalidState(format!(
+                    "timed out fetching block {}-{} from peer",
+                    block.start, block.end
+                ))
+            })?
+            .map_err(|err| AppError::InvalidState(err.to_string()))?;
+            packets.push(packet);
+        }
+        Ok::<Vec<crate::download::service::InboundPacket>, AppError>(packets)
+    }
+    .await;
+
+    let _ = sam.session_destroy(&stream_session_id).await;
+    result
 }
 
 fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {

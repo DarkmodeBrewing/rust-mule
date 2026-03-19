@@ -332,6 +332,7 @@ pub enum KadServiceCommand {
 #[derive(Debug, Clone)]
 pub struct KadSourceEntry {
     pub source_id: KadId,
+    pub tcp_dest: [u8; I2P_DEST_LEN],
     pub udp_dest: [u8; I2P_DEST_LEN],
 }
 
