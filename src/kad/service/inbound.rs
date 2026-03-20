@@ -1,4 +1,5 @@
 use super::*;
+use crate::kad::wire::decode_kad2_publish_source_req;
 
 pub(super) async fn handle_inbound_impl(
     svc: &mut KadService,
@@ -851,7 +852,7 @@ pub(super) async fn handle_inbound_impl(
         KADEMLIA2_PUBLISH_SOURCE_REQ => {
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             svc.stats_window.recv_publish_source_reqs += 1;
-            let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
+            let req = match decode_kad2_publish_source_req(&pkt.payload) {
                 Ok(r) => r,
                 Err(err) => {
                     svc.stats_window.recv_publish_source_decode_failures += 1;
@@ -876,6 +877,8 @@ pub(super) async fn handle_inbound_impl(
             {
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
+                let tcp_dest = req.tags.source_dest.unwrap_or(udp_dest);
+                let udp_dest = req.tags.source_udest.unwrap_or(udp_dest);
                 inserted = svc
                     .sources_by_file
                     .entry(req.file)
@@ -884,7 +887,7 @@ pub(super) async fn handle_inbound_impl(
                         req.source,
                         KadSourceEntry {
                             source_id: req.source,
-                            tcp_dest: udp_dest,
+                            tcp_dest,
                             udp_dest,
                         },
                     )

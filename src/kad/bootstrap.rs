@@ -7,7 +7,7 @@ use crate::{
         KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ,
         KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
         TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
-        decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_search_source_req,
+        decode_kad2_publish_source_req, decode_kad2_req, decode_kad2_search_source_req,
         encode_kad2_hello, encode_kad2_hello_req, encode_kad2_publish_res_for_source,
         encode_kad2_res, encode_kad2_search_res_sources,
     },
@@ -644,7 +644,7 @@ pub async fn bootstrap(
             }
             KADEMLIA2_PUBLISH_SOURCE_REQ => {
                 publish_source_reqs += 1;
-                let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
+                let req = match decode_kad2_publish_source_req(&pkt.payload) {
                     Ok(r) => r,
                     Err(err) => {
                         dropped_unparsable += 1;
@@ -662,10 +662,12 @@ pub async fn bootstrap(
                 {
                     let mut udp_dest = [0u8; I2P_DEST_LEN];
                     udp_dest.copy_from_slice(raw);
+                    let tcp_dest = req.tags.source_dest.unwrap_or(udp_dest);
+                    let udp_dest = req.tags.source_udest.unwrap_or(udp_dest);
                     sources_by_file
                         .entry(req.file)
                         .or_default()
-                        .insert(req.source, (udp_dest, udp_dest));
+                        .insert(req.source, (tcp_dest, udp_dest));
                 }
 
                 let count = sources_by_file

@@ -191,6 +191,13 @@ pub struct Kad2PublishSourceReq {
 }
 
 #[derive(Debug, Clone)]
+pub struct Kad2PublishSourceReqFull {
+    pub file: KadId,
+    pub source: KadId,
+    pub tags: TaglistSearchInfo,
+}
+
+#[derive(Debug, Clone)]
 pub struct Kad2PublishKeyReq {
     pub keyword: KadId,
     pub entries: Vec<Kad2PublishKeyEntry>,
@@ -528,6 +535,14 @@ pub fn decode_kad2_publish_source_req_min(payload: &[u8]) -> Result<Kad2PublishS
     let file = r.read_uint128_emule()?;
     let source = r.read_uint128_emule()?;
     Ok(Kad2PublishSourceReq { file, source })
+}
+
+pub fn decode_kad2_publish_source_req(payload: &[u8]) -> Result<Kad2PublishSourceReqFull> {
+    let mut r = Reader::new(payload);
+    let file = r.read_uint128_emule()?;
+    let source = r.read_uint128_emule()?;
+    let tags = r.read_taglist_search_info()?;
+    Ok(Kad2PublishSourceReqFull { file, source, tags })
 }
 
 pub fn decode_kad2_publish_key_req(payload: &[u8]) -> Result<Kad2PublishKeyReq> {
@@ -1596,8 +1611,9 @@ mod tests {
     fn kad2_publish_source_req_layout_has_required_source_tags() {
         let file = KadId([0x33; 16]);
         let source = KadId([0x44; 16]);
-        let udp_dest = [0x55; I2P_DEST_LEN];
-        let payload = encode_kad2_publish_source_req(file, source, &udp_dest, &udp_dest, Some(123));
+        let tcp_dest = [0x55; I2P_DEST_LEN];
+        let udp_dest = [0x66; I2P_DEST_LEN];
+        let payload = encode_kad2_publish_source_req(file, source, &tcp_dest, &udp_dest, Some(123));
 
         // iMule layout:
         // <fileID u128><sourceID u128><taglist>
@@ -1622,6 +1638,13 @@ mod tests {
         let parsed_min = decode_kad2_publish_source_req_min(&payload).unwrap();
         assert_eq!(parsed_min.file, file);
         assert_eq!(parsed_min.source, source);
+
+        let parsed = decode_kad2_publish_source_req(&payload).unwrap();
+        assert_eq!(parsed.file, file);
+        assert_eq!(parsed.source, source);
+        assert_eq!(parsed.tags.source_dest, Some(tcp_dest));
+        assert_eq!(parsed.tags.source_udest, Some(udp_dest));
+        assert_eq!(parsed.tags.file_size, Some(123));
     }
 
     #[test]

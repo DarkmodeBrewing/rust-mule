@@ -861,20 +861,27 @@ async fn run_transfer_accept_loop(
     upload_service: Arc<crate::upload::UploadService>,
 ) {
     let mut backoff = Duration::from_secs(1);
+    let mut session_ready = false;
     loop {
-        match ensure_stream_session(&sam_host, sam_port, control_timeout, &session_id, &keys).await
-        {
-            Ok(()) => {}
-            Err(err) => {
-                tracing::warn!(
-                    session = %session_id,
-                    error = %err,
-                    backoff_secs = backoff.as_secs(),
-                    "failed to ensure transfer STREAM session; retrying"
-                );
-                tokio::time::sleep(backoff).await;
-                backoff = std::cmp::min(backoff * 2, Duration::from_secs(30));
-                continue;
+        if !session_ready {
+            match ensure_stream_session(&sam_host, sam_port, control_timeout, &session_id, &keys)
+                .await
+            {
+                Ok(()) => {
+                    session_ready = true;
+                    backoff = Duration::from_secs(1);
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        session = %session_id,
+                        error = %err,
+                        backoff_secs = backoff.as_secs(),
+                        "failed to ensure transfer STREAM session; retrying"
+                    );
+                    tokio::time::sleep(backoff).await;
+                    backoff = std::cmp::min(backoff * 2, Duration::from_secs(30));
+                    continue;
+                }
             }
         }
 
@@ -891,6 +898,7 @@ async fn run_transfer_accept_loop(
                 });
             }
             Err(err) => {
+                session_ready = false;
                 tracing::warn!(
                     session = %session_id,
                     error = %err,
