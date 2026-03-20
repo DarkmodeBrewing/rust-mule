@@ -1,4 +1,7 @@
 use super::*;
+use crate::kad::wire::{
+    TaglistSearchInfo, decode_kad2_publish_source_req, decode_kad2_publish_source_req_min,
+};
 
 pub(super) async fn handle_inbound_impl(
     svc: &mut KadService,
@@ -851,8 +854,8 @@ pub(super) async fn handle_inbound_impl(
         KADEMLIA2_PUBLISH_SOURCE_REQ => {
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             svc.stats_window.recv_publish_source_reqs += 1;
-            let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
-                Ok(r) => r,
+            let (req, tags) = match decode_publish_source_req_with_fallback(&pkt.payload) {
+                Ok(v) => v,
                 Err(err) => {
                     svc.stats_window.recv_publish_source_decode_failures += 1;
                     tracing::debug!(
@@ -876,11 +879,20 @@ pub(super) async fn handle_inbound_impl(
             {
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
+                let tcp_dest = tags.source_dest.unwrap_or(udp_dest);
+                let udp_dest = tags.source_udest.unwrap_or(udp_dest);
                 inserted = svc
                     .sources_by_file
                     .entry(req.file)
                     .or_default()
-                    .insert(req.source, udp_dest)
+                    .insert(
+                        req.source,
+                        KadSourceEntry {
+                            source_id: req.source,
+                            tcp_dest,
+                            udp_dest,
+                        },
+                    )
                     .is_none();
                 if inserted {
                     svc.stats_window.new_store_source_entries += 1;
@@ -1042,7 +1054,7 @@ pub(super) async fn handle_inbound_impl(
                     m.iter()
                         .skip(req.start_position as usize)
                         .take(64)
-                        .map(|(sid, dest)| (*sid, *dest))
+                        .map(|(sid, entry)| (*sid, entry.tcp_dest, entry.udp_dest))
                         .collect::<Vec<_>>()
                 })
                 .unwrap_or_default();
@@ -1125,11 +1137,20 @@ pub(super) async fn handle_inbound_impl(
             let mut source_results_in_packet = 0u64;
 
             for r in res.results {
-                if let Some(dest) = r.tags.best_udp_dest() {
+                if let Some(udp_dest) = r.tags.best_udp_dest() {
                     // Source-style result: key = file ID, answer = source ID.
                     let m = svc.sources_by_file.entry(res.key).or_default();
                     source_results_in_packet = source_results_in_packet.saturating_add(1);
-                    if m.insert(r.answer, dest).is_none() {
+                    if m.insert(
+                        r.answer,
+                        KadSourceEntry {
+                            source_id: r.answer,
+                            tcp_dest: r.tags.source_dest.unwrap_or(udp_dest),
+                            udp_dest,
+                        },
+                    )
+                    .is_none()
+                    {
                         inserted_sources += 1;
                         svc.stats_window.new_store_source_entries += 1;
                     }
@@ -1343,4 +1364,22 @@ pub(super) async fn handle_inbound_impl(
     }
 
     Ok(())
+}
+
+fn decode_publish_source_req_with_fallback(
+    payload: &[u8],
+) -> crate::kad::wire::Result<(crate::kad::wire::Kad2PublishSourceReq, TaglistSearchInfo)> {
+    match decode_kad2_publish_source_req(payload) {
+        Ok(full) => Ok((
+            crate::kad::wire::Kad2PublishSourceReq {
+                file: full.file,
+                source: full.source,
+            },
+            full.tags,
+        )),
+        Err(_) => {
+            let min = decode_kad2_publish_source_req_min(payload)?;
+            Ok((min, TaglistSearchInfo::default()))
+        }
+    }
 }

@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-19
+Last Reviewed: 2026-03-20
 
 # Handoff / Continuation Notes
 
@@ -11,6 +11,36 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-20): Download phase 2 now has a real end-to-end transfer baseline on
+  `feature/download-phase2-transfer`.
+  - `src/download/transfer.rs` provides eD2k-style transfer framing, request helpers, and focused
+    unit tests.
+  - `src/app.rs` download pumping now performs real outbound `STREAM CONNECT` + `OP_REQUESTPARTS`
+    block fetches instead of fabricating local `OP_SENDINGPART` packets.
+  - App startup persists a separate transfer identity in `data/sam.transfer.keys` and ensures a
+    dedicated `<session>-transfer` STREAM session for transfer traffic.
+  - Inbound transfer serving exists: accepted STREAM connections decode `OP_REQUESTPARTS` and
+    answer with `OP_SENDINGPART` from `UploadService`.
+  - KAD source publish/cache/store paths now distinguish `tcp_dest` (transfer) from `udp_dest`
+    (KAD datagram) and preserve the published transfer destination when possible.
+  - Publish-source decode is lenient again: if full tag parsing fails, we fall back to the minimal
+    decoder and still ACK/store the source using the sender destination.
+  - Transfer hardening added so outbound connect attempts and inbound idle reads are time-bounded.
+- Decisions:
+  - persist the transfer identity; do not generate it per run, because source publication needs a
+    stable inbound destination
+  - keep the first inbound server implementation simple and uncompressed; always answer with
+    `OP_SENDINGPART` for now
+  - keep wire/protocol compatibility release-critical, but keep local persistence Rust-native by
+    default unless cross-client runtime-state portability becomes a concrete requirement
+- Next steps:
+  - validate the phase-2 path against real alpha peers and confirm published `tcp_dest` matches
+    reachable transfer listeners in practice
+  - add broader transfer-session tests or soak coverage around listener/session recovery behavior
+  - decide whether to keep `write_packet()` eager flushing or relax it after real-network testing
+- Historical note (2026-03-19):
+  - this slice started as transport framing plus an outbound-only client path, then was extended
+    into the dedicated persisted transfer session with inbound serving and session reuse above
 - Status (2026-03-19): Added a storage compatibility decision note.
   - New note: `docs/10_architecture/STORAGE_COMPATIBILITY_POLICY.md`
   - Decision:

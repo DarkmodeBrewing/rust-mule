@@ -17,10 +17,10 @@ use crate::{
             Kad2SearchRes, KadPacket, TAG_KADMISCOPTIONS, decode_kad2_bootstrap_res,
             decode_kad2_hello, decode_kad2_publish_key_keyword_prefix,
             decode_kad2_publish_key_req_lenient, decode_kad2_publish_res,
-            decode_kad2_publish_res_key, decode_kad2_publish_source_req_min, decode_kad2_req,
-            decode_kad2_res, decode_kad2_search_key_req, decode_kad2_search_res,
-            decode_kad2_search_source_req, encode_kad2_bootstrap_res, encode_kad2_hello,
-            encode_kad2_hello_req, encode_kad2_publish_key_req, encode_kad2_publish_res_for_key,
+            decode_kad2_publish_res_key, decode_kad2_req, decode_kad2_res,
+            decode_kad2_search_key_req, decode_kad2_search_res, decode_kad2_search_source_req,
+            encode_kad2_bootstrap_res, encode_kad2_hello, encode_kad2_hello_req,
+            encode_kad2_publish_key_req, encode_kad2_publish_res_for_key,
             encode_kad2_publish_res_for_source, encode_kad2_publish_source_req, encode_kad2_req,
             encode_kad2_res, encode_kad2_search_key_req, encode_kad2_search_res_keyword,
             encode_kad2_search_res_sources, encode_kad2_search_source_req,
@@ -203,7 +203,7 @@ struct UnmatchedResponseDiag {
 pub struct KadService {
     routing: RoutingTable,
     // Minimal (in-memory) source index: file ID -> (source ID -> UDP dest).
-    sources_by_file: BTreeMap<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>,
+    sources_by_file: BTreeMap<KadId, BTreeMap<KadId, KadSourceEntry>>,
     source_probe_by_file: HashMap<KadId, SourceProbeState>,
     // Minimal (in-memory) keyword index: keyword hash -> (file ID -> hit state).
     keyword_hits_by_keyword: BTreeMap<KadId, BTreeMap<KadId, KeywordHitState>>,
@@ -566,9 +566,10 @@ async fn handle_command(
                 .map(|m| {
                     m.iter()
                         .take(1024)
-                        .map(|(sid, dest)| KadSourceEntry {
+                        .map(|(sid, entry)| KadSourceEntry {
                             source_id: *sid,
-                            udp_dest: *dest,
+                            tcp_dest: entry.tcp_dest,
+                            udp_dest: entry.udp_dest,
                         })
                         .collect::<Vec<_>>()
                 })
@@ -851,6 +852,7 @@ async fn send_publish_source(
         let payload = encode_kad2_publish_source_req(
             file,
             crypto.my_kad_id,
+            &crypto.my_transfer_dest,
             &crypto.my_dest,
             Some(file_size),
         );
@@ -1201,7 +1203,17 @@ async fn progress_keyword_job(
 
 fn cache_local_published_source(svc: &mut KadService, crypto: KadServiceCrypto, file: KadId) {
     let entry = svc.sources_by_file.entry(file).or_default();
-    if entry.insert(crypto.my_kad_id, crypto.my_dest).is_none() {
+    if entry
+        .insert(
+            crypto.my_kad_id,
+            KadSourceEntry {
+                source_id: crypto.my_kad_id,
+                tcp_dest: crypto.my_transfer_dest,
+                udp_dest: crypto.my_dest,
+            },
+        )
+        .is_none()
+    {
         svc.stats_window.new_store_source_entries =
             svc.stats_window.new_store_source_entries.saturating_add(1);
         let (source_store_files, source_store_entries_total) = source_store_totals(svc);
@@ -2494,6 +2506,7 @@ async fn debug_probe_peer(
         let publish_source_payload = encode_kad2_publish_source_req(
             file,
             crypto.my_kad_id,
+            &crypto.my_transfer_dest,
             &crypto.my_dest,
             Some(file_size),
         );

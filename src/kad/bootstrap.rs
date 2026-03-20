@@ -6,10 +6,10 @@ use crate::{
         KADEMLIA2_HELLO_REQ, KADEMLIA2_HELLO_RES, KADEMLIA2_HELLO_RES_ACK, KADEMLIA2_PING,
         KADEMLIA2_PONG, KADEMLIA2_PUBLISH_RES, KADEMLIA2_PUBLISH_SOURCE_REQ, KADEMLIA2_REQ,
         KADEMLIA2_RES, KADEMLIA2_SEARCH_RES, KADEMLIA2_SEARCH_SOURCE_REQ, KadPacket,
-        TAG_KADMISCOPTIONS, decode_kad1_req, decode_kad2_bootstrap_res, decode_kad2_hello,
-        decode_kad2_publish_source_req_min, decode_kad2_req, decode_kad2_search_source_req,
-        encode_kad2_hello, encode_kad2_hello_req, encode_kad2_publish_res_for_source,
-        encode_kad2_res, encode_kad2_search_res_sources,
+        TAG_KADMISCOPTIONS, TaglistSearchInfo, decode_kad1_req, decode_kad2_bootstrap_res,
+        decode_kad2_hello, decode_kad2_publish_source_req, decode_kad2_publish_source_req_min,
+        decode_kad2_req, decode_kad2_search_source_req, encode_kad2_hello, encode_kad2_hello_req,
+        encode_kad2_publish_res_for_source, encode_kad2_res, encode_kad2_search_res_sources,
     },
     kad::{KadId, udp_crypto},
     nodes::imule::ImuleNode,
@@ -245,7 +245,8 @@ pub async fn bootstrap(
     //
     // This exists mainly to support KADEMLIA2_PUBLISH_SOURCE_REQ (0x19) + KADEMLIA2_SEARCH_SOURCE_REQ (0x15)
     // enough for peers to stop retransmitting publish requests during bootstrap.
-    let mut sources_by_file = BTreeMap::<KadId, BTreeMap<KadId, [u8; I2P_DEST_LEN]>>::new();
+    let mut sources_by_file =
+        BTreeMap::<KadId, BTreeMap<KadId, ([u8; I2P_DEST_LEN], [u8; I2P_DEST_LEN])>>::new();
 
     while Instant::now() < deadline {
         let remain = deadline.saturating_duration_since(Instant::now());
@@ -643,8 +644,8 @@ pub async fn bootstrap(
             }
             KADEMLIA2_PUBLISH_SOURCE_REQ => {
                 publish_source_reqs += 1;
-                let req = match decode_kad2_publish_source_req_min(&pkt.payload) {
-                    Ok(r) => r,
+                let (req, tags) = match decode_publish_source_req_with_fallback(&pkt.payload) {
+                    Ok(v) => v,
                     Err(err) => {
                         dropped_unparsable += 1;
                         tracing::debug!(
@@ -661,10 +662,12 @@ pub async fn bootstrap(
                 {
                     let mut udp_dest = [0u8; I2P_DEST_LEN];
                     udp_dest.copy_from_slice(raw);
+                    let tcp_dest = tags.source_dest.unwrap_or(udp_dest);
+                    let udp_dest = tags.source_udest.unwrap_or(udp_dest);
                     sources_by_file
                         .entry(req.file)
                         .or_default()
-                        .insert(req.source, udp_dest);
+                        .insert(req.source, (tcp_dest, udp_dest));
                 }
 
                 let count = sources_by_file
@@ -734,7 +737,7 @@ pub async fn bootstrap(
                         m.iter()
                             .skip(req.start_position as usize)
                             .take(64)
-                            .map(|(sid, dest)| (*sid, *dest))
+                            .map(|(sid, (tcp_dest, udp_dest))| (*sid, *tcp_dest, *udp_dest))
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
@@ -955,4 +958,22 @@ pub async fn bootstrap(
     Ok(BootstrapOutcome {
         discovered: discovered.into_values().collect(),
     })
+}
+
+fn decode_publish_source_req_with_fallback(
+    payload: &[u8],
+) -> crate::kad::wire::Result<(crate::kad::wire::Kad2PublishSourceReq, TaglistSearchInfo)> {
+    match decode_kad2_publish_source_req(payload) {
+        Ok(full) => Ok((
+            crate::kad::wire::Kad2PublishSourceReq {
+                file: full.file,
+                source: full.source,
+            },
+            full.tags,
+        )),
+        Err(_) => {
+            let min = decode_kad2_publish_source_req_min(payload)?;
+            Ok((min, TaglistSearchInfo::default()))
+        }
+    }
 }
