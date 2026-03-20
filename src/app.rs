@@ -236,32 +236,12 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     //
     // Canonical location is `data/sam.keys` (under `general.data_dir`) so we don't commit secrets
     // in `config.toml`.
-    let sam_keys_path = Path::new(&config.general.data_dir).join("sam.keys");
-    tracing::info!(path = %sam_keys_path.display(), "SAM keys file");
-    let sam_keys: Option<SamKeys> = SamKeys::load(&sam_keys_path).await?;
-
-    // Ensure we have a long-lived destination.
     let base_session_name = &config.sam.session_name;
-    let keys: SamKeys = if let Some(k) = sam_keys {
-        k
-    } else {
-        tracing::info!("No SAM destination in config; generating new identity");
-
-        let (generated_priv, generated_pub) = sam.dest_generate().await?;
-        tracing::info!(
-            priv_len = generated_priv.len(),
-            pub_len = generated_pub.len(),
-            "DEST generated"
-        );
-
-        let keys = SamKeys {
-            pub_key: generated_pub,
-            priv_key: generated_priv,
-        };
-        SamKeys::store(&sam_keys_path, &keys).await?;
-        tracing::info!(path = %sam_keys_path.display(), "saved SAM keys");
-        keys
-    };
+    let sam_keys_path = Path::new(&config.general.data_dir).join("sam.keys");
+    let keys = load_or_create_sam_keys(&mut sam, &sam_keys_path, "sam").await?;
+    let transfer_keys_path = Path::new(&config.general.data_dir).join("sam.transfer.keys");
+    let transfer_keys =
+        load_or_create_sam_keys(&mut sam, &transfer_keys_path, "sam transfer").await?;
 
     tracing::info!(
         priv_len = keys.priv_key.trim().len(),
@@ -270,21 +250,14 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         "SAM keys ready"
     );
 
-    let my_dest_bytes = crate::i2p::b64::decode(&keys.pub_key)?;
-    if my_dest_bytes.len() != crate::kad::wire::I2P_DEST_LEN {
-        return Err(AppError::InvalidState(format!(
-            "decoded SAM PUB key has wrong length: {} bytes (expected {})",
-            my_dest_bytes.len(),
-            crate::kad::wire::I2P_DEST_LEN
-        )));
-    }
+    let my_dest = decode_sam_destination(&keys.pub_key, "sam")?;
+    let transfer_dest = decode_sam_destination(&transfer_keys.pub_key, "sam transfer")?;
     let mut hash_bytes = [0u8; 4];
-    hash_bytes.copy_from_slice(&my_dest_bytes[..4]);
+    hash_bytes.copy_from_slice(&my_dest[..4]);
     let my_dest_hash: u32 = u32::from_le_bytes(hash_bytes);
-    let mut my_dest = [0u8; crate::kad::wire::I2P_DEST_LEN];
-    my_dest.copy_from_slice(&my_dest_bytes);
 
     let kad_session_id = format!("{base_session_name}-kad");
+    let transfer_session_id = format!("{base_session_name}-transfer");
 
     // KAD-over-I2P uses SAM `STYLE=DATAGRAM` sessions. We support both UDP-forwarding and
     // iMule-style TCP datagrams.
@@ -327,14 +300,32 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         let kad_cmd_tx_for_pump = kad_cmd_tx.clone();
         let sam_host_for_pump = config.sam.host.clone();
         let sam_port_for_pump = config.sam.port;
-        let sam_session_name_for_pump = config.sam.session_name.clone();
+        let transfer_session_id_for_pump = transfer_session_id.clone();
         tokio::spawn(async move {
             run_download_transfer_pump(
                 download_handle_for_pump,
                 kad_cmd_tx_for_pump,
                 sam_host_for_pump,
                 sam_port_for_pump,
-                sam_session_name_for_pump,
+                transfer_session_id_for_pump,
+            )
+            .await;
+        });
+
+        let transfer_listener_host = config.sam.host.clone();
+        let transfer_listener_port = config.sam.port;
+        let transfer_listener_timeout = Duration::from_secs(config.sam.control_timeout_secs);
+        let transfer_listener_session = transfer_session_id.clone();
+        let transfer_listener_keys = transfer_keys.clone();
+        let transfer_upload_service = Arc::clone(&upload_service);
+        tokio::spawn(async move {
+            run_transfer_accept_loop(
+                transfer_listener_host,
+                transfer_listener_port,
+                transfer_listener_timeout,
+                transfer_listener_session,
+                transfer_listener_keys,
+                transfer_upload_service,
             )
             .await;
         });
@@ -568,6 +559,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             my_dest_hash,
             udp_key_secret,
             my_dest,
+            my_transfer_dest: transfer_dest,
         };
         let svc_cfg_defaults = crate::kad::service::KadServiceConfig::default();
         let svc_cfg = crate::kad::service::KadServiceConfig {
@@ -680,7 +672,7 @@ async fn run_download_transfer_pump(
     kad_cmd_tx: mpsc::Sender<crate::kad::service::KadServiceCommand>,
     sam_host: String,
     sam_port: u16,
-    sam_session_name: String,
+    transfer_session_id: String,
 ) {
     const PUMP_TICK: Duration = Duration::from_secs(2);
     const SEARCH_TIMEOUT: Duration = Duration::from_secs(3);
@@ -779,7 +771,7 @@ async fn run_download_transfer_pump(
             match fetch_blocks_from_peer(
                 &sam_host,
                 sam_port,
-                &sam_session_name,
+                &transfer_session_id,
                 &peer_dest,
                 file_hash.0,
                 &blocks,
@@ -832,51 +824,317 @@ async fn run_download_transfer_pump(
 async fn fetch_blocks_from_peer(
     sam_host: &str,
     sam_port: u16,
-    sam_session_name: &str,
+    transfer_session_id: &str,
     peer_dest: &str,
     file_hash: [u8; 16],
     blocks: &[crate::download::service::BlockRange],
     io_timeout: Duration,
 ) -> AppResult<Vec<crate::download::service::InboundPacket>> {
-    let stream_session_id = format!("{sam_session_name}-download-xfer");
-    let mut sam = SamClient::connect_hello(sam_host, sam_port, "3.1", "3.3").await?;
-    let (stream_priv, _stream_pub) = sam.dest_generate().await?;
-
-    let _ = sam.session_destroy(&stream_session_id).await;
-    sam.session_create(
-        "STREAM",
-        &stream_session_id,
-        &stream_priv,
-        ["i2cp.messageReliability=BestEffort"],
-    )
-    .await?;
-
-    let result = async {
-        let mut stream =
-            crate::i2p::sam::SamStream::connect(sam_host, sam_port, &stream_session_id, peer_dest)
-                .await?;
-        let mut packets = Vec::with_capacity(blocks.len());
-        for block in blocks.iter().copied() {
-            let packet = tokio::time::timeout(
-                io_timeout,
-                crate::download::transfer::request_block(&mut stream, file_hash, block),
-            )
-            .await
-            .map_err(|_| {
-                AppError::InvalidState(format!(
-                    "timed out fetching block {}-{} from peer",
-                    block.start, block.end
-                ))
-            })?
-            .map_err(|err| AppError::InvalidState(err.to_string()))?;
-            packets.push(packet);
-        }
-        Ok::<Vec<crate::download::service::InboundPacket>, AppError>(packets)
+    let mut stream =
+        crate::i2p::sam::SamStream::connect(sam_host, sam_port, transfer_session_id, peer_dest)
+            .await?;
+    let mut packets = Vec::with_capacity(blocks.len());
+    for block in blocks.iter().copied() {
+        let packet = tokio::time::timeout(
+            io_timeout,
+            crate::download::transfer::request_block(&mut stream, file_hash, block),
+        )
+        .await
+        .map_err(|_| {
+            AppError::InvalidState(format!(
+                "timed out fetching block {}-{} from peer",
+                block.start, block.end
+            ))
+        })?
+        .map_err(|err| AppError::InvalidState(err.to_string()))?;
+        packets.push(packet);
     }
-    .await;
+    Ok(packets)
+}
 
-    let _ = sam.session_destroy(&stream_session_id).await;
-    result
+async fn run_transfer_accept_loop(
+    sam_host: String,
+    sam_port: u16,
+    control_timeout: Duration,
+    session_id: String,
+    keys: SamKeys,
+    upload_service: Arc<crate::upload::UploadService>,
+) {
+    let mut backoff = Duration::from_secs(1);
+    loop {
+        match ensure_stream_session(&sam_host, sam_port, control_timeout, &session_id, &keys).await
+        {
+            Ok(()) => {}
+            Err(err) => {
+                tracing::warn!(
+                    session = %session_id,
+                    error = %err,
+                    backoff_secs = backoff.as_secs(),
+                    "failed to ensure transfer STREAM session; retrying"
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = std::cmp::min(backoff * 2, Duration::from_secs(30));
+                continue;
+            }
+        }
+
+        match crate::i2p::sam::SamStream::accept(&sam_host, sam_port, &session_id).await {
+            Ok((stream, peer_dest)) => {
+                backoff = Duration::from_secs(1);
+                let upload_service = Arc::clone(&upload_service);
+                tokio::spawn(async move {
+                    if let Err(err) =
+                        handle_transfer_stream(stream, peer_dest, upload_service).await
+                    {
+                        tracing::debug!(error = %err, "transfer stream handler exited with error");
+                    }
+                });
+            }
+            Err(err) => {
+                tracing::warn!(
+                    session = %session_id,
+                    error = %err,
+                    backoff_secs = backoff.as_secs(),
+                    "transfer STREAM accept failed; retrying"
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = std::cmp::min(backoff * 2, Duration::from_secs(30));
+            }
+        }
+    }
+}
+
+async fn handle_transfer_stream(
+    mut stream: crate::i2p::sam::SamStream,
+    peer_dest: Option<String>,
+    upload_service: Arc<crate::upload::UploadService>,
+) -> AppResult<()> {
+    handle_transfer_io(
+        &mut stream,
+        peer_dest.as_deref(),
+        Arc::clone(&upload_service),
+    )
+    .await
+}
+
+async fn handle_transfer_io<S>(
+    stream: &mut S,
+    peer_dest: Option<&str>,
+    upload_service: Arc<crate::upload::UploadService>,
+) -> AppResult<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    const UPLOAD_ACTIVITY_TTL: Duration = Duration::from_secs(15);
+    let peer_label = peer_dest.unwrap_or("unknown");
+
+    loop {
+        let packet = match crate::download::transfer::read_packet(stream).await {
+            Ok(packet) => packet,
+            Err(crate::download::transfer::TransferError::Io(err))
+                if err.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                return Ok(());
+            }
+            Err(err) => return Err(AppError::InvalidState(err.to_string())),
+        };
+
+        if packet.opcode != crate::download::protocol::OP_REQUESTPARTS {
+            return Err(AppError::InvalidState(format!(
+                "unexpected transfer request opcode 0x{:02x}",
+                packet.opcode
+            )));
+        }
+
+        let request = crate::download::protocol::decode_requestparts_payload(&packet.payload)
+            .map_err(crate::download::transfer::TransferError::from)
+            .map_err(|err| AppError::InvalidState(err.to_string()))?;
+        let hash_hex = crate::kad::KadId(request.file_hash).to_hex_lower();
+
+        for block in request.blocks {
+            let payload = upload_service
+                .build_sending_part_payload(&request.file_hash, block.start, block.end)
+                .await;
+            upload_service.note_sending(
+                &hash_hex,
+                peer_label,
+                block.start,
+                block.end,
+                UPLOAD_ACTIVITY_TTL,
+                payload.source,
+            );
+
+            let response = crate::download::transfer::TransferPacket::new(
+                crate::download::transfer::PROTOCOL_EDONKEY,
+                crate::download::protocol::OP_SENDINGPART,
+                payload.payload,
+            )
+            .map_err(|err| AppError::InvalidState(err.to_string()))?;
+            crate::download::transfer::write_packet(stream, &response)
+                .await
+                .map_err(|err| AppError::InvalidState(err.to_string()))?;
+            upload_service.note_terminal(
+                &hash_hex,
+                peer_label,
+                block.start,
+                block.end,
+                crate::upload::UploadTerminalReason::Completed,
+            );
+        }
+    }
+}
+
+async fn ensure_stream_session(
+    sam_host: &str,
+    sam_port: u16,
+    control_timeout: Duration,
+    session_id: &str,
+    keys: &SamKeys,
+) -> AppResult<()> {
+    let mut sam = SamClient::connect(sam_host, sam_port)
+        .await?
+        .with_timeout(control_timeout);
+    sam.hello("3.0", "3.3").await?;
+    sam.session_create_idempotent(session_id, &keys.priv_key)
+        .await?;
+    Ok(())
+}
+
+async fn load_or_create_sam_keys(
+    sam: &mut SamClient,
+    path: &Path,
+    label: &str,
+) -> AppResult<SamKeys> {
+    tracing::info!(path = %path.display(), label, "SAM keys file");
+    let sam_keys: Option<SamKeys> = SamKeys::load(path).await?;
+    let keys: SamKeys = if let Some(k) = sam_keys {
+        k
+    } else {
+        tracing::info!(
+            label,
+            "No SAM destination configured; generating new identity"
+        );
+
+        let (generated_priv, generated_pub) = sam.dest_generate().await?;
+        tracing::info!(
+            label,
+            priv_len = generated_priv.len(),
+            pub_len = generated_pub.len(),
+            "DEST generated"
+        );
+
+        let keys = SamKeys {
+            pub_key: generated_pub,
+            priv_key: generated_priv,
+        };
+        SamKeys::store(path, &keys).await?;
+        tracing::info!(path = %path.display(), label, "saved SAM keys");
+        keys
+    };
+
+    tracing::info!(
+        label,
+        priv_len = keys.priv_key.trim().len(),
+        pub_len = keys.pub_key.trim().len(),
+        path = %path.display(),
+        "SAM keys ready"
+    );
+    Ok(keys)
+}
+
+fn decode_sam_destination(
+    pub_key: &str,
+    label: &str,
+) -> AppResult<[u8; crate::kad::wire::I2P_DEST_LEN]> {
+    let my_dest_bytes = crate::i2p::b64::decode(pub_key)?;
+    if my_dest_bytes.len() != crate::kad::wire::I2P_DEST_LEN {
+        return Err(AppError::InvalidState(format!(
+            "decoded {label} PUB key has wrong length: {} bytes (expected {})",
+            my_dest_bytes.len(),
+            crate::kad::wire::I2P_DEST_LEN
+        )));
+    }
+    let mut dest = [0u8; crate::kad::wire::I2P_DEST_LEN];
+    dest.copy_from_slice(&my_dest_bytes);
+    Ok(dest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handle_transfer_io;
+    use crate::download::protocol;
+    use crate::download::service::BlockRange;
+    use crate::download::transfer::{PROTOCOL_EDONKEY, TransferPacket, read_packet, write_packet};
+    use crate::share::SharedLibrary;
+    use crate::upload::{UploadPayloadSource, UploadService};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn transfer_handler_serves_requestparts_with_sendingpart() {
+        let upload_service = Arc::new(UploadService::new(Arc::new(RwLock::new(
+            SharedLibrary::default(),
+        ))));
+        let file_hash = [0x33; 16];
+        let block = BlockRange { start: 8, end: 11 };
+        let request = TransferPacket::requestparts(file_hash, &[block]).expect("request packet");
+        let (mut client, mut server) = tokio::io::duplex(1024);
+
+        let handler = tokio::spawn({
+            let upload_service = Arc::clone(&upload_service);
+            async move { handle_transfer_io(&mut server, Some("peer-b64"), upload_service).await }
+        });
+
+        write_packet(&mut client, &request)
+            .await
+            .expect("write request");
+        let response = read_packet(&mut client).await.expect("read response");
+        drop(client);
+        handler.await.expect("handler join").expect("handler ok");
+
+        assert_eq!(response.opcode, protocol::OP_SENDINGPART);
+        let decoded = protocol::decode_sendingpart_payload(&response.payload).expect("decode part");
+        assert_eq!(decoded.file_hash, file_hash);
+        assert_eq!(decoded.start, block.start);
+        assert_eq!(decoded.end_exclusive, block.end + 1);
+        assert_eq!(decoded.data, vec![0; 4]);
+
+        let snapshot =
+            upload_service.snapshot_for_hash(&crate::kad::KadId(file_hash).to_hex_lower());
+        assert_eq!(snapshot.total_requests, 1);
+        assert_eq!(snapshot.last_peer_id_hex.as_deref(), Some("peer-b64"));
+        assert_eq!(
+            snapshot.last_payload_source,
+            Some(UploadPayloadSource::ZeroFillFallback)
+        );
+    }
+
+    #[tokio::test]
+    async fn transfer_handler_rejects_unexpected_opcode() {
+        let upload_service = Arc::new(UploadService::new(Arc::new(RwLock::new(
+            SharedLibrary::default(),
+        ))));
+        let packet = TransferPacket::new(PROTOCOL_EDONKEY, 0x01, vec![]).expect("packet");
+        let (mut client, mut server) = tokio::io::duplex(1024);
+
+        let handler = tokio::spawn({
+            let upload_service = Arc::clone(&upload_service);
+            async move { handle_transfer_io(&mut server, None, upload_service).await }
+        });
+
+        write_packet(&mut client, &packet)
+            .await
+            .expect("write packet");
+        drop(client);
+        let err = handler
+            .await
+            .expect("handler join")
+            .expect_err("unexpected opcode must fail");
+        assert!(
+            err.to_string()
+                .contains("unexpected transfer request opcode 0x01")
+        );
+    }
 }
 
 fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {

@@ -11,6 +11,32 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
+- Status (2026-03-19): Started the inbound half of download phase 2 on
+  `feature/download-phase2-transfer`.
+  - Added a second persisted SAM identity at `data/sam.transfer.keys` for transfer traffic, kept
+    separate from the KAD datagram identity.
+  - KAD source publish/local-cache now advertises that transfer destination as `tcp_dest` while
+    keeping the existing KAD destination as `udp_dest`.
+  - App startup now ensures a dedicated `STREAM` session (`<session>-transfer`) and runs an
+    accept loop that:
+    - accepts inbound peer streams
+    - decodes `OP_REQUESTPARTS`
+    - serves `OP_SENDINGPART` responses from the shared library via `UploadService`
+  - Outbound block fetches now reuse that stable transfer session instead of creating a temporary
+    throwaway STREAM identity for each request.
+  - Added focused app-level tests for:
+    - successful `OP_REQUESTPARTS` -> `OP_SENDINGPART` handling
+    - rejection of unexpected transfer opcodes
+- Decisions:
+  - persist the transfer identity, do not generate it per run; source publication needs a stable
+    inbound destination
+  - keep the first inbound server implementation simple and uncompressed; always answer with
+    `OP_SENDINGPART` for now
+- Next steps:
+  - add focused tests around inbound request handling and transfer-session startup
+  - consider reusing the same stable transfer session for outbound requests instead of per-fetch
+    temporary sessions
+  - validate that published `tcp_dest` now matches the listener destination in live alpha runs
 - Status (2026-03-19): Integrated the first real phase-2 peer transfer path on
   `feature/download-phase2-transfer`.
   - `src/app.rs` download pump no longer fabricates local `OP_SENDINGPART` packets via the

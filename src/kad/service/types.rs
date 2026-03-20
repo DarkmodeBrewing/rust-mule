@@ -8,6 +8,7 @@ pub struct KadServiceCrypto {
     pub my_dest_hash: u32,
     pub udp_key_secret: u32,
     pub my_dest: [u8; I2P_DEST_LEN],
+    pub my_transfer_dest: [u8; I2P_DEST_LEN],
 }
 
 #[derive(Debug, Clone)]

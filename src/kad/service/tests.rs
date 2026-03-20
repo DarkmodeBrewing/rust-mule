@@ -550,6 +550,7 @@ fn cache_local_published_source_inserts_local_entry_once() {
         my_dest_hash: 0,
         udp_key_secret: 0,
         my_dest,
+        my_transfer_dest: [0x24; I2P_DEST_LEN],
     };
 
     cache_local_published_source(&mut svc, crypto, file);
@@ -558,7 +559,7 @@ fn cache_local_published_source_inserts_local_entry_once() {
     let by_file = svc.sources_by_file.get(&file).expect("file entry exists");
     assert_eq!(by_file.len(), 1);
     let entry = by_file.get(&crypto.my_kad_id).expect("local source entry");
-    assert_eq!(entry.tcp_dest, crypto.my_dest);
+    assert_eq!(entry.tcp_dest, crypto.my_transfer_dest);
     assert_eq!(entry.udp_dest, crypto.my_dest);
 }
 

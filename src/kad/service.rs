@@ -852,7 +852,7 @@ async fn send_publish_source(
         let payload = encode_kad2_publish_source_req(
             file,
             crypto.my_kad_id,
-            &crypto.my_dest,
+            &crypto.my_transfer_dest,
             &crypto.my_dest,
             Some(file_size),
         );
@@ -1208,7 +1208,7 @@ fn cache_local_published_source(svc: &mut KadService, crypto: KadServiceCrypto, 
             crypto.my_kad_id,
             KadSourceEntry {
                 source_id: crypto.my_kad_id,
-                tcp_dest: crypto.my_dest,
+                tcp_dest: crypto.my_transfer_dest,
                 udp_dest: crypto.my_dest,
             },
         )
@@ -2506,7 +2506,7 @@ async fn debug_probe_peer(
         let publish_source_payload = encode_kad2_publish_source_req(
             file,
             crypto.my_kad_id,
-            &crypto.my_dest,
+            &crypto.my_transfer_dest,
             &crypto.my_dest,
             Some(file_size),
         );
