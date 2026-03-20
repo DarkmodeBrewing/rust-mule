@@ -1,5 +1,5 @@
 Status: ACTIVE
-Last Reviewed: 2026-03-19
+Last Reviewed: 2026-03-20
 
 # Handoff / Continuation Notes
 
@@ -11,72 +11,36 @@ Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **
 
 ## Status
 
-- Status (2026-03-19): Started the inbound half of download phase 2 on
+- Status (2026-03-20): Download phase 2 now has a real end-to-end transfer baseline on
   `feature/download-phase2-transfer`.
-  - Added a second persisted SAM identity at `data/sam.transfer.keys` for transfer traffic, kept
-    separate from the KAD datagram identity.
-  - KAD source publish/local-cache now advertises that transfer destination as `tcp_dest` while
-    keeping the existing KAD destination as `udp_dest`.
-  - App startup now ensures a dedicated `STREAM` session (`<session>-transfer`) and runs an
-    accept loop that:
-    - accepts inbound peer streams
-    - decodes `OP_REQUESTPARTS`
-    - serves `OP_SENDINGPART` responses from the shared library via `UploadService`
-  - Outbound block fetches now reuse that stable transfer session instead of creating a temporary
-    throwaway STREAM identity for each request.
-  - Added focused app-level tests for:
-    - successful `OP_REQUESTPARTS` -> `OP_SENDINGPART` handling
-    - rejection of unexpected transfer opcodes
+  - `src/download/transfer.rs` provides eD2k-style transfer framing, request helpers, and focused
+    unit tests.
+  - `src/app.rs` download pumping now performs real outbound `STREAM CONNECT` + `OP_REQUESTPARTS`
+    block fetches instead of fabricating local `OP_SENDINGPART` packets.
+  - App startup persists a separate transfer identity in `data/sam.transfer.keys` and ensures a
+    dedicated `<session>-transfer` STREAM session for transfer traffic.
+  - Inbound transfer serving exists: accepted STREAM connections decode `OP_REQUESTPARTS` and
+    answer with `OP_SENDINGPART` from `UploadService`.
+  - KAD source publish/cache/store paths now distinguish `tcp_dest` (transfer) from `udp_dest`
+    (KAD datagram) and preserve the published transfer destination when possible.
+  - Publish-source decode is lenient again: if full tag parsing fails, we fall back to the minimal
+    decoder and still ACK/store the source using the sender destination.
+  - Transfer hardening added so outbound connect attempts and inbound idle reads are time-bounded.
 - Decisions:
-  - persist the transfer identity, do not generate it per run; source publication needs a stable
-    inbound destination
+  - persist the transfer identity; do not generate it per run, because source publication needs a
+    stable inbound destination
   - keep the first inbound server implementation simple and uncompressed; always answer with
     `OP_SENDINGPART` for now
+  - keep wire/protocol compatibility release-critical, but keep local persistence Rust-native by
+    default unless cross-client runtime-state portability becomes a concrete requirement
 - Next steps:
-  - add focused tests around inbound request handling and transfer-session startup
-  - consider reusing the same stable transfer session for outbound requests instead of per-fetch
-    temporary sessions
-  - validate that published `tcp_dest` now matches the listener destination in live alpha runs
-- Status (2026-03-19): Integrated the first real phase-2 peer transfer path on
-  `feature/download-phase2-transfer`.
-  - `src/app.rs` download pump no longer fabricates local `OP_SENDINGPART` packets via the
-    upload service.
-  - The pump now:
-    - reads `tcp_dest` from KAD source entries
-    - opens an outbound SAM `STREAM` session to that peer destination
-    - sends `OP_REQUESTPARTS`
-    - feeds the returned `OP_SENDINGPART` / `OP_COMPRESSEDPART` packet back into the download
-      service
-  - `src/download/transfer.rs` now also includes a small request/response helper for one block
-    over an arbitrary async stream, plus focused tests for success and unexpected opcode cases.
-- Decisions:
-  - keep this slice outbound-only for now; do not add inbound peer-transfer serving until the
-    basic client request/response path has been validated
-  - accept per-fetch temporary SAM `STREAM` sessions as the first integration step; session reuse
-    can be optimized later once the end-to-end path is stable
-- Next steps:
-  - add minimal inbound transfer serving for `OP_REQUESTPARTS` on top of `SamStream::accept`
-  - replace temporary per-fetch stream sessions with a longer-lived transfer session/pool
-  - stop publishing identical TCP/UDP destinations once a distinct transfer destination is added
-- Status (2026-03-19): Started the download phase-2 transport scaffolding on
-  `feature/download-phase2-transfer`.
-  - Added `src/download/transfer.rs` with:
-    - eD2k-style TCP packet header framing (`protocol`, `length`, `opcode`)
-    - async read/write helpers for transfer packets
-    - `OP_REQUESTPARTS` packet builder on top of existing download block payload encoding
-    - focused unit tests for roundtrip framing, invalid length, unsupported protocol, and max-size rejection
-  - This does not yet replace the existing phase-0 synthetic transfer pump in `src/app.rs`;
-    it adds the missing low-level transport layer needed before wiring real peer stream transfer.
-- Decisions:
-  - phase 2 should start by replacing missing transport primitives, not by further extending the synthetic pump
-  - keep the first slice transport-only and testable in isolation before integrating SAM stream peer flow
-- Next steps:
-  - add minimal peer transfer stream client/server helpers on top of `SamStream`
-  - wire `OP_REQUESTPARTS` send + `OP_SENDINGPART` receive into the download path
-  - then remove or strictly reduce the synthetic packet-injection bridge in `src/app.rs`
-- Change log:
-  - Added `src/download/transfer.rs`.
-  - Updated `src/download/mod.rs`.
+  - validate the phase-2 path against real alpha peers and confirm published `tcp_dest` matches
+    reachable transfer listeners in practice
+  - add broader transfer-session tests or soak coverage around listener/session recovery behavior
+  - decide whether to keep `write_packet()` eager flushing or relax it after real-network testing
+- Historical note (2026-03-19):
+  - this slice started as transport framing plus an outbound-only client path, then was extended
+    into the dedicated persisted transfer session with inbound serving and session reuse above
 - Status (2026-03-19): Added a storage compatibility decision note.
   - New note: `docs/10_architecture/STORAGE_COMPATIBILITY_POLICY.md`
   - Decision:
