@@ -1059,84 +1059,6 @@ fn decode_sam_destination(
     Ok(dest)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::handle_transfer_io;
-    use crate::download::protocol;
-    use crate::download::service::BlockRange;
-    use crate::download::transfer::{PROTOCOL_EDONKEY, TransferPacket, read_packet, write_packet};
-    use crate::share::SharedLibrary;
-    use crate::upload::{UploadPayloadSource, UploadService};
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-
-    #[tokio::test]
-    async fn transfer_handler_serves_requestparts_with_sendingpart() {
-        let upload_service = Arc::new(UploadService::new(Arc::new(RwLock::new(
-            SharedLibrary::default(),
-        ))));
-        let file_hash = [0x33; 16];
-        let block = BlockRange { start: 8, end: 11 };
-        let request = TransferPacket::requestparts(file_hash, &[block]).expect("request packet");
-        let (mut client, mut server) = tokio::io::duplex(1024);
-
-        let handler = tokio::spawn({
-            let upload_service = Arc::clone(&upload_service);
-            async move { handle_transfer_io(&mut server, Some("peer-b64"), upload_service).await }
-        });
-
-        write_packet(&mut client, &request)
-            .await
-            .expect("write request");
-        let response = read_packet(&mut client).await.expect("read response");
-        drop(client);
-        handler.await.expect("handler join").expect("handler ok");
-
-        assert_eq!(response.opcode, protocol::OP_SENDINGPART);
-        let decoded = protocol::decode_sendingpart_payload(&response.payload).expect("decode part");
-        assert_eq!(decoded.file_hash, file_hash);
-        assert_eq!(decoded.start, block.start);
-        assert_eq!(decoded.end_exclusive, block.end + 1);
-        assert_eq!(decoded.data, vec![0; 4]);
-
-        let snapshot =
-            upload_service.snapshot_for_hash(&crate::kad::KadId(file_hash).to_hex_lower());
-        assert_eq!(snapshot.total_requests, 1);
-        assert_eq!(snapshot.last_peer_id_hex.as_deref(), Some("peer-b64"));
-        assert_eq!(
-            snapshot.last_payload_source,
-            Some(UploadPayloadSource::ZeroFillFallback)
-        );
-    }
-
-    #[tokio::test]
-    async fn transfer_handler_rejects_unexpected_opcode() {
-        let upload_service = Arc::new(UploadService::new(Arc::new(RwLock::new(
-            SharedLibrary::default(),
-        ))));
-        let packet = TransferPacket::new(PROTOCOL_EDONKEY, 0x01, vec![]).expect("packet");
-        let (mut client, mut server) = tokio::io::duplex(1024);
-
-        let handler = tokio::spawn({
-            let upload_service = Arc::clone(&upload_service);
-            async move { handle_transfer_io(&mut server, None, upload_service).await }
-        });
-
-        write_packet(&mut client, &packet)
-            .await
-            .expect("write packet");
-        drop(client);
-        let err = handler
-            .await
-            .expect("handler join")
-            .expect_err("unexpected opcode must fail");
-        assert!(
-            err.to_string()
-                .contains("unexpected transfer request opcode 0x01")
-        );
-    }
-}
-
 fn maybe_auto_open_ui(enabled: bool, port: u16, token_path: PathBuf) {
     if !enabled {
         tracing::info!("UI auto-open disabled by config (general.auto_open_ui=false)");
@@ -1598,5 +1520,83 @@ async fn ensure_nodes_seed_files(initseed: &Path, fallback: &Path) {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::handle_transfer_io;
+    use crate::download::protocol;
+    use crate::download::service::BlockRange;
+    use crate::download::transfer::{PROTOCOL_EDONKEY, TransferPacket, read_packet, write_packet};
+    use crate::share::SharedLibrary;
+    use crate::upload::{UploadPayloadSource, UploadService};
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    #[tokio::test]
+    async fn transfer_handler_serves_requestparts_with_sendingpart() {
+        let upload_service = Arc::new(UploadService::new(Arc::new(RwLock::new(
+            SharedLibrary::default(),
+        ))));
+        let file_hash = [0x33; 16];
+        let block = BlockRange { start: 8, end: 11 };
+        let request = TransferPacket::requestparts(file_hash, &[block]).expect("request packet");
+        let (mut client, mut server) = tokio::io::duplex(1024);
+
+        let handler = tokio::spawn({
+            let upload_service = Arc::clone(&upload_service);
+            async move { handle_transfer_io(&mut server, Some("peer-b64"), upload_service).await }
+        });
+
+        write_packet(&mut client, &request)
+            .await
+            .expect("write request");
+        let response = read_packet(&mut client).await.expect("read response");
+        drop(client);
+        handler.await.expect("handler join").expect("handler ok");
+
+        assert_eq!(response.opcode, protocol::OP_SENDINGPART);
+        let decoded = protocol::decode_sendingpart_payload(&response.payload).expect("decode part");
+        assert_eq!(decoded.file_hash, file_hash);
+        assert_eq!(decoded.start, block.start);
+        assert_eq!(decoded.end_exclusive, block.end + 1);
+        assert_eq!(decoded.data, vec![0; 4]);
+
+        let snapshot =
+            upload_service.snapshot_for_hash(&crate::kad::KadId(file_hash).to_hex_lower());
+        assert_eq!(snapshot.total_requests, 1);
+        assert_eq!(snapshot.last_peer_id_hex.as_deref(), Some("peer-b64"));
+        assert_eq!(
+            snapshot.last_payload_source,
+            Some(UploadPayloadSource::ZeroFillFallback)
+        );
+    }
+
+    #[tokio::test]
+    async fn transfer_handler_rejects_unexpected_opcode() {
+        let upload_service = Arc::new(UploadService::new(Arc::new(RwLock::new(
+            SharedLibrary::default(),
+        ))));
+        let packet = TransferPacket::new(PROTOCOL_EDONKEY, 0x01, vec![]).expect("packet");
+        let (mut client, mut server) = tokio::io::duplex(1024);
+
+        let handler = tokio::spawn({
+            let upload_service = Arc::clone(&upload_service);
+            async move { handle_transfer_io(&mut server, None, upload_service).await }
+        });
+
+        write_packet(&mut client, &packet)
+            .await
+            .expect("write packet");
+        drop(client);
+        let err = handler
+            .await
+            .expect("handler join")
+            .expect_err("unexpected opcode must fail");
+        assert!(
+            err.to_string()
+                .contains("unexpected transfer request opcode 0x01")
+        );
     }
 }
