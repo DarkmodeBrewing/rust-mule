@@ -830,9 +830,18 @@ async fn fetch_blocks_from_peer(
     blocks: &[crate::download::service::BlockRange],
     io_timeout: Duration,
 ) -> AppResult<Vec<crate::download::service::InboundPacket>> {
-    let mut stream =
-        crate::i2p::sam::SamStream::connect(sam_host, sam_port, transfer_session_id, peer_dest)
-            .await?;
+    let mut stream = tokio::time::timeout(
+        io_timeout,
+        crate::i2p::sam::SamStream::connect(sam_host, sam_port, transfer_session_id, peer_dest),
+    )
+    .await
+    .map_err(|_| {
+        AppError::InvalidState(format!(
+            "timed out connecting to peer {} via SAM (session {})",
+            crate::i2p::b64::short(peer_dest),
+            transfer_session_id
+        ))
+    })??;
     let mut packets = Vec::with_capacity(blocks.len());
     for block in blocks.iter().copied() {
         let packet = tokio::time::timeout(
@@ -934,17 +943,24 @@ where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     const UPLOAD_ACTIVITY_TTL: Duration = Duration::from_secs(15);
+    const TRANSFER_READ_TIMEOUT: Duration = Duration::from_secs(30);
     let peer_label = peer_dest.unwrap_or("unknown");
 
     loop {
-        let packet = match crate::download::transfer::read_packet(stream).await {
-            Ok(packet) => packet,
-            Err(crate::download::transfer::TransferError::Io(err))
+        let packet = match tokio::time::timeout(
+            TRANSFER_READ_TIMEOUT,
+            crate::download::transfer::read_packet(stream),
+        )
+        .await
+        {
+            Ok(Ok(packet)) => packet,
+            Ok(Err(crate::download::transfer::TransferError::Io(err)))
                 if err.kind() == std::io::ErrorKind::UnexpectedEof =>
             {
                 return Ok(());
             }
-            Err(err) => return Err(AppError::InvalidState(err.to_string())),
+            Ok(Err(err)) => return Err(AppError::InvalidState(err.to_string())),
+            Err(_) => return Ok(()),
         };
 
         if packet.opcode != crate::download::protocol::OP_REQUESTPARTS {

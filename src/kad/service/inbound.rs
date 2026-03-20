@@ -1,5 +1,7 @@
 use super::*;
-use crate::kad::wire::decode_kad2_publish_source_req;
+use crate::kad::wire::{
+    TaglistSearchInfo, decode_kad2_publish_source_req, decode_kad2_publish_source_req_min,
+};
 
 pub(super) async fn handle_inbound_impl(
     svc: &mut KadService,
@@ -852,8 +854,8 @@ pub(super) async fn handle_inbound_impl(
         KADEMLIA2_PUBLISH_SOURCE_REQ => {
             svc.routing.mark_seen_by_dest(&from_dest_b64, now);
             svc.stats_window.recv_publish_source_reqs += 1;
-            let req = match decode_kad2_publish_source_req(&pkt.payload) {
-                Ok(r) => r,
+            let (req, tags) = match decode_publish_source_req_with_fallback(&pkt.payload) {
+                Ok(v) => v,
                 Err(err) => {
                     svc.stats_window.recv_publish_source_decode_failures += 1;
                     tracing::debug!(
@@ -877,8 +879,8 @@ pub(super) async fn handle_inbound_impl(
             {
                 let mut udp_dest = [0u8; I2P_DEST_LEN];
                 udp_dest.copy_from_slice(raw);
-                let tcp_dest = req.tags.source_dest.unwrap_or(udp_dest);
-                let udp_dest = req.tags.source_udest.unwrap_or(udp_dest);
+                let tcp_dest = tags.source_dest.unwrap_or(udp_dest);
+                let udp_dest = tags.source_udest.unwrap_or(udp_dest);
                 inserted = svc
                     .sources_by_file
                     .entry(req.file)
@@ -1362,4 +1364,22 @@ pub(super) async fn handle_inbound_impl(
     }
 
     Ok(())
+}
+
+fn decode_publish_source_req_with_fallback(
+    payload: &[u8],
+) -> crate::kad::wire::Result<(crate::kad::wire::Kad2PublishSourceReq, TaglistSearchInfo)> {
+    match decode_kad2_publish_source_req(payload) {
+        Ok(full) => Ok((
+            crate::kad::wire::Kad2PublishSourceReq {
+                file: full.file,
+                source: full.source,
+            },
+            full.tags,
+        )),
+        Err(_) => {
+            let min = decode_kad2_publish_source_req_min(payload)?;
+            Ok((min, TaglistSearchInfo::default()))
+        }
+    }
 }
