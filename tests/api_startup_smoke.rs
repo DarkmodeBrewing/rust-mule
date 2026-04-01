@@ -70,10 +70,14 @@ async fn startup_auth_and_session_smoke_flow() {
         .await
         .expect("create temp test dir");
     let token_path = test_dir.join("api.token");
+    let debug_token_path = test_dir.join("debug.token");
     let config_path = test_dir.join("config.toml");
     tokio::fs::write(&token_path, b"smoke-token")
         .await
         .expect("write token");
+    tokio::fs::write(&debug_token_path, b"smoke-debug-token")
+        .await
+        .expect("write debug token");
     tokio::fs::write(&config_path, b"")
         .await
         .expect("write config placeholder");
@@ -100,6 +104,7 @@ async fn startup_auth_and_session_smoke_flow() {
         config_path: config_path.clone(),
         token_path: token_path.clone(),
         token: "smoke-token".to_string(),
+        debug_token: "smoke-debug-token".to_string(),
         status_rx,
         status_events_tx,
         kad_cmd_tx,
@@ -172,6 +177,7 @@ async fn startup_auth_and_session_smoke_flow() {
     let _ = download_handle.shutdown().await;
     let _ = download_join.await;
     let _ = tokio::fs::remove_file(token_path).await;
+    let _ = tokio::fs::remove_file(debug_token_path).await;
     let _ = tokio::fs::remove_file(config_path).await;
     let _ = tokio::fs::remove_dir(&test_dir).await;
 }

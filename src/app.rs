@@ -358,6 +358,9 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     let token_path = data_dir.join("api.token");
     let token = crate::api::token::load_or_create_token(&token_path).await?;
     tracing::info!(path = %token_path.display(), "api token ready");
+    let debug_token_path = data_dir.join("debug.token");
+    let debug_token = crate::api::token::load_or_create_token(&debug_token_path).await?;
+    tracing::info!(path = %debug_token_path.display(), "debug token ready");
 
     let (stx, etx) = crate::api::new_channels();
     let srx = stx.subscribe();
@@ -380,6 +383,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             config_path: config_path_for_server,
             token_path: token_path_for_server,
             token,
+            debug_token,
             status_rx: srx,
             status_events_tx: etx_for_server,
             kad_cmd_tx: cmd_tx_for_server,

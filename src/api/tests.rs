@@ -6,7 +6,7 @@ use crate::{
         KadId,
         service::{
             KadKeywordHit, KadKeywordHitOrigin, KadKeywordSearchInfo, KadPeerInfo,
-            KadServiceCommand, KadServiceStatus,
+            KadServiceCommand, KadServiceStatus, RoutingSummary,
         },
     },
 };
@@ -40,6 +40,7 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
     ApiState {
         token: Arc::new(tokio::sync::RwLock::new("test-token".to_string())),
         token_path: Arc::new(PathBuf::from("data/api.token")),
+        debug_token: Arc::new("test-debug-token".to_string()),
         config_path: Arc::new(unique_test_config_path()),
         status_rx,
         status_events_tx,
@@ -759,6 +760,71 @@ async fn debug_routes_are_404_when_debug_endpoints_disabled() {
 }
 
 #[tokio::test]
+async fn debug_routes_require_debug_token_header() {
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let app = test_app(state);
+    let req = Request::builder()
+        .uri("/api/v1/debug/routing/summary")
+        .method(Method::GET)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn debug_routes_reject_invalid_debug_token_header() {
+    let (tx, _rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    let app = test_app(state);
+    let req = Request::builder()
+        .uri("/api/v1/debug/routing/summary")
+        .method(Method::GET)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .header("X-Debug-Token", "wrong-token")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn debug_routes_allow_valid_debug_token_header() {
+    let (tx, mut rx) = mpsc::channel(1);
+    let state = test_state(tx);
+    tokio::spawn(async move {
+        if let Some(KadServiceCommand::GetRoutingSummary { respond_to }) = rx.recv().await {
+            let _ = respond_to.send(RoutingSummary {
+                bucket_count: 128,
+                total_nodes: 0,
+                verified_nodes: 0,
+                unverified_nodes: 0,
+                buckets_empty: 128,
+                bucket_fill_min: 0,
+                bucket_fill_median: 0,
+                bucket_fill_max: 0,
+                last_seen_min_secs: None,
+                last_seen_max_secs: None,
+                last_inbound_min_secs: None,
+                last_inbound_max_secs: None,
+            });
+        }
+    });
+    let app = test_app(state);
+    let req = Request::builder()
+        .uri("/api/v1/debug/routing/summary")
+        .method(Method::GET)
+        .header(header::AUTHORIZATION, "Bearer test-token")
+        .header("X-Debug-Token", "test-debug-token")
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn auth_bootstrap_route_is_404_in_headless_mode() {
     let (tx, _rx) = mpsc::channel(1);
     let mut state = test_state(tx);
@@ -886,6 +952,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new("old-token".to_string())),
         token_path: Arc::new(token_path.clone()),
+        debug_token: Arc::new("test-debug-token".to_string()),
         config_path: Arc::new(unique_test_config_path()),
         status_rx,
         status_events_tx,
@@ -956,6 +1023,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new("test-token".to_string())),
         token_path: Arc::new(PathBuf::from("data/api.token")),
+        debug_token: Arc::new("test-debug-token".to_string()),
         config_path: Arc::new(unique_test_config_path()),
         status_rx,
         status_events_tx,

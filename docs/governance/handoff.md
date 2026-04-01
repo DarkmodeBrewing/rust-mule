@@ -5,6 +5,13 @@ Last Reviewed: 2026-03-20
 
 This file exists because chat sessions are not durable project memory. In the next session, start here, then check `git log` on `main` and the active feature branch(es).
 
+- 2026-04-01: Added debug endpoint second-factor enforcement for implemented `/api/v1/debug/*` routes.
+  - startup now creates/loads `data/debug.token` alongside `data/api.token`
+  - `/api/v1/debug/*` now requires both bearer auth and `X-Debug-Token`
+  - missing/invalid debug token now returns `403` when debug routes are enabled
+  - token comparison uses a constant-time helper
+  - added API tests for disabled, missing, invalid, and valid debug-token behavior
+
 ## Goal
 
 Implement an iMule-compatible Kademlia (KAD) overlay over **I2P only**, using **SAM v3** `STYLE=DATAGRAM` sessions (UDP forwarding) for peer connectivity.

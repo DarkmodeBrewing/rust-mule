@@ -25,6 +25,9 @@ pub(crate) async fn auth_mw(
     if is_frontend_exempt_path(path) {
         return Ok(next.run(req).await);
     }
+    if path.starts_with("/api/v1/debug/") && !state.enable_debug_endpoints {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     if path == "/api/v1/events" {
         if has_valid_session(req.headers(), &state).await {
@@ -47,6 +50,11 @@ pub(crate) async fn auth_mw(
         let provided = bearer_token(req.headers()).ok_or(StatusCode::UNAUTHORIZED)?;
         let current_token = state.token.read().await.clone();
         if provided != current_token {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        if path.starts_with("/api/v1/debug/")
+            && !has_valid_debug_token(req.headers(), &state.debug_token)
+        {
             return Err(StatusCode::FORBIDDEN);
         }
         return Ok(next.run(req).await);
@@ -93,6 +101,28 @@ pub(crate) fn session_cookie(headers: &HeaderMap) -> Option<String> {
         }
     }
     None
+}
+
+pub(crate) fn debug_token(headers: &HeaderMap) -> Option<&str> {
+    headers.get("X-Debug-Token")?.to_str().ok()
+}
+
+pub(crate) fn has_valid_debug_token(headers: &HeaderMap, expected: &str) -> bool {
+    let Some(provided) = debug_token(headers) else {
+        return false;
+    };
+    constant_time_eq(provided.as_bytes(), expected.as_bytes())
+}
+
+fn constant_time_eq(lhs: &[u8], rhs: &[u8]) -> bool {
+    let max_len = lhs.len().max(rhs.len());
+    let mut diff = lhs.len() ^ rhs.len();
+    for idx in 0..max_len {
+        let a = lhs.get(idx).copied().unwrap_or(0);
+        let b = rhs.get(idx).copied().unwrap_or(0);
+        diff |= usize::from(a ^ b);
+    }
+    diff == 0
 }
 
 pub(crate) async fn has_valid_session(headers: &HeaderMap, state: &ApiState) -> bool {
