@@ -874,14 +874,20 @@ async fn run_transfer_accept_loop(
     upload_service: Arc<crate::upload::UploadService>,
 ) {
     let mut backoff = Duration::from_secs(1);
-    let mut session_ready = false;
+    let mut session_owner: Option<SamClient> = None;
     loop {
-        if !session_ready {
-            match ensure_stream_session(&sam_host, sam_port, control_timeout, &session_id, &keys)
-                .await
+        if session_owner.is_none() {
+            match establish_stream_session_owner(
+                &sam_host,
+                sam_port,
+                control_timeout,
+                &session_id,
+                &keys,
+            )
+            .await
             {
-                Ok(()) => {
-                    session_ready = true;
+                Ok(owner) => {
+                    session_owner = Some(owner);
                     backoff = Duration::from_secs(1);
                 }
                 Err(err) => {
@@ -911,7 +917,9 @@ async fn run_transfer_accept_loop(
                 });
             }
             Err(err) => {
-                session_ready = false;
+                if is_invalid_stream_session(&err) {
+                    session_owner = None;
+                }
                 tracing::warn!(
                     session = %session_id,
                     error = %err,
@@ -1012,20 +1020,34 @@ where
     }
 }
 
-async fn ensure_stream_session(
+async fn establish_stream_session_owner(
     sam_host: &str,
     sam_port: u16,
     control_timeout: Duration,
     session_id: &str,
     keys: &SamKeys,
-) -> AppResult<()> {
-    let mut sam = SamClient::connect(sam_host, sam_port)
+) -> AppResult<SamClient> {
+    let mut sam = SamClient::connect_hello(sam_host, sam_port, "3.0", "3.3")
         .await?
         .with_timeout(control_timeout);
-    sam.hello("3.0", "3.3").await?;
     sam.session_create_idempotent(session_id, &keys.priv_key)
         .await?;
-    Ok(())
+    Ok(sam)
+}
+
+fn is_invalid_stream_session(err: &SamError) -> bool {
+    match err {
+        SamError::ReplyError {
+            result, message, ..
+        } => {
+            result.as_deref() == Some("INVALID_ID")
+                || message
+                    .as_deref()
+                    .map(|m| m.to_ascii_uppercase().contains("INVALID_ID"))
+                    .unwrap_or(false)
+        }
+        _ => false,
+    }
 }
 
 async fn load_or_create_sam_keys(
