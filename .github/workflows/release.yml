@@ -39,7 +39,7 @@ jobs:
             artifact_name: rust-mule-windows
             build_cmd: ./scripts/build/build_windows_release.ps1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust (default host target)
         if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@stable
@@ -59,7 +59,7 @@ jobs:
         run: ${{ matrix.build_cmd }}
         shell: pwsh
       - name: Upload release artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_glob }}
@@ -71,7 +71,7 @@ jobs:
     needs: build
     steps:
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: release-artifacts
       - name: Create GitHub Release
