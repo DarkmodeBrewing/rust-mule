@@ -112,6 +112,7 @@ async fn startup_auth_and_session_smoke_flow() {
         shared_library: shared_library.clone(),
         publish_tracker: std::sync::Arc::new(rust_mule::publish::SharedPublishTracker::default()),
         upload_service: std::sync::Arc::new(rust_mule::upload::UploadService::new(shared_library)),
+        transfer_runtime_stats: std::sync::Arc::new(rust_mule::api::TransferRuntimeStats::default()),
     };
     let mut serve_handle = tokio::spawn(async move { api::serve(&api_cfg, deps).await });
 

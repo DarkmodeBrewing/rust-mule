@@ -50,6 +50,7 @@ fn test_state(kad_cmd_tx: mpsc::Sender<KadServiceCommand>) -> ApiState {
         shared_library: shared_library.clone(),
         publish_tracker: publish_tracker.clone(),
         upload_service: Arc::new(crate::upload::UploadService::new(shared_library.clone())),
+        transfer_runtime_stats: Arc::new(super::TransferRuntimeStats::default()),
         shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
             shared_library,
             config,
@@ -962,6 +963,7 @@ async fn token_rotate_updates_state_file_and_clears_sessions() {
         shared_library: shared_library.clone(),
         publish_tracker: publish_tracker.clone(),
         upload_service: Arc::new(crate::upload::UploadService::new(shared_library.clone())),
+        transfer_runtime_stats: Arc::new(super::TransferRuntimeStats::default()),
         shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
             shared_library,
             config,
@@ -1033,6 +1035,7 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
         shared_library: shared_library.clone(),
         publish_tracker: publish_tracker.clone(),
         upload_service,
+        transfer_runtime_stats: Arc::new(super::TransferRuntimeStats::default()),
         shared_ops: Arc::new(crate::shared_ops::SharedOpsManager::new(
             shared_library,
             config,

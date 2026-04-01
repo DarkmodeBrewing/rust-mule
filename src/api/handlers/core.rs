@@ -71,6 +71,9 @@ pub(crate) struct StatusResponse {
     pub(crate) zero_fill_upload_rate_bps_30s: u64,
     pub(crate) zero_fill_active_uploads: usize,
     pub(crate) zero_fill_warning: bool,
+    pub(crate) transfer_active_streams: usize,
+    pub(crate) transfer_capacity_waits_total: u64,
+    pub(crate) transfer_accept_errors_total: u64,
 }
 
 fn saturating_rate_sum<I>(rates: I) -> u64
@@ -171,6 +174,7 @@ pub(crate) async fn status(
         }
     };
     let uploads = state.upload_service.snapshot_all();
+    let transfer_stats = state.transfer_runtime_stats.snapshot();
     Ok(Json(StatusResponse {
         status: s,
         ready,
@@ -188,6 +192,9 @@ pub(crate) async fn status(
         zero_fill_warning: uploads
             .iter()
             .any(|u| u.zero_fill_active || u.zero_fill_rate_bps_5s > 0),
+        transfer_active_streams: transfer_stats.active_streams,
+        transfer_capacity_waits_total: transfer_stats.capacity_waits_total,
+        transfer_accept_errors_total: transfer_stats.accept_errors_total,
     }))
 }
 
