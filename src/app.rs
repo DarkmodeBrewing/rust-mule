@@ -917,7 +917,9 @@ async fn run_transfer_accept_loop(
                 });
             }
             Err(err) => {
-                session_owner = None;
+                if is_invalid_stream_session(&err) {
+                    session_owner = None;
+                }
                 tracing::warn!(
                     session = %session_id,
                     error = %err,
@@ -1025,13 +1027,27 @@ async fn establish_stream_session_owner(
     session_id: &str,
     keys: &SamKeys,
 ) -> AppResult<SamClient> {
-    let mut sam = SamClient::connect(sam_host, sam_port)
+    let mut sam = SamClient::connect_hello(sam_host, sam_port, "3.0", "3.3")
         .await?
         .with_timeout(control_timeout);
-    sam.hello("3.0", "3.3").await?;
     sam.session_create_idempotent(session_id, &keys.priv_key)
         .await?;
     Ok(sam)
+}
+
+fn is_invalid_stream_session(err: &SamError) -> bool {
+    match err {
+        SamError::ReplyError {
+            result, message, ..
+        } => {
+            result.as_deref() == Some("INVALID_ID")
+                || message
+                    .as_deref()
+                    .map(|m| m.to_ascii_uppercase().contains("INVALID_ID"))
+                    .unwrap_or(false)
+        }
+        _ => false,
+    }
 }
 
 async fn load_or_create_sam_keys(
