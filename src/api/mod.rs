@@ -64,6 +64,7 @@ impl std::error::Error for ApiError {
 pub struct ApiState {
     pub(crate) token: Arc<tokio::sync::RwLock<String>>,
     pub(crate) token_path: Arc<PathBuf>,
+    pub(crate) debug_token: Arc<String>,
     pub(crate) config_path: Arc<PathBuf>,
     pub(crate) status_rx: watch::Receiver<Option<KadServiceStatus>>,
     pub(crate) status_events_tx: broadcast::Sender<KadServiceStatus>,
@@ -91,6 +92,8 @@ pub struct ApiServeDeps {
     pub config_path: PathBuf,
     pub token_path: PathBuf,
     pub token: String,
+    pub debug_token_path: PathBuf,
+    pub debug_token: String,
     pub status_rx: watch::Receiver<Option<KadServiceStatus>>,
     pub status_events_tx: broadcast::Sender<KadServiceStatus>,
     pub kad_cmd_tx: mpsc::Sender<KadServiceCommand>,
@@ -157,6 +160,7 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
     let state = ApiState {
         token: Arc::new(tokio::sync::RwLock::new(deps.token)),
         token_path: Arc::new(deps.token_path),
+        debug_token: Arc::new(deps.debug_token),
         config_path: Arc::new(deps.config_path),
         status_rx: deps.status_rx,
         status_events_tx: deps.status_events_tx,
