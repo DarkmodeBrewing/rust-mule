@@ -92,7 +92,6 @@ pub struct ApiServeDeps {
     pub config_path: PathBuf,
     pub token_path: PathBuf,
     pub token: String,
-    pub debug_token_path: PathBuf,
     pub debug_token: String,
     pub status_rx: watch::Receiver<Option<KadServiceStatus>>,
     pub status_events_tx: broadcast::Sender<KadServiceStatus>,

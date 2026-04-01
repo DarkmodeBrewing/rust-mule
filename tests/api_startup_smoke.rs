@@ -104,7 +104,6 @@ async fn startup_auth_and_session_smoke_flow() {
         config_path: config_path.clone(),
         token_path: token_path.clone(),
         token: "smoke-token".to_string(),
-        debug_token_path: debug_token_path.clone(),
         debug_token: "smoke-debug-token".to_string(),
         status_rx,
         status_events_tx,

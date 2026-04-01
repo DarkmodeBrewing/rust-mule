@@ -377,14 +377,12 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     let api_runtime_config = config.clone();
     let config_path_for_server = config_path.clone();
     let token_path_for_server = token_path.clone();
-    let debug_token_path_for_server = debug_token_path.clone();
     tokio::spawn(async move {
         let deps = crate::api::ApiServeDeps {
             app_config: api_runtime_config,
             config_path: config_path_for_server,
             token_path: token_path_for_server,
             token,
-            debug_token_path: debug_token_path_for_server,
             debug_token,
             status_rx: srx,
             status_events_tx: etx_for_server,
