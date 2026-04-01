@@ -11,9 +11,9 @@ jobs:
   docs-pages:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
       - name: Install docs dependencies
@@ -47,7 +47,7 @@ jobs:
             artifact_glob: dist/*.zip
             build_cmd: ./scripts/build/build_windows_release.ps1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust (default host target)
         if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@stable
@@ -96,7 +96,7 @@ jobs:
   kad-scripts-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: KAD script syntax checks
         run: |
           bash -n scripts/test/kad_phase0_baseline.sh
@@ -108,7 +108,7 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo
@@ -126,9 +126,9 @@ jobs:
       run:
         working-directory: ui
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 20
           cache: npm
@@ -145,7 +145,7 @@ jobs:
     env:
       MIN_LINES_COVERAGE: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
