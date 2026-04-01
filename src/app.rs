@@ -10,7 +10,7 @@ use std::{
     sync::Arc,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{broadcast, mpsc, watch};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, broadcast, mpsc, watch};
 use tokio::time::{Duration, Instant};
 
 pub type AppResult<T> = std::result::Result<T, AppError>;
@@ -873,8 +873,12 @@ async fn run_transfer_accept_loop(
     keys: SamKeys,
     upload_service: Arc<crate::upload::UploadService>,
 ) {
+    const MAX_CONCURRENT_TRANSFER_STREAMS: usize = 64;
+    const TRANSFER_SATURATION_WARN_INTERVAL: Duration = Duration::from_secs(30);
     let mut backoff = Duration::from_secs(1);
     let mut session_owner: Option<SamClient> = None;
+    let mut last_saturation_warn_at: Option<Instant> = None;
+    let transfer_stream_slots = Arc::new(Semaphore::new(MAX_CONCURRENT_TRANSFER_STREAMS));
     loop {
         if session_owner.is_none() {
             match establish_stream_session_owner(
@@ -907,10 +911,28 @@ async fn run_transfer_accept_loop(
         match crate::i2p::sam::SamStream::accept(&sam_host, sam_port, &session_id).await {
             Ok((stream, peer_dest)) => {
                 backoff = Duration::from_secs(1);
+                let Ok(permit) = Arc::clone(&transfer_stream_slots).try_acquire_owned() else {
+                    let now = Instant::now();
+                    let should_warn = last_saturation_warn_at.is_none_or(|last| {
+                        now.duration_since(last) >= TRANSFER_SATURATION_WARN_INTERVAL
+                    });
+                    if should_warn {
+                        last_saturation_warn_at = Some(now);
+                        tracing::warn!(
+                            session = %session_id,
+                            limit = MAX_CONCURRENT_TRANSFER_STREAMS,
+                            active = MAX_CONCURRENT_TRANSFER_STREAMS
+                                - transfer_stream_slots.available_permits(),
+                            "transfer STREAM capacity reached; dropping inbound stream"
+                        );
+                    }
+                    drop(stream);
+                    continue;
+                };
                 let upload_service = Arc::clone(&upload_service);
                 tokio::spawn(async move {
                     if let Err(err) =
-                        handle_transfer_stream(stream, peer_dest, upload_service).await
+                        handle_transfer_stream(stream, peer_dest, upload_service, permit).await
                     {
                         tracing::debug!(error = %err, "transfer stream handler exited with error");
                     }
@@ -937,6 +959,7 @@ async fn handle_transfer_stream(
     mut stream: crate::i2p::sam::SamStream,
     peer_dest: Option<String>,
     upload_service: Arc<crate::upload::UploadService>,
+    _permit: OwnedSemaphorePermit,
 ) -> AppResult<()> {
     handle_transfer_io(
         &mut stream,
