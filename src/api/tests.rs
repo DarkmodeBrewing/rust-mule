@@ -1174,6 +1174,15 @@ async fn ui_api_contract_endpoints_return_expected_shapes() {
     );
     assert_eq!(status_json["zero_fill_active_uploads"].as_u64(), Some(0));
     assert_eq!(status_json["zero_fill_warning"].as_bool(), Some(false));
+    assert_eq!(status_json["transfer_active_streams"].as_u64(), Some(0));
+    assert_eq!(
+        status_json["transfer_capacity_waits_total"].as_u64(),
+        Some(0)
+    );
+    assert_eq!(
+        status_json["transfer_accept_errors_total"].as_u64(),
+        Some(0)
+    );
     assert!(
         status_json
             .get("source_search_batch_sent")
