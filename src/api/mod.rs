@@ -5,7 +5,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     path::PathBuf,
     sync::Arc,
-    sync::atomic::AtomicU64,
+    sync::atomic::{AtomicU64, AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, mpsc, watch};
@@ -74,6 +74,7 @@ pub struct ApiState {
     pub(crate) shared_library: Arc<tokio::sync::RwLock<SharedLibrary>>,
     pub(crate) publish_tracker: Arc<SharedPublishTracker>,
     pub(crate) upload_service: Arc<UploadService>,
+    pub(crate) transfer_runtime_stats: Arc<TransferRuntimeStats>,
     pub(crate) shared_ops: Arc<SharedOpsManager>,
     pub(crate) sessions: Arc<tokio::sync::Mutex<HashMap<String, Instant>>>,
     pub(crate) enable_debug_endpoints: bool,
@@ -100,6 +101,51 @@ pub struct ApiServeDeps {
     pub shared_library: Arc<tokio::sync::RwLock<SharedLibrary>>,
     pub publish_tracker: Arc<SharedPublishTracker>,
     pub upload_service: Arc<UploadService>,
+    pub transfer_runtime_stats: Arc<TransferRuntimeStats>,
+}
+
+#[derive(Debug, Default)]
+pub struct TransferRuntimeStats {
+    active_streams: AtomicUsize,
+    capacity_waits_total: AtomicU64,
+    accept_errors_total: AtomicU64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TransferRuntimeSnapshot {
+    pub active_streams: usize,
+    pub capacity_waits_total: u64,
+    pub accept_errors_total: u64,
+}
+
+impl TransferRuntimeStats {
+    pub fn snapshot(&self) -> TransferRuntimeSnapshot {
+        TransferRuntimeSnapshot {
+            active_streams: self.active_streams.load(Ordering::Relaxed),
+            capacity_waits_total: self.capacity_waits_total.load(Ordering::Relaxed),
+            accept_errors_total: self.accept_errors_total.load(Ordering::Relaxed),
+        }
+    }
+
+    pub fn increment_active_streams(&self) {
+        self.active_streams.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn decrement_active_streams(&self) {
+        let _ = self
+            .active_streams
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+                Some(current.saturating_sub(1))
+            });
+    }
+
+    pub fn increment_capacity_waits(&self) {
+        self.capacity_waits_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn increment_accept_errors(&self) {
+        self.accept_errors_total.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 pub fn new_channels() -> (
@@ -168,6 +214,7 @@ pub async fn serve(cfg: &ApiConfig, deps: ApiServeDeps) -> ApiResult<()> {
         shared_library: deps.shared_library,
         publish_tracker: deps.publish_tracker,
         upload_service: deps.upload_service,
+        transfer_runtime_stats: deps.transfer_runtime_stats,
         shared_ops,
         config,
         sessions: Arc::new(tokio::sync::Mutex::new(HashMap::new())),

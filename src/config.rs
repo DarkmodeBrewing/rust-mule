@@ -55,6 +55,9 @@ fn default_sam_control_timeout_secs() -> u64 {
     // I2P session creation can take a while on some routers (lease set publish, tunnel build).
     120
 }
+fn default_sam_max_concurrent_transfer_streams() -> usize {
+    64
+}
 fn default_sam_datagram_transport() -> SamDatagramTransport {
     SamDatagramTransport::Tcp
 }
@@ -270,6 +273,8 @@ pub struct SamConfig {
     pub forward_port: u16,
     /// Timeout for SAM TCP control-channel read/write operations.
     pub control_timeout_secs: u64,
+    /// Maximum number of concurrent inbound transfer STREAM handlers.
+    pub max_concurrent_transfer_streams: usize,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -415,6 +420,7 @@ impl Default for SamConfig {
             forward_host: default_forward_host(),
             forward_port: default_forward_port(),
             control_timeout_secs: default_sam_control_timeout_secs(),
+            max_concurrent_transfer_streams: default_sam_max_concurrent_transfer_streams(),
         }
     }
 }

@@ -86,6 +86,7 @@ enum ConfigValidationError {
         source: std::net::AddrParseError,
     },
     InvalidControlTimeout(u64),
+    InvalidMaxConcurrentTransferStreams(usize),
     InvalidApiPort(u16),
     InvalidShareRoot(rust_mule::share::ShareError),
 }
@@ -101,6 +102,9 @@ impl std::fmt::Display for ConfigValidationError {
                 write!(f, "Invalid sam.forward_host '{}'", host)
             }
             Self::InvalidControlTimeout(v) => write!(f, "Invalid sam.control_timeout_secs '{}'", v),
+            Self::InvalidMaxConcurrentTransferStreams(v) => {
+                write!(f, "Invalid sam.max_concurrent_transfer_streams '{}'", v)
+            }
             Self::InvalidApiPort(port) => write!(f, "Invalid api.port '{}'", port),
             Self::InvalidShareRoot(source) => write!(f, "{source}"),
         }
@@ -116,6 +120,7 @@ impl std::error::Error for ConfigValidationError {
             | Self::InvalidSamUdpPort(_)
             | Self::InvalidSessionName(_)
             | Self::InvalidControlTimeout(_)
+            | Self::InvalidMaxConcurrentTransferStreams(_)
             | Self::InvalidApiPort(_) => None,
             Self::InvalidShareRoot(source) => Some(source),
         }
@@ -271,6 +276,12 @@ fn validate_cfg(cfg: &rust_mule::config::Config) -> Result<(), ConfigValidationE
     if cfg.sam.control_timeout_secs == 0 {
         return Err(ConfigValidationError::InvalidControlTimeout(
             cfg.sam.control_timeout_secs,
+        ));
+    }
+
+    if cfg.sam.max_concurrent_transfer_streams == 0 {
+        return Err(ConfigValidationError::InvalidMaxConcurrentTransferStreams(
+            cfg.sam.max_concurrent_transfer_streams,
         ));
     }
 

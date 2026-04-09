@@ -276,6 +276,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
     let shared_library = Arc::new(tokio::sync::RwLock::new(shared_library_build.library));
     let publish_tracker = Arc::new(crate::publish::SharedPublishTracker::default());
     let upload_service = Arc::new(crate::upload::UploadService::new(shared_library.clone()));
+    let transfer_runtime_stats = Arc::new(crate::api::TransferRuntimeStats::default());
     let shared_library_len = shared_library.read().await.len();
     tracing::info!(
         share_roots = shared_roots.len(),
@@ -315,17 +316,23 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
         let transfer_listener_host = config.sam.host.clone();
         let transfer_listener_port = config.sam.port;
         let transfer_listener_timeout = Duration::from_secs(config.sam.control_timeout_secs);
+        let transfer_listener_max_streams = config.sam.max_concurrent_transfer_streams;
         let transfer_listener_session = transfer_session_id.clone();
         let transfer_listener_keys = transfer_keys.clone();
         let transfer_upload_service = Arc::clone(&upload_service);
+        let transfer_runtime_stats_for_listener = Arc::clone(&transfer_runtime_stats);
         tokio::spawn(async move {
             run_transfer_accept_loop(
-                transfer_listener_host,
-                transfer_listener_port,
-                transfer_listener_timeout,
-                transfer_listener_session,
-                transfer_listener_keys,
+                TransferListenerConfig {
+                    sam_host: transfer_listener_host,
+                    sam_port: transfer_listener_port,
+                    control_timeout: transfer_listener_timeout,
+                    max_concurrent_transfer_streams: transfer_listener_max_streams,
+                    session_id: transfer_listener_session,
+                    keys: transfer_listener_keys,
+                },
                 transfer_upload_service,
+                transfer_runtime_stats_for_listener,
             )
             .await;
         });
@@ -391,6 +398,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             shared_library: shared_library.clone(),
             publish_tracker: publish_tracker.clone(),
             upload_service: upload_service.clone(),
+            transfer_runtime_stats: transfer_runtime_stats.clone(),
         };
         if let Err(err) = crate::api::serve(&api_cfg, deps).await {
             tracing::error!(error = %err, "api server stopped");
@@ -865,28 +873,57 @@ async fn fetch_blocks_from_peer(
     Ok(packets)
 }
 
-async fn run_transfer_accept_loop(
+struct TransferListenerConfig {
     sam_host: String,
     sam_port: u16,
     control_timeout: Duration,
+    max_concurrent_transfer_streams: usize,
     session_id: String,
     keys: SamKeys,
+}
+
+struct TransferStreamGuard {
+    _permit: OwnedSemaphorePermit,
+    transfer_runtime_stats: Arc<crate::api::TransferRuntimeStats>,
+}
+
+impl TransferStreamGuard {
+    fn new(
+        permit: OwnedSemaphorePermit,
+        transfer_runtime_stats: Arc<crate::api::TransferRuntimeStats>,
+    ) -> Self {
+        transfer_runtime_stats.increment_active_streams();
+        Self {
+            _permit: permit,
+            transfer_runtime_stats,
+        }
+    }
+}
+
+impl Drop for TransferStreamGuard {
+    fn drop(&mut self) {
+        self.transfer_runtime_stats.decrement_active_streams();
+    }
+}
+
+async fn run_transfer_accept_loop(
+    config: TransferListenerConfig,
     upload_service: Arc<crate::upload::UploadService>,
+    transfer_runtime_stats: Arc<crate::api::TransferRuntimeStats>,
 ) {
-    const MAX_CONCURRENT_TRANSFER_STREAMS: usize = 64;
     const TRANSFER_SATURATION_WARN_INTERVAL: Duration = Duration::from_secs(30);
     let mut backoff = Duration::from_secs(1);
     let mut session_owner: Option<SamClient> = None;
     let mut last_saturation_warn_at: Option<Instant> = None;
-    let transfer_stream_slots = Arc::new(Semaphore::new(MAX_CONCURRENT_TRANSFER_STREAMS));
+    let transfer_stream_slots = Arc::new(Semaphore::new(config.max_concurrent_transfer_streams));
     loop {
         if session_owner.is_none() {
             match establish_stream_session_owner(
-                &sam_host,
-                sam_port,
-                control_timeout,
-                &session_id,
-                &keys,
+                &config.sam_host,
+                config.sam_port,
+                config.control_timeout,
+                &config.session_id,
+                &config.keys,
             )
             .await
             {
@@ -896,7 +933,7 @@ async fn run_transfer_accept_loop(
                 }
                 Err(err) => {
                     tracing::warn!(
-                        session = %session_id,
+                        session = %config.session_id,
                         error = %err,
                         backoff_secs = backoff.as_secs(),
                         "failed to ensure transfer STREAM session; retrying"
@@ -908,42 +945,54 @@ async fn run_transfer_accept_loop(
             }
         }
 
-        match crate::i2p::sam::SamStream::accept(&sam_host, sam_port, &session_id).await {
+        let permit = if let Ok(permit) = Arc::clone(&transfer_stream_slots).try_acquire_owned() {
+            permit
+        } else {
+            transfer_runtime_stats.increment_capacity_waits();
+            let now = Instant::now();
+            let should_warn = last_saturation_warn_at
+                .is_none_or(|last| now.duration_since(last) >= TRANSFER_SATURATION_WARN_INTERVAL);
+            if should_warn {
+                last_saturation_warn_at = Some(now);
+                tracing::warn!(
+                    session = %config.session_id,
+                    limit = config.max_concurrent_transfer_streams,
+                    active = transfer_runtime_stats.snapshot().active_streams,
+                    "transfer STREAM capacity reached; waiting before next accept"
+                );
+            }
+            let Ok(permit) = Arc::clone(&transfer_stream_slots).acquire_owned().await else {
+                continue;
+            };
+            permit
+        };
+        match crate::i2p::sam::SamStream::accept(
+            &config.sam_host,
+            config.sam_port,
+            &config.session_id,
+        )
+        .await
+        {
             Ok((stream, peer_dest)) => {
                 backoff = Duration::from_secs(1);
-                let Ok(permit) = Arc::clone(&transfer_stream_slots).try_acquire_owned() else {
-                    let now = Instant::now();
-                    let should_warn = last_saturation_warn_at.is_none_or(|last| {
-                        now.duration_since(last) >= TRANSFER_SATURATION_WARN_INTERVAL
-                    });
-                    if should_warn {
-                        last_saturation_warn_at = Some(now);
-                        tracing::warn!(
-                            session = %session_id,
-                            limit = MAX_CONCURRENT_TRANSFER_STREAMS,
-                            active = MAX_CONCURRENT_TRANSFER_STREAMS
-                                - transfer_stream_slots.available_permits(),
-                            "transfer STREAM capacity reached; dropping inbound stream"
-                        );
-                    }
-                    drop(stream);
-                    continue;
-                };
                 let upload_service = Arc::clone(&upload_service);
+                let guard = TransferStreamGuard::new(permit, Arc::clone(&transfer_runtime_stats));
                 tokio::spawn(async move {
                     if let Err(err) =
-                        handle_transfer_stream(stream, peer_dest, upload_service, permit).await
+                        handle_transfer_stream(stream, peer_dest, upload_service, guard).await
                     {
                         tracing::debug!(error = %err, "transfer stream handler exited with error");
                     }
                 });
             }
             Err(err) => {
+                transfer_runtime_stats.increment_accept_errors();
+                drop(permit);
                 if is_invalid_stream_session(&err) {
                     session_owner = None;
                 }
                 tracing::warn!(
-                    session = %session_id,
+                    session = %config.session_id,
                     error = %err,
                     backoff_secs = backoff.as_secs(),
                     "transfer STREAM accept failed; retrying"
@@ -959,7 +1008,7 @@ async fn handle_transfer_stream(
     mut stream: crate::i2p::sam::SamStream,
     peer_dest: Option<String>,
     upload_service: Arc<crate::upload::UploadService>,
-    _permit: OwnedSemaphorePermit,
+    _guard: TransferStreamGuard,
 ) -> AppResult<()> {
     handle_transfer_io(
         &mut stream,
