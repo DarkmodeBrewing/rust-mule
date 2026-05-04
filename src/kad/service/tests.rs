@@ -279,27 +279,56 @@ fn inbound_request_limit_drops_flood_after_threshold() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);
     let now = Instant::now();
-    let from_hash = 42u32;
+    let from_dest = "peer-a";
 
     for _ in 0..30 {
         assert!(inbound_request_allowed(
             &mut svc,
-            from_hash,
+            from_dest,
             KADEMLIA2_REQ,
             now
         ));
     }
     assert!(!inbound_request_allowed(
         &mut svc,
-        from_hash,
+        from_dest,
         KADEMLIA2_REQ,
         now
     ));
     assert!(inbound_request_allowed(
         &mut svc,
-        from_hash,
+        from_dest,
         KADEMLIA2_REQ,
         now + Duration::from_secs(61)
+    ));
+}
+
+#[test]
+fn inbound_request_limit_uses_full_destination_key() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let now = Instant::now();
+
+    for _ in 0..30 {
+        assert!(inbound_request_allowed(
+            &mut svc,
+            "peer-a",
+            KADEMLIA2_REQ,
+            now
+        ));
+    }
+
+    assert!(inbound_request_allowed(
+        &mut svc,
+        "peer-b",
+        KADEMLIA2_REQ,
+        now
+    ));
+    assert!(!inbound_request_allowed(
+        &mut svc,
+        "peer-a",
+        KADEMLIA2_REQ,
+        now
     ));
 }
 
@@ -312,7 +341,7 @@ fn inbound_request_tracker_caps_number_of_sources() {
     for i in 0..(TRACKED_IN_MAX_SOURCES + 128) {
         assert!(inbound_request_allowed(
             &mut svc,
-            (i as u32).saturating_add(1),
+            &format!("peer-{i}"),
             KADEMLIA2_REQ,
             now
         ));
@@ -329,9 +358,12 @@ fn inbound_request_tracker_caps_opcodes_per_source() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);
     let now = Instant::now();
-    let from_hash = 0xBEEF_u32;
+    let from_dest = "peer-a";
 
-    let per_dest = svc.tracked_in_requests.entry(from_hash).or_default();
+    let per_dest = svc
+        .tracked_in_requests
+        .entry(from_dest.to_string())
+        .or_default();
     for op in 0..32u8 {
         per_dest.insert(
             op,
@@ -345,18 +377,77 @@ fn inbound_request_tracker_caps_opcodes_per_source() {
 
     assert!(inbound_request_allowed(
         &mut svc,
-        from_hash,
+        from_dest,
         KADEMLIA2_REQ,
         now
     ));
     let per_dest_len = svc
         .tracked_in_requests
-        .get(&from_hash)
+        .get(from_dest)
         .map(|m| m.len())
         .unwrap_or(0);
     assert!(
         per_dest_len <= TRACKED_IN_MAX_OPCODES_PER_SOURCE,
         "per-source opcode tracker exceeded cap"
+    );
+}
+
+#[test]
+fn lookup_queue_coalesces_refresh_by_bucket_and_caps_growth() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let now = Instant::now();
+
+    for i in 0..(LOOKUP_QUEUE_MAX * 2) {
+        start_lookup(
+            &mut svc,
+            KadId([i as u8; 16]),
+            LookupKind::Refresh { bucket: i % 128 },
+            None,
+            now,
+        );
+    }
+
+    assert!(svc.lookup_queue.len() <= LOOKUP_QUEUE_MAX);
+    start_lookup(
+        &mut svc,
+        KadId([9u8; 16]),
+        LookupKind::Refresh { bucket: 7 },
+        None,
+        now,
+    );
+    let bucket_seven = svc
+        .lookup_queue
+        .iter()
+        .filter(|task| matches!(task.kind, LookupKind::Refresh { bucket: 7 }))
+        .count();
+    assert_eq!(bucket_seven, 1);
+}
+
+#[test]
+fn lookup_queue_preserves_debug_lookup_when_full() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let now = Instant::now();
+
+    for i in 0..LOOKUP_QUEUE_MAX {
+        start_lookup(
+            &mut svc,
+            KadId([i as u8; 16]),
+            LookupKind::Refresh { bucket: i },
+            None,
+            now,
+        );
+    }
+
+    let debug_target = KadId([200u8; 16]);
+    start_lookup(&mut svc, debug_target, LookupKind::Debug, None, now);
+
+    assert!(svc.lookup_queue.len() <= LOOKUP_QUEUE_MAX);
+    assert!(
+        svc.lookup_queue
+            .iter()
+            .any(|task| matches!(task.kind, LookupKind::Debug) && task.target == debug_target)
     );
 }
 

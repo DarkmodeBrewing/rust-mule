@@ -153,6 +153,7 @@ const TRACKED_IN_CLEANUP_EVERY: Duration = Duration::from_secs(12 * 60);
 const TRACKED_IN_ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
 const TRACKED_IN_MAX_SOURCES: usize = 4096;
 const TRACKED_IN_MAX_OPCODES_PER_SOURCE: usize = 8;
+const LOOKUP_QUEUE_MAX: usize = 128;
 const SHAPER_PEER_STATE_TTL: Duration = Duration::from_secs(60 * 60);
 const SHAPER_PEER_STATE_MAX: usize = 8192;
 
@@ -219,7 +220,7 @@ pub struct KadService {
     tracked_out_requests: Vec<TrackedOutRequest>,
     next_tracked_out_request_id: u64,
     last_unmatched_response: Option<UnmatchedResponseDiag>,
-    tracked_in_requests: HashMap<u32, HashMap<u8, TrackedInCounter>>,
+    tracked_in_requests: HashMap<String, HashMap<u8, TrackedInCounter>>,
     tracked_in_last_cleanup: Instant,
     shaper_window_started: Instant,
     shaper_global_sent_in_window: HashMap<OutboundClass, u32>,
@@ -1746,7 +1747,12 @@ fn inbound_request_limit_per_minute(opcode: u8) -> Option<(u8, u32)> {
     Some((canonical, limit))
 }
 
-fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now: Instant) -> bool {
+fn inbound_request_allowed(
+    svc: &mut KadService,
+    from_dest_b64: &str,
+    opcode: u8,
+    now: Instant,
+) -> bool {
     let Some((canonical_opcode, limit_per_minute)) = inbound_request_limit_per_minute(opcode)
     else {
         return true;
@@ -1759,13 +1765,16 @@ fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now
         cleanup_tracked_in_requests(svc, now);
     }
 
-    if !svc.tracked_in_requests.contains_key(&from_hash)
+    if !svc.tracked_in_requests.contains_key(from_dest_b64)
         && svc.tracked_in_requests.len() >= TRACKED_IN_MAX_SOURCES
     {
         evict_oldest_tracked_in_source(svc);
     }
 
-    let per_dest = svc.tracked_in_requests.entry(from_hash).or_default();
+    let per_dest = svc
+        .tracked_in_requests
+        .entry(from_dest_b64.to_string())
+        .or_default();
     enforce_tracked_in_opcode_cap(per_dest);
     let counter = per_dest
         .entry(canonical_opcode)
@@ -1785,7 +1794,7 @@ fn inbound_request_allowed(svc: &mut KadService, from_hash: u32, opcode: u8, now
     if counter.count > limit_per_minute {
         if !counter.warned {
             tracing::debug!(
-                from_hash,
+                from = %crate::i2p::b64::short(from_dest_b64),
                 opcode = format_args!("0x{canonical_opcode:02x}"),
                 count = counter.count,
                 limit_per_minute,
@@ -1832,7 +1841,7 @@ fn enforce_tracked_in_opcode_cap(op_map: &mut HashMap<u8, TrackedInCounter>) {
 }
 
 fn evict_oldest_tracked_in_source(svc: &mut KadService) {
-    let Some((oldest_hash, oldest_at)) = svc
+    let Some((oldest_dest, oldest_at)) = svc
         .tracked_in_requests
         .iter()
         .filter_map(|(hash, op_map)| {
@@ -1840,15 +1849,15 @@ fn evict_oldest_tracked_in_source(svc: &mut KadService) {
                 .values()
                 .map(|c| c.first_added)
                 .min()
-                .map(|oldest| (*hash, oldest))
+                .map(|oldest| (hash.clone(), oldest))
         })
         .min_by_key(|(_, oldest)| *oldest)
     else {
         return;
     };
-    let _ = svc.tracked_in_requests.remove(&oldest_hash);
+    let _ = svc.tracked_in_requests.remove(&oldest_dest);
     tracing::debug!(
-        from_hash = oldest_hash,
+        from = %crate::i2p::b64::short(&oldest_dest),
         age_secs = Instant::now()
             .saturating_duration_since(oldest_at)
             .as_secs(),

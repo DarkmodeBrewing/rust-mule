@@ -176,6 +176,19 @@ impl RoutingTable {
                 self.by_dest.remove(&old.dest_b64);
             }
         }
+
+        if let Some(existing_id) = self.by_dest.get(&dest_b64).copied()
+            && existing_id != id
+        {
+            let keep_existing = self.by_id.get(&existing_id).is_some_and(|existing| {
+                existing.node.verified
+                    || (!node.verified && existing.node.kad_version >= node.kad_version)
+            });
+            if keep_existing {
+                return UpsertOutcome::Updated;
+            }
+            self.by_id.remove(&existing_id);
+        }
         self.by_dest.insert(dest_b64.clone(), id);
 
         let mut inserted = false;
@@ -912,5 +925,51 @@ mod tests {
         assert!(rt.contains_id(KadId(test_node(2, true).client_id)));
         assert!(!rt.contains_id(KadId(test_node(3, false).client_id)));
         assert!(!rt.contains_id(KadId(test_node(4, true).client_id)));
+    }
+
+    #[test]
+    fn upsert_keeps_one_entry_per_destination() {
+        let my = KadId([0u8; 16]);
+        let now = Instant::now();
+        let mut rt = RoutingTable::new(my);
+
+        let mut first = test_node(1, false);
+        first.udp_dest = [42u8; 387];
+        let mut replacement = test_node(2, true);
+        replacement.udp_dest = [42u8; 387];
+        let dest = replacement.udp_dest_b64();
+
+        assert_eq!(rt.upsert(first, now), UpsertOutcome::Inserted);
+        assert_eq!(rt.upsert(replacement, now), UpsertOutcome::Inserted);
+
+        assert_eq!(rt.len(), 1);
+        assert!(!rt.contains_id(KadId(test_node(1, false).client_id)));
+        assert_eq!(
+            rt.id_for_dest(&dest),
+            Some(KadId(test_node(2, true).client_id))
+        );
+    }
+
+    #[test]
+    fn upsert_keeps_verified_destination_owner() {
+        let my = KadId([0u8; 16]);
+        let now = Instant::now();
+        let mut rt = RoutingTable::new(my);
+
+        let mut verified = test_node(1, true);
+        verified.udp_dest = [42u8; 387];
+        let mut unverified = test_node(2, false);
+        unverified.udp_dest = [42u8; 387];
+        let dest = verified.udp_dest_b64();
+
+        assert_eq!(rt.upsert(verified, now), UpsertOutcome::Inserted);
+        assert_eq!(rt.upsert(unverified, now), UpsertOutcome::Updated);
+
+        assert_eq!(rt.len(), 1);
+        assert_eq!(
+            rt.id_for_dest(&dest),
+            Some(KadId(test_node(1, true).client_id))
+        );
+        assert!(!rt.contains_id(KadId(test_node(2, false).client_id)));
     }
 }
