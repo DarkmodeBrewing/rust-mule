@@ -27,6 +27,15 @@ This file exists because chat sessions are not durable project memory. In the ne
     - `cargo fmt --all -- --check`
     - `cargo clippy --all-targets --all-features -- -D warnings`
     - `cargo test --all-targets --all-features`
+- 2026-05-04: Fixed CI quality gate failures on `fix/kad-dht-resource-caps`.
+  - status:
+    - addressed Rust 1.95 Clippy diagnostics from PR #75 quality job
+    - removed an unnecessary `.into_iter()` in the transfer pump loop
+    - changed two guarded divisions to `checked_div(...).unwrap_or(0)`
+  - validation:
+    - `cargo fmt --all -- --check`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features`
 
 ## Goal
 

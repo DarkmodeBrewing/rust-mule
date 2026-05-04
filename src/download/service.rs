@@ -985,11 +985,13 @@ fn list_details(
 }
 
 fn summary_from_download(d: &mut ManagedDownload) -> DownloadSummary {
-    let progress = if d.met.file_size == 0 {
-        0
-    } else {
-        ((d.met.downloaded_bytes.saturating_mul(100) / d.met.file_size).min(100)) as u8
-    };
+    let progress = d
+        .met
+        .downloaded_bytes
+        .saturating_mul(100)
+        .checked_div(d.met.file_size)
+        .unwrap_or(0)
+        .min(100) as u8;
     let TransferRateSnapshot {
         rate_bps_5s,
         rate_bps_30s,

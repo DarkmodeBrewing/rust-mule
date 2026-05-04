@@ -177,11 +177,9 @@ pub(super) fn publish_status_impl(
 ) {
     let st = build_status_impl(svc, started);
     let summary = routing_view::build_routing_summary(svc, Instant::now());
-    let verified_pct = if summary.total_nodes > 0 {
-        (summary.verified_nodes * 100) / summary.total_nodes
-    } else {
-        0
-    };
+    let verified_pct = (summary.verified_nodes * 100)
+        .checked_div(summary.total_nodes)
+        .unwrap_or(0);
     tracing::info!(
         event = "kad_status",
         uptime_secs = st.uptime_secs,

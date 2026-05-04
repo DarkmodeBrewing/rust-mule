@@ -797,7 +797,7 @@ async fn run_download_transfer_pump(
             .await
             {
                 Ok(packets) => {
-                    for (block, packet) in blocks.iter().copied().zip(packets.into_iter()) {
+                    for (block, packet) in blocks.iter().copied().zip(packets) {
                         if let Err(err) = download_handle
                             .ingest_inbound_packet(d.part_number, peer_id.clone(), packet)
                             .await
