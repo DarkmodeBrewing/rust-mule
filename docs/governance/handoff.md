@@ -6242,6 +6242,18 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
 - When received, this agent string is stored in the in-memory routing table as `peer_agent` (not
   persisted to `nodes.dat`, since that file is in iMule format).
 
+## 2026-05-04 Notes (Kad/DHT Resource Cap Review Fixes)
+
+- PR review follow-up tightened the Kad/DHT resource caps:
+  - every inbound routing-table peer learn path now enforces `kad.service_max_runtime_nodes`
+  - local `PublishSource` cache insertion now applies source-store limits too
+  - zero source-store limits now drop remote cached sources while preserving the local published
+    source entries needed to answer `SEARCH_SOURCE_REQ`
+- Validation run locally:
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo test --all-targets --all-features`
+
 ## Debugging Notes (Kad Status Counters)
 
 - `/status` now includes two extra counters to help distinguish “network is silent” vs “we are

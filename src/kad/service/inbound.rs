@@ -208,6 +208,7 @@ pub(super) async fn handle_inbound_impl(
                         },
                         now,
                     );
+                    enforce_routing_capacity(svc, cfg, now);
                 }
                 svc.routing.mark_seen_by_dest(&from_dest_b64, now);
                 if let Err(err) =
@@ -283,6 +284,7 @@ pub(super) async fn handle_inbound_impl(
                     },
                     now,
                 );
+                enforce_routing_capacity(svc, cfg, now);
             }
             svc.routing.mark_received_hello_by_dest(&from_dest_b64, now);
 
@@ -371,6 +373,7 @@ pub(super) async fn handle_inbound_impl(
                     },
                     now,
                 );
+                enforce_routing_capacity(svc, cfg, now);
             }
             svc.routing.mark_received_hello_by_dest(&from_dest_b64, now);
 
@@ -478,6 +481,7 @@ pub(super) async fn handle_inbound_impl(
                     },
                     now,
                 );
+                enforce_routing_capacity(svc, cfg, now);
                 let inserted = svc.routing.len().saturating_sub(before);
                 if inserted > 0 {
                     svc.stats_window.new_nodes += inserted as u64;

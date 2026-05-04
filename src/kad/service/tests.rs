@@ -579,26 +579,70 @@ fn shared_publish_status_keeps_counting_acked_keywords_after_publish_is_cleared(
 #[test]
 fn cache_local_published_source_inserts_local_entry_once() {
     let (_tx, rx) = mpsc::channel(1);
-    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let my_id = KadId([9u8; 16]);
+    let mut svc = KadService::new(my_id, rx);
     let file = KadId([7u8; 16]);
     let mut my_dest = [0u8; I2P_DEST_LEN];
     my_dest[0] = 42;
     let crypto = KadServiceCrypto {
-        my_kad_id: KadId([9u8; 16]),
+        my_kad_id: my_id,
         my_dest_hash: 0,
         udp_key_secret: 0,
         my_dest,
         my_transfer_dest: [0x24; I2P_DEST_LEN],
     };
+    let cfg = KadServiceConfig::default();
 
-    cache_local_published_source(&mut svc, crypto, file);
-    cache_local_published_source(&mut svc, crypto, file);
+    cache_local_published_source(&mut svc, crypto, &cfg, file);
+    cache_local_published_source(&mut svc, crypto, &cfg, file);
 
     let by_file = svc.sources_by_file.get(&file).expect("file entry exists");
     assert_eq!(by_file.len(), 1);
     let entry = by_file.get(&crypto.my_kad_id).expect("local source entry");
     assert_eq!(entry.tcp_dest, crypto.my_transfer_dest);
     assert_eq!(entry.udp_dest, crypto.my_dest);
+}
+
+#[test]
+fn source_store_zero_limits_preserve_local_source_entries() {
+    let (_tx, rx) = mpsc::channel(1);
+    let local_id = KadId([7u8; 16]);
+    let mut svc = KadService::new(local_id, rx);
+    let cfg = KadServiceConfig {
+        source_store_max_files: 0,
+        source_store_max_sources_per_file: 0,
+        source_store_max_total_sources: 0,
+        ..KadServiceConfig::default()
+    };
+    let local_file = KadId([1u8; 16]);
+    let remote_file = KadId([2u8; 16]);
+    let remote_source = KadId([3u8; 16]);
+
+    svc.sources_by_file.entry(local_file).or_default().insert(
+        local_id,
+        KadSourceEntry {
+            source_id: local_id,
+            tcp_dest: [1u8; I2P_DEST_LEN],
+            udp_dest: [1u8; I2P_DEST_LEN],
+        },
+    );
+    svc.sources_by_file.entry(remote_file).or_default().insert(
+        remote_source,
+        KadSourceEntry {
+            source_id: remote_source,
+            tcp_dest: [2u8; I2P_DEST_LEN],
+            udp_dest: [2u8; I2P_DEST_LEN],
+        },
+    );
+
+    enforce_source_store_limits(&mut svc, &cfg);
+
+    assert!(
+        svc.sources_by_file
+            .get(&local_file)
+            .is_some_and(|sources| sources.contains_key(&local_id))
+    );
+    assert!(!svc.sources_by_file.contains_key(&remote_file));
 }
 
 #[test]

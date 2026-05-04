@@ -553,7 +553,7 @@ async fn handle_command(
         KadServiceCommand::PublishSource { file, file_size } => {
             // Mirror local publish into in-memory source cache so incoming SEARCH_SOURCE_REQ
             // can return this source before broader network convergence.
-            cache_local_published_source(svc, crypto, file);
+            cache_local_published_source(svc, crypto, cfg, file);
             send_publish_source(svc, sock, crypto, cfg, file, file_size).await?;
         }
         KadServiceCommand::GetSharedPublishStatus { file, respond_to } => {
@@ -1202,7 +1202,12 @@ async fn progress_keyword_job(
     Ok(())
 }
 
-fn cache_local_published_source(svc: &mut KadService, crypto: KadServiceCrypto, file: KadId) {
+fn cache_local_published_source(
+    svc: &mut KadService,
+    crypto: KadServiceCrypto,
+    cfg: &KadServiceConfig,
+    file: KadId,
+) {
     let entry = svc.sources_by_file.entry(file).or_default();
     if entry
         .insert(
@@ -1227,6 +1232,7 @@ fn cache_local_published_source(svc: &mut KadService, crypto: KadServiceCrypto, 
             "cached local source entry for published file"
         );
     }
+    enforce_source_store_limits(svc, cfg);
 }
 
 fn enforce_routing_capacity(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
@@ -1249,8 +1255,10 @@ fn enforce_source_store_limits(svc: &mut KadService, cfg: &KadServiceConfig) {
 }
 
 fn enforce_source_store_files_cap(svc: &mut KadService, max_files: usize) {
+    let local_id = svc.routing.my_id();
     if max_files == 0 {
-        svc.sources_by_file.clear();
+        svc.sources_by_file
+            .retain(|_, sources| sources.contains_key(&local_id));
         return;
     }
 
@@ -1258,7 +1266,7 @@ fn enforce_source_store_files_cap(svc: &mut KadService, max_files: usize) {
         let Some(key) = svc
             .sources_by_file
             .iter()
-            .min_by_key(|(_, sources)| sources.len())
+            .min_by_key(|(_, sources)| (sources.contains_key(&local_id), sources.len()))
             .map(|(file, _)| *file)
         else {
             break;
@@ -1268,8 +1276,12 @@ fn enforce_source_store_files_cap(svc: &mut KadService, max_files: usize) {
 }
 
 fn enforce_source_store_per_file_cap(svc: &mut KadService, max_sources_per_file: usize) {
+    let local_id = svc.routing.my_id();
     if max_sources_per_file == 0 {
-        svc.sources_by_file.clear();
+        for sources in svc.sources_by_file.values_mut() {
+            sources.retain(|source, _| *source == local_id);
+        }
+        svc.sources_by_file.retain(|_, sources| !sources.is_empty());
         return;
     }
 
@@ -1279,7 +1291,15 @@ fn enforce_source_store_per_file_cap(svc: &mut KadService, max_sources_per_file:
             continue;
         };
         while sources.len() > max_sources_per_file {
-            let _ = sources.pop_first();
+            let remove = sources
+                .keys()
+                .copied()
+                .find(|source| *source != local_id)
+                .or_else(|| sources.keys().copied().next());
+            let Some(remove) = remove else {
+                break;
+            };
+            sources.remove(&remove);
         }
         if sources.is_empty() {
             svc.sources_by_file.remove(&file);
@@ -1288,8 +1308,12 @@ fn enforce_source_store_per_file_cap(svc: &mut KadService, max_sources_per_file:
 }
 
 fn enforce_source_store_total_cap(svc: &mut KadService, max_total_sources: usize) {
+    let local_id = svc.routing.my_id();
     if max_total_sources == 0 {
-        svc.sources_by_file.clear();
+        for sources in svc.sources_by_file.values_mut() {
+            sources.retain(|source, _| *source == local_id);
+        }
+        svc.sources_by_file.retain(|_, sources| !sources.is_empty());
         return;
     }
 
@@ -1297,14 +1321,26 @@ fn enforce_source_store_total_cap(svc: &mut KadService, max_total_sources: usize
         let Some(key) = svc
             .sources_by_file
             .iter()
-            .max_by_key(|(_, sources)| sources.len())
+            .max_by_key(|(_, sources)| {
+                (
+                    sources.keys().any(|source| *source != local_id),
+                    sources.len(),
+                )
+            })
             .map(|(file, _)| *file)
         else {
             break;
         };
 
         let remove_file = if let Some(sources) = svc.sources_by_file.get_mut(&key) {
-            let _ = sources.pop_first();
+            let remove = sources
+                .keys()
+                .copied()
+                .find(|source| *source != local_id)
+                .or_else(|| sources.keys().copied().next());
+            if let Some(remove) = remove {
+                sources.remove(&remove);
+            }
             sources.is_empty()
         } else {
             false
