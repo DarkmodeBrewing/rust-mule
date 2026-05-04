@@ -6254,6 +6254,12 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
   - `cargo clippy --all-targets --all-features -- -D warnings`
   - `cargo test --all-targets --all-features`
 
+## 2026-05-04 Notes (Rust Toolchain Pin)
+
+- Rust is pinned to `1.95.0` in `rust-toolchain.toml`, with `rustfmt` and `clippy` included.
+- CI, CodeQL, and release workflows install Rust `1.95.0` explicitly instead of floating with
+  `dtolnay/rust-toolchain@stable`, so local Clippy and PR Clippy should report the same lint set.
+
 ## Debugging Notes (Kad Status Counters)
 
 - `/status` now includes two extra counters to help distinguish “network is silent” vs “we are
