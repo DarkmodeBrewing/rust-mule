@@ -1771,10 +1771,15 @@ fn inbound_request_allowed(
         evict_oldest_tracked_in_source(svc);
     }
 
-    let per_dest = svc
-        .tracked_in_requests
-        .entry(from_dest_b64.to_string())
-        .or_default();
+    let per_dest = if svc.tracked_in_requests.contains_key(from_dest_b64) {
+        svc.tracked_in_requests
+            .get_mut(from_dest_b64)
+            .expect("tracked inbound key checked above")
+    } else {
+        svc.tracked_in_requests
+            .entry(from_dest_b64.to_string())
+            .or_default()
+    };
     enforce_tracked_in_opcode_cap(per_dest);
     let counter = per_dest
         .entry(canonical_opcode)

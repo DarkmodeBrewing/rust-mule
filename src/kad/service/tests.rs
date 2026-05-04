@@ -397,12 +397,15 @@ fn lookup_queue_coalesces_refresh_by_bucket_and_caps_growth() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);
     let now = Instant::now();
+    let bucket_count = svc.routing.bucket_count();
 
     for i in 0..(LOOKUP_QUEUE_MAX * 2) {
         start_lookup(
             &mut svc,
             KadId([i as u8; 16]),
-            LookupKind::Refresh { bucket: i % 128 },
+            LookupKind::Refresh {
+                bucket: i % bucket_count,
+            },
             None,
             now,
         );
