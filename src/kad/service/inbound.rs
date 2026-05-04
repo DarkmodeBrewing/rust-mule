@@ -208,6 +208,7 @@ pub(super) async fn handle_inbound_impl(
                         },
                         now,
                     );
+                    enforce_routing_capacity(svc, cfg, now);
                 }
                 svc.routing.mark_seen_by_dest(&from_dest_b64, now);
                 if let Err(err) =
@@ -234,6 +235,7 @@ pub(super) async fn handle_inbound_impl(
                         now,
                     );
                 }
+                enforce_routing_capacity(svc, cfg, now);
 
                 let inserted = svc.routing.len().saturating_sub(before);
                 if inserted > 0 {
@@ -282,6 +284,7 @@ pub(super) async fn handle_inbound_impl(
                     },
                     now,
                 );
+                enforce_routing_capacity(svc, cfg, now);
             }
             svc.routing.mark_received_hello_by_dest(&from_dest_b64, now);
 
@@ -370,6 +373,7 @@ pub(super) async fn handle_inbound_impl(
                     },
                     now,
                 );
+                enforce_routing_capacity(svc, cfg, now);
             }
             svc.routing.mark_received_hello_by_dest(&from_dest_b64, now);
 
@@ -477,6 +481,7 @@ pub(super) async fn handle_inbound_impl(
                     },
                     now,
                 );
+                enforce_routing_capacity(svc, cfg, now);
                 let inserted = svc.routing.len().saturating_sub(before);
                 if inserted > 0 {
                     svc.stats_window.new_nodes += inserted as u64;
@@ -611,6 +616,7 @@ pub(super) async fn handle_inbound_impl(
                     crate::kad::routing::UpsertOutcome::IgnoredSelf => ignored_self += 1,
                 }
             }
+            enforce_routing_capacity(svc, cfg, now);
             if inserted > 0 {
                 svc.stats_window.new_nodes += inserted as u64;
                 tracing::debug!(
@@ -897,6 +903,7 @@ pub(super) async fn handle_inbound_impl(
                 if inserted {
                     svc.stats_window.new_store_source_entries += 1;
                 }
+                enforce_source_store_limits(svc, cfg);
             } else {
                 tracing::debug!(
                     from = %crate::i2p::b64::short(&from_dest_b64),
@@ -1154,6 +1161,7 @@ pub(super) async fn handle_inbound_impl(
                         inserted_sources += 1;
                         svc.stats_window.new_store_source_entries += 1;
                     }
+                    enforce_source_store_limits(svc, cfg);
                     continue;
                 }
 

@@ -11,6 +11,31 @@ This file exists because chat sessions are not durable project memory. In the ne
   - missing/invalid debug token now returns `403` when debug routes are enabled
   - token comparison uses a constant-time helper
   - added API tests for disabled, missing, invalid, and valid debug-token behavior
+- 2026-05-04: Added KAD/DHT resource caps on `fix/kad-dht-resource-caps`.
+  - status:
+    - patched routing table runtime growth with configurable `kad.service_max_runtime_nodes`
+    - patched source-store growth with configurable file, per-file source, and total source caps
+    - added unit coverage for routing-cap pruning and source-store caps
+  - decisions:
+    - prefer hard in-memory caps over relying on persistence truncation or delayed failure eviction
+    - prune weaker routing peers first using existing health/liveness signals
+    - keep source-store pruning deterministic and simple for this security fix
+  - next steps:
+    - tune source-store cap defaults after real alpha traffic if they prove too low or too high
+    - consider adding per-source-store eviction counters to status telemetry
+  - validation:
+    - `cargo fmt --all -- --check`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features`
+- 2026-05-04: Fixed CI quality gate failures on `fix/kad-dht-resource-caps`.
+  - status:
+    - addressed Rust 1.95 Clippy diagnostics from PR #75 quality job
+    - removed an unnecessary `.into_iter()` in the transfer pump loop
+    - changed two guarded divisions to `checked_div(...).unwrap_or(0)`
+  - validation:
+    - `cargo fmt --all -- --check`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features`
 
 ## Goal
 
@@ -6216,6 +6241,24 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
     backwards compatible.
 - When received, this agent string is stored in the in-memory routing table as `peer_agent` (not
   persisted to `nodes.dat`, since that file is in iMule format).
+
+## 2026-05-04 Notes (Kad/DHT Resource Cap Review Fixes)
+
+- PR review follow-up tightened the Kad/DHT resource caps:
+  - every inbound routing-table peer learn path now enforces `kad.service_max_runtime_nodes`
+  - local `PublishSource` cache insertion now applies source-store limits too
+  - zero source-store limits now drop remote cached sources while preserving the local published
+    source entries needed to answer `SEARCH_SOURCE_REQ`
+- Validation run locally:
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo test --all-targets --all-features`
+
+## 2026-05-04 Notes (Rust Toolchain Pin)
+
+- Rust is pinned to `1.95.0` in `rust-toolchain.toml`, with `rustfmt` and `clippy` included.
+- CI, CodeQL, and release workflows install Rust `1.95.0` explicitly instead of floating with
+  `dtolnay/rust-toolchain@stable`, so local Clippy and PR Clippy should report the same lint set.
 
 ## Debugging Notes (Kad Status Counters)
 
