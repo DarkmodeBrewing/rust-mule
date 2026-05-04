@@ -7,6 +7,28 @@ pub(super) fn start_lookup_impl(
     alpha_override: Option<usize>,
     now: Instant,
 ) {
+    if lookup_task_exists(svc, target, kind) {
+        return;
+    }
+
+    if svc.lookup_queue.len() >= LOOKUP_QUEUE_MAX {
+        match kind {
+            LookupKind::Debug => {
+                if let Some(pos) = svc
+                    .lookup_queue
+                    .iter()
+                    .position(|queued| matches!(queued.kind, LookupKind::Refresh { .. }))
+                {
+                    svc.lookup_queue.remove(pos);
+                }
+            }
+            LookupKind::Refresh { .. } => return,
+        }
+    }
+    if svc.lookup_queue.len() >= LOOKUP_QUEUE_MAX {
+        svc.lookup_queue.pop_front();
+    }
+
     let task = LookupTask {
         kind,
         target,
@@ -20,6 +42,24 @@ pub(super) fn start_lookup_impl(
         new_nodes: 0,
     };
     svc.lookup_queue.push_back(task);
+}
+
+fn lookup_task_exists(svc: &KadService, target: KadId, kind: LookupKind) -> bool {
+    svc.active_lookup
+        .as_ref()
+        .is_some_and(|task| lookup_task_matches(task, target, kind))
+        || svc
+            .lookup_queue
+            .iter()
+            .any(|task| lookup_task_matches(task, target, kind))
+}
+
+fn lookup_task_matches(task: &LookupTask, target: KadId, kind: LookupKind) -> bool {
+    match (task.kind, kind) {
+        (LookupKind::Debug, LookupKind::Debug) => task.target == target,
+        (LookupKind::Refresh { bucket: a }, LookupKind::Refresh { bucket: b }) => a == b,
+        _ => false,
+    }
 }
 
 pub(super) fn tick_refresh_impl(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {

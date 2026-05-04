@@ -6260,6 +6260,19 @@ Priority is to stabilize the network layer first, so we can reliably discover pe
 - CI, CodeQL, and release workflows install Rust `1.95.0` explicitly instead of floating with
   `dtolnay/rust-toolchain@stable`, so local Clippy and PR Clippy should report the same lint set.
 
+## 2026-05-04 Notes (Kad Routing Review Follow-Up)
+
+- Followed up on the KAD/DHT/routing review:
+  - routing upsert now keeps a single runtime entry per I2P destination and preserves verified
+    destination owners against weaker replacement claims
+  - lookup refresh scheduling now coalesces duplicate bucket refreshes and caps queued lookup work
+  - inbound request flood tracking now keys by full sender destination instead of the legacy
+    32-bit destination hash used for UDP verify-key compatibility
+- Validation run locally:
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo test --all-targets --all-features`
+
 ## Debugging Notes (Kad Status Counters)
 
 - `/status` now includes two extra counters to help distinguish “network is silent” vs “we are

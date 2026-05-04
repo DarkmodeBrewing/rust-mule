@@ -75,7 +75,7 @@ pub(super) async fn handle_inbound_impl(
         "received inbound KAD packet"
     );
 
-    if !inbound_request_allowed(svc, from_hash, pkt.opcode, now) {
+    if !inbound_request_allowed(svc, &from_dest_b64, pkt.opcode, now) {
         tracing::debug!(
             event = "kad_inbound_drop",
             from = %crate::i2p::b64::short(&from_dest_b64),
