@@ -11,6 +11,22 @@ This file exists because chat sessions are not durable project memory. In the ne
   - missing/invalid debug token now returns `403` when debug routes are enabled
   - token comparison uses a constant-time helper
   - added API tests for disabled, missing, invalid, and valid debug-token behavior
+- 2026-05-04: Added KAD/DHT resource caps on `fix/kad-dht-resource-caps`.
+  - status:
+    - patched routing table runtime growth with configurable `kad.service_max_runtime_nodes`
+    - patched source-store growth with configurable file, per-file source, and total source caps
+    - added unit coverage for routing-cap pruning and source-store caps
+  - decisions:
+    - prefer hard in-memory caps over relying on persistence truncation or delayed failure eviction
+    - prune weaker routing peers first using existing health/liveness signals
+    - keep source-store pruning deterministic and simple for this security fix
+  - next steps:
+    - tune source-store cap defaults after real alpha traffic if they prove too low or too high
+    - consider adding per-source-store eviction counters to status telemetry
+  - validation:
+    - `cargo fmt --all -- --check`
+    - `cargo clippy --all-targets --all-features -- -D warnings`
+    - `cargo test --all-targets --all-features`
 
 ## Goal
 

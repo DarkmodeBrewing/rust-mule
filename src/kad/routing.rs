@@ -609,6 +609,47 @@ impl RoutingTable {
         }
         before - self.by_id.len()
     }
+
+    pub fn enforce_capacity(&mut self, max_nodes: usize, now: Instant) -> usize {
+        if self.by_id.len() <= max_nodes {
+            return 0;
+        }
+
+        if max_nodes == 0 {
+            let removed = self.by_id.len();
+            self.by_id.clear();
+            self.by_dest.clear();
+            return removed;
+        }
+
+        let mut ranked = self
+            .by_id
+            .iter()
+            .map(|(id, st)| {
+                (
+                    *id,
+                    (
+                        std::cmp::Reverse(peer_health_rank(classify_peer_health(st, now))),
+                        std::cmp::Reverse(st.failures),
+                        st.last_inbound.is_some(),
+                        st.node.verified,
+                        st.node.udp_key != 0,
+                        st.last_seen,
+                    ),
+                )
+            })
+            .collect::<Vec<_>>();
+        ranked.sort_by_key(|(_, rank)| *rank);
+
+        let remove_count = self.by_id.len().saturating_sub(max_nodes);
+        for (id, _) in ranked.into_iter().take(remove_count) {
+            if let Some(st) = self.by_id.remove(&id) {
+                self.by_dest.remove(&st.dest_b64);
+            }
+        }
+
+        remove_count
+    }
 }
 
 fn xor_distance(a: KadId, b: KadId) -> [u8; 16] {
@@ -698,6 +739,21 @@ fn peer_health_rank(class: PeerHealthClass) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_node(id_byte: u8, verified: bool) -> ImuleNode {
+        let mut client_id = [0u8; 16];
+        client_id[15] = id_byte;
+        let mut udp_dest = [0u8; 387];
+        udp_dest[0] = id_byte;
+        ImuleNode {
+            kad_version: 6,
+            client_id,
+            udp_dest,
+            udp_key: 0,
+            udp_key_ip: 0,
+            verified,
+        }
+    }
 
     #[test]
     fn bucket_index_uses_msb_distance() {
@@ -827,5 +883,34 @@ mod tests {
         let out = rt.select_query_candidates_for_target(target, 2, now, Duration::from_secs(1), 5);
         let ids: Vec<u8> = out.iter().map(|n| n.client_id[0]).collect();
         assert_eq!(ids, vec![2, 1]);
+    }
+
+    #[test]
+    fn enforce_capacity_prunes_unhealthy_peers_first() {
+        let my = KadId([0u8; 16]);
+        let now = Instant::now();
+        let mut rt = RoutingTable::new(my);
+
+        let _ = rt.upsert(test_node(1, true), now - Duration::from_secs(5));
+        let _ = rt.upsert(test_node(2, true), now - Duration::from_secs(20));
+        let _ = rt.upsert(test_node(3, false), now - Duration::from_secs(1));
+        let _ = rt.upsert(test_node(4, true), now - Duration::from_secs(1));
+
+        let d1 = crate::i2p::b64::encode(&test_node(1, true).udp_dest);
+        let d4 = crate::i2p::b64::encode(&test_node(4, true).udp_dest);
+        rt.mark_seen_by_dest(&d1, now);
+        rt.mark_seen_by_dest(&d4, now);
+        rt.mark_failure_by_dest(&d4);
+        rt.mark_failure_by_dest(&d4);
+        rt.mark_failure_by_dest(&d4);
+
+        let evicted = rt.enforce_capacity(2, now);
+
+        assert_eq!(evicted, 2);
+        assert_eq!(rt.len(), 2);
+        assert!(rt.contains_id(KadId(test_node(1, true).client_id)));
+        assert!(rt.contains_id(KadId(test_node(2, true).client_id)));
+        assert!(!rt.contains_id(KadId(test_node(3, false).client_id)));
+        assert!(!rt.contains_id(KadId(test_node(4, true).client_id)));
     }
 }

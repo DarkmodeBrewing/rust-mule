@@ -581,6 +581,7 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             alpha: config.kad.service_alpha,
             req_contacts: config.kad.service_req_contacts,
             max_persist_nodes: config.kad.service_max_persist_nodes,
+            max_runtime_nodes: config.kad.service_max_runtime_nodes,
             req_timeout_secs: config.kad.service_req_timeout_secs,
             req_min_interval_secs: config.kad.service_req_min_interval_secs,
             bootstrap_every_secs: config.kad.service_bootstrap_every_secs,
@@ -616,6 +617,10 @@ pub async fn run(config: Config, config_path: PathBuf) -> AppResult<()> {
             store_keyword_max_keywords: config.kad.service_store_keyword_max_keywords,
             store_keyword_max_total_hits: config.kad.service_store_keyword_max_total_hits,
             store_keyword_evict_age_secs: config.kad.service_store_keyword_evict_age_secs,
+
+            source_store_max_files: config.kad.service_source_store_max_files,
+            source_store_max_sources_per_file: config.kad.service_source_store_max_sources_per_file,
+            source_store_max_total_sources: config.kad.service_source_store_max_total_sources,
 
             outbound_shaper_base_delay_ms: svc_cfg_defaults.outbound_shaper_base_delay_ms,
             outbound_shaper_jitter_ms: svc_cfg_defaults.outbound_shaper_jitter_ms,

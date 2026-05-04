@@ -21,6 +21,7 @@ pub struct KadServiceConfig {
     /// Requested number of contacts in `KADEMLIA2_REQ` (1..=31).
     pub req_contacts: u8,
     pub max_persist_nodes: usize,
+    pub max_runtime_nodes: usize,
 
     pub req_timeout_secs: u64,
     pub req_min_interval_secs: u64,
@@ -69,6 +70,11 @@ pub struct KadServiceConfig {
     pub store_keyword_max_total_hits: usize,
     pub store_keyword_evict_age_secs: u64,
 
+    // DHT source storage (what we accept from inbound PUBLISH_SOURCE and SEARCH_RES packets).
+    pub source_store_max_files: usize,
+    pub source_store_max_sources_per_file: usize,
+    pub source_store_max_total_sources: usize,
+
     // Outbound traffic shaping (Phase 1)
     pub outbound_shaper_base_delay_ms: u64,
     pub outbound_shaper_jitter_ms: u64,
@@ -87,6 +93,7 @@ impl Default for KadServiceConfig {
             alpha: 3,
             req_contacts: 31,
             max_persist_nodes: 5000,
+            max_runtime_nodes: 10_000,
 
             req_timeout_secs: 45,
             req_min_interval_secs: 15,
@@ -126,6 +133,10 @@ impl Default for KadServiceConfig {
             store_keyword_max_keywords: 1024,
             store_keyword_max_total_hits: 200_000,
             store_keyword_evict_age_secs: 14 * 24 * 60 * 60,
+
+            source_store_max_files: 4096,
+            source_store_max_sources_per_file: 512,
+            source_store_max_total_sources: 100_000,
 
             outbound_shaper_base_delay_ms: 5,
             outbound_shaper_jitter_ms: 10,

@@ -131,6 +131,10 @@ fn default_kad_service_req_contacts() -> u8 {
 fn default_kad_service_max_persist_nodes() -> usize {
     5000
 }
+fn default_kad_service_max_runtime_nodes() -> usize {
+    // Hard runtime cap for peers learned from the network.
+    10_000
+}
 fn default_kad_service_req_timeout_secs() -> u64 {
     45
 }
@@ -226,6 +230,15 @@ fn default_kad_service_store_keyword_evict_age_secs() -> u64 {
     // Stored keyword entries are intermittent on I2P; keep them around for a while.
     14 * 24 * 60 * 60
 }
+fn default_kad_service_source_store_max_files() -> usize {
+    4096
+}
+fn default_kad_service_source_store_max_sources_per_file() -> usize {
+    512
+}
+fn default_kad_service_source_store_max_total_sources() -> usize {
+    100_000
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -314,6 +327,7 @@ pub struct KadConfig {
     pub service_alpha: usize,
     pub service_req_contacts: u8,
     pub service_max_persist_nodes: usize,
+    pub service_max_runtime_nodes: usize,
 
     pub service_req_timeout_secs: u64,
     pub service_req_min_interval_secs: u64,
@@ -353,6 +367,11 @@ pub struct KadConfig {
     pub service_store_keyword_max_keywords: usize,
     pub service_store_keyword_max_total_hits: usize,
     pub service_store_keyword_evict_age_secs: u64,
+
+    // DHT source storage (when other peers publish sources to us)
+    pub service_source_store_max_files: usize,
+    pub service_source_store_max_sources_per_file: usize,
+    pub service_source_store_max_total_sources: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -440,6 +459,7 @@ impl Default for KadConfig {
             service_alpha: default_kad_service_alpha(),
             service_req_contacts: default_kad_service_req_contacts(),
             service_max_persist_nodes: default_kad_service_max_persist_nodes(),
+            service_max_runtime_nodes: default_kad_service_max_runtime_nodes(),
 
             service_req_timeout_secs: default_kad_service_req_timeout_secs(),
             service_req_min_interval_secs: default_kad_service_req_min_interval_secs(),
@@ -482,6 +502,12 @@ impl Default for KadConfig {
             ),
             service_store_keyword_evict_age_secs: default_kad_service_store_keyword_evict_age_secs(
             ),
+
+            service_source_store_max_files: default_kad_service_source_store_max_files(),
+            service_source_store_max_sources_per_file:
+                default_kad_service_source_store_max_sources_per_file(),
+            service_source_store_max_total_sources:
+                default_kad_service_source_store_max_total_sources(),
         }
     }
 }

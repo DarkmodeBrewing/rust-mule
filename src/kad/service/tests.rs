@@ -403,6 +403,44 @@ fn build_status_reports_source_store_totals() {
 }
 
 #[test]
+fn source_store_limits_bound_files_per_file_and_total_entries() {
+    let (_tx, rx) = mpsc::channel(1);
+    let mut svc = KadService::new(KadId([0u8; 16]), rx);
+    let cfg = KadServiceConfig {
+        source_store_max_files: 2,
+        source_store_max_sources_per_file: 2,
+        source_store_max_total_sources: 3,
+        ..KadServiceConfig::default()
+    };
+
+    for file_byte in 1..=3 {
+        let file = KadId([file_byte; 16]);
+        for source_byte in 1..=3 {
+            let source = KadId([file_byte * 10 + source_byte; 16]);
+            svc.sources_by_file.entry(file).or_default().insert(
+                source,
+                KadSourceEntry {
+                    source_id: source,
+                    tcp_dest: [source_byte; I2P_DEST_LEN],
+                    udp_dest: [source_byte; I2P_DEST_LEN],
+                },
+            );
+        }
+    }
+
+    enforce_source_store_limits(&mut svc, &cfg);
+
+    let (files, entries) = source_store_totals(&svc);
+    assert!(files <= cfg.source_store_max_files);
+    assert!(entries <= cfg.source_store_max_total_sources);
+    assert!(
+        svc.sources_by_file
+            .values()
+            .all(|sources| sources.len() <= cfg.source_store_max_sources_per_file)
+    );
+}
+
+#[test]
 fn source_probe_tracks_first_send_response_latency_and_results() {
     let (_tx, rx) = mpsc::channel(1);
     let mut svc = KadService::new(KadId([0u8; 16]), rx);

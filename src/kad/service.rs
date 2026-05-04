@@ -369,6 +369,7 @@ pub async fn run_service(
     for n in initial_nodes {
         let _ = svc.routing.upsert(n, now);
     }
+    enforce_routing_capacity(svc, &cfg, now);
     tracing::info!(nodes = svc.routing.len(), "kad service started");
     publish_status(svc, started, &status_tx, &status_events_tx);
 
@@ -1225,6 +1226,92 @@ fn cache_local_published_source(svc: &mut KadService, crypto: KadServiceCrypto, 
             source_store_entries_total,
             "cached local source entry for published file"
         );
+    }
+}
+
+fn enforce_routing_capacity(svc: &mut KadService, cfg: &KadServiceConfig, now: Instant) {
+    let evicted = svc.routing.enforce_capacity(cfg.max_runtime_nodes, now);
+    if evicted > 0 {
+        svc.stats_window.evicted = svc.stats_window.evicted.saturating_add(evicted as u64);
+        tracing::debug!(
+            evicted,
+            remaining = svc.routing.len(),
+            cap = cfg.max_runtime_nodes,
+            "evicted peers due to routing table runtime cap"
+        );
+    }
+}
+
+fn enforce_source_store_limits(svc: &mut KadService, cfg: &KadServiceConfig) {
+    enforce_source_store_files_cap(svc, cfg.source_store_max_files);
+    enforce_source_store_per_file_cap(svc, cfg.source_store_max_sources_per_file);
+    enforce_source_store_total_cap(svc, cfg.source_store_max_total_sources);
+}
+
+fn enforce_source_store_files_cap(svc: &mut KadService, max_files: usize) {
+    if max_files == 0 {
+        svc.sources_by_file.clear();
+        return;
+    }
+
+    while svc.sources_by_file.len() > max_files {
+        let Some(key) = svc
+            .sources_by_file
+            .iter()
+            .min_by_key(|(_, sources)| sources.len())
+            .map(|(file, _)| *file)
+        else {
+            break;
+        };
+        svc.sources_by_file.remove(&key);
+    }
+}
+
+fn enforce_source_store_per_file_cap(svc: &mut KadService, max_sources_per_file: usize) {
+    if max_sources_per_file == 0 {
+        svc.sources_by_file.clear();
+        return;
+    }
+
+    let files = svc.sources_by_file.keys().copied().collect::<Vec<_>>();
+    for file in files {
+        let Some(sources) = svc.sources_by_file.get_mut(&file) else {
+            continue;
+        };
+        while sources.len() > max_sources_per_file {
+            let _ = sources.pop_first();
+        }
+        if sources.is_empty() {
+            svc.sources_by_file.remove(&file);
+        }
+    }
+}
+
+fn enforce_source_store_total_cap(svc: &mut KadService, max_total_sources: usize) {
+    if max_total_sources == 0 {
+        svc.sources_by_file.clear();
+        return;
+    }
+
+    while source_store_totals(svc).1 > max_total_sources {
+        let Some(key) = svc
+            .sources_by_file
+            .iter()
+            .max_by_key(|(_, sources)| sources.len())
+            .map(|(file, _)| *file)
+        else {
+            break;
+        };
+
+        let remove_file = if let Some(sources) = svc.sources_by_file.get_mut(&key) {
+            let _ = sources.pop_first();
+            sources.is_empty()
+        } else {
+            false
+        };
+        if remove_file {
+            svc.sources_by_file.remove(&key);
+        }
     }
 }
 
